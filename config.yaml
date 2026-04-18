@@ -1,0 +1,117 @@
+# WordCraft Pro 全局配置
+
+app:
+  name: "WordCraft Pro"
+  version: "0.7.0"
+  language: "zh-CN"
+
+# LLM 配置
+llm:
+  mode: "api"
+
+  # 云端 API 配置（豆包 / OpenAI 兼容）
+  api:
+    provider: "doubao"
+    api_key: "d9523eb2-f741-4122-ab0f-e6ed95ce59f2"
+    base_url: "https://ark.cn-beijing.volces.com/api/v3"
+    model: "doubao-seed-1-6-251015"
+    temperature: 0.3
+    max_tokens: 4096
+
+  # DeepSeek V3 配置（豆包额度用完后切换）
+  deepseek:
+    provider: "deepseek"
+    api_key: ""  # 填写 DeepSeek API Key
+    base_url: "https://api.deepseek.com/v1"
+    model: "deepseek-chat"
+    temperature: 0.3
+    max_tokens: 4096
+
+  # 本地 ChatGLM 配置（备用）
+  local:
+    model_path: ""
+    device: "auto"
+    max_length: 4096
+    temperature: 0.3
+
+# 文件解析配置
+parsers:
+  pdf_engine: "pdfplumber"
+  doc_converter: "libreoffice"
+  max_file_size_mb: 50
+
+# 排版引擎配置
+formatter:
+  cn_size_map:
+    初号: 42
+    小初: 36
+    一号: 26
+    小一: 24
+    二号: 22
+    小二: 18
+    三号: 16
+    小三: 15
+    四号: 14
+    小四: 12
+    五号: 10.5
+    小五: 9
+    六号: 7.5
+    小六: 6.5
+    七号: 5.5
+    八号: 5
+
+# 质量检查配置
+qa:
+  typo_check:
+    enabled: true
+    use_llm: true
+    min_confidence: 0.7
+  consistency_check:
+    enabled: true
+    check_numbers: true
+    check_dates: true
+    check_names: true
+  logic_check:
+    enabled: true
+    check_causality: true
+    check_conclusion: true
+    check_timeline: true
+  crossref_check:
+    enabled: true
+    auto_scan: true
+  llm_check:
+    enabled: true
+    max_chunk_size: 800
+    min_confidence: 0.6
+    timeout_seconds: 30
+    config_path: "config.yaml"
+
+# 性能优化配置
+performance:
+  enable_chunking: true
+  chunk_size: 1000
+  enable_cache: true
+  cache_size: 50
+
+# 交叉引用配置
+cross_reference:
+  enabled: true
+  auto_scan: true
+  interact_confirm: true
+  figure_pattern: "图{chapter}-{seq}"
+  table_pattern: "表{chapter}-{seq}"
+  equation_pattern: "({chapter}-{seq})"
+  reference_pattern: "[{seq}]"
+
+# 界面配置
+ui:
+  theme: "light"
+  window_width: 1200
+  window_height: 800
+  recent_files_max: 10
+
+# 输出配置
+output:
+  default_format: "docx"
+  include_comments: true
+  backup_original: true
