@@ -359,7 +359,7 @@ html,body{height:100%;font-family:-apple-system,'SF Pro Text','PingFang SC','Mic
   outline:none;transition:all .15s;min-width:0;
 }
 .fr input[type=number]{flex:0 0 52px;min-width:52px}
-.fr select[id$=SizeCN]{flex:0 0 112px}
+.fr select[id$=SizeCN]{flex:0 0 80px}
 .fr input:focus,.fr select:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(0,122,255,.1)}
 .fr .unit{font-size:10px;color:var(--text3);width:22px;flex-shrink:0}
 
@@ -804,15 +804,15 @@ html,body{height:100%;font-family:-apple-system,'SF Pro Text','PingFang SC','Mic
 
           <div class="fg">
             <div class="fg-title">标题样式</div>
-            <div class="fr"><label>一级</label><input id="fH1Font" value="黑体"><select id="fH1SizeCN" onchange="cnSizeToPt('fH1SizeCN','fH1Size')"><option value="">pt</option><option value="22">二号</option><option value="18">小二</option><option value="16" selected>三号</option><option value="15">小三</option><option value="14">四号</option><option value="12">小四</option></select><input type="number" id="fH1Size" value="16" min="5" max="72" step="0.5" style="flex:0 0 44px"></div>
-            <div class="fr"><label>二级</label><input id="fH2Font" value="黑体"><select id="fH2SizeCN" onchange="cnSizeToPt('fH2SizeCN','fH2Size')"><option value="">pt</option><option value="16">三号</option><option value="15">小三</option><option value="14" selected>四号</option><option value="12">小四</option></select><input type="number" id="fH2Size" value="14" min="5" max="72" step="0.5" style="flex:0 0 44px"></div>
-            <div class="fr"><label>三级</label><input id="fH3Font" value="黑体"><select id="fH3SizeCN" onchange="cnSizeToPt('fH3SizeCN','fH3Size')"><option value="">pt</option><option value="14">四号</option><option value="12" selected>小四</option><option value="10.5">五号</option></select><input type="number" id="fH3Size" value="12" min="5" max="72" step="0.5" style="flex:0 0 44px"></div>
+            <div class="fr"><label>一级</label><select id="fH1Font"><option value="黑体" selected>黑体</option><option value="宋体">宋体</option><option value="仿宋">仿宋</option><option value="楷体">楷体</option><option value="微软雅黑">微软雅黑</option><option value="等线">等线</option><option value="方正小标宋">方正小标宋</option></select><select id="fH1SizeCN" onchange="cnSizeToPt('fH1SizeCN','fH1Size')"><option value="">pt</option><option value="22">二号</option><option value="18">小二</option><option value="16" selected>三号</option><option value="15">小三</option><option value="14">四号</option><option value="12">小四</option></select><input type="number" id="fH1Size" value="16" min="5" max="72" step="0.5" style="flex:0 0 44px"></div>
+            <div class="fr"><label>二级</label><select id="fH2Font"><option value="黑体" selected>黑体</option><option value="宋体">宋体</option><option value="仿宋">仿宋</option><option value="楷体">楷体</option><option value="微软雅黑">微软雅黑</option><option value="等线">等线</option><option value="方正小标宋">方正小标宋</option></select><select id="fH2SizeCN" onchange="cnSizeToPt('fH2SizeCN','fH2Size')"><option value="">pt</option><option value="16">三号</option><option value="15">小三</option><option value="14" selected>四号</option><option value="12">小四</option></select><input type="number" id="fH2Size" value="14" min="5" max="72" step="0.5" style="flex:0 0 44px"></div>
+            <div class="fr"><label>三级</label><select id="fH3Font"><option value="黑体" selected>黑体</option><option value="宋体">宋体</option><option value="仿宋">仿宋</option><option value="楷体">楷体</option><option value="微软雅黑">微软雅黑</option><option value="等线">等线</option><option value="方正小标宋">方正小标宋</option></select><select id="fH3SizeCN" onchange="cnSizeToPt('fH3SizeCN','fH3Size')"><option value="">pt</option><option value="14">四号</option><option value="12" selected>小四</option><option value="10.5">五号</option></select><input type="number" id="fH3Size" value="12" min="5" max="72" step="0.5" style="flex:0 0 44px"></div>
           </div>
 
           <div class="fg">
             <div class="fg-title">正文样式</div>
             <div class="fr"><label>西文</label><select id="fWFont"><option value="Times New Roman">Times NR</option><option value="Arial">Arial</option><option value="Calibri">Calibri</option></select></div>
-            <div class="fr"><label>中文</label><input id="fBFont" value="宋体"><select id="fBSizeCN" onchange="cnSizeToPt('fBSizeCN','fBSize')"><option value="">pt</option><option value="14">四号</option><option value="12" selected>小四</option><option value="10.5">五号</option></select><input type="number" id="fBSize" value="12" min="5" max="72" step="0.5" style="flex:0 0 44px"></div>
+            <div class="fr"><label>中文</label><select id="fBFont"><option value="宋体" selected>宋体</option><option value="黑体">黑体</option><option value="仿宋">仿宋</option><option value="楷体">楷体</option><option value="微软雅黑">微软雅黑</option><option value="等线">等线</option><option value="方正小标宋">方正小标宋</option></select><select id="fBSizeCN" onchange="cnSizeToPt('fBSizeCN','fBSize')"><option value="">pt</option><option value="14">四号</option><option value="12" selected>小四</option><option value="10.5">五号</option></select><input type="number" id="fBSize" value="12" min="5" max="72" step="0.5" style="flex:0 0 44px"></div>
             <div class="fr"><label>首行缩进</label><input type="number" id="fIndent" value="2" step="0.5" min="0"><span class="unit">字符</span></div>
             <div class="fr"><label>行距</label><input type="number" id="fLH" value="1.5" step="0.5" min="1" max="3"><span class="unit">倍</span></div>
             <div class="fr"><label>对齐</label><select id="fAlign"><option value="justify">两端对齐</option><option value="left">左对齐</option><option value="center">居中</option><option value="right">右对齐</option></select></div>
@@ -1065,15 +1065,15 @@ const docContents={
 };
 const fileQaData={
   '毕业论文_终稿.docx':[
-    {sev:'error',cat:'错别字',title:'"帐号"应为"账号"',desc:'文中使用了"帐号"，正确写法为"账号"',suggestion:'将"帐号"修改为"账号"',hlText:'帐号',hlClass:'hl-error'},
-    {sev:'warn',cat:'数据不一致',title:'金额表示方式不统一',desc:'文中"100 万元"与"1000000 元"表示同一数值，需统一',suggestion:'统一使用"100 万元"',hlText:'1000000 元',hlClass:'hl-warn'},
-    {sev:'info',cat:'格式问题',title:'参考文献 [1] 缺少页码',desc:'参考文献 [1] 缺少具体起止页码',suggestion:'补充文献的起止页码',hlText:'[1] 张三',hlClass:'hl-info'},
+    {sev:'error',cat:'错别字',title:'"帐号"应为"账号"',desc:'文中使用了"帐号"，正确写法为"账号"',suggestion:'账号',hlText:'帐号',hlClass:'hl-error'},
+    {sev:'warn',cat:'数据不一致',title:'金额表示方式不统一',desc:'文中"100 万元"与"1000000 元"表示同一数值，需统一',suggestion:'100 万元',hlText:'1000000 元',hlClass:'hl-warn'},
+    {sev:'info',cat:'格式问题',title:'参考文献 [1] 缺少页码',desc:'参考文献 [1] 缺少具体起止页码',suggestion:'',hlText:'[1] 张三',hlClass:'hl-info'},
   ],
   '实验数据统计.xlsx':[
-    {sev:'warn',cat:'数据不一致',title:'准确率小数位不统一',desc:'95.6%、93.2%、97.1% 小数位一致，但建议核查原始数据精度',suggestion:'核查原始数据后统一精度',hlText:'93.2%',hlClass:'hl-warn'},
+    {sev:'warn',cat:'数据不一致',title:'准确率小数位不统一',desc:'95.6%、93.2%、97.1% 小数位一致，但建议核查原始数据精度',suggestion:'',hlText:'93.2%',hlClass:'hl-warn'},
   ],
   '参考文献汇总.pdf':[
-    {sev:'warn',cat:'格式问题',title:'中英文文献标点混用',desc:'中英文文献标点格式不统一',suggestion:'统一采用 GB/T 7714 格式',hlText:'[1] 张三',hlClass:'hl-warn'},
+    {sev:'warn',cat:'格式问题',title:'中英文文献标点混用',desc:'中英文文献标点格式不统一',suggestion:'',hlText:'[1] 张三',hlClass:'hl-warn'},
   ],
 };
 const fileXrefTargets={
@@ -1105,7 +1105,7 @@ const aiTemplates={
 };
 const fmtTemplates={
   thesis:{paper:'A4',mt:2.5,mb:2.5,ml:3,mr:2.5,h1:'黑体',h1s:16,h2:'黑体',h2s:14,h3:'黑体',h3s:12,bf:'宋体',bs:12,indent:2,lh:1.5},
-  gov:{paper:'A4',mt:3.7,mb:3.5,ml:2.8,mr:2.6,h1:'方正小标宋',h1s:22,h2:'黑体',h2s:16,h3:'楷体',h3s:16,bf:'仿宋GB2312',bs:16,indent:2,lh:1},
+  gov:{paper:'A4',mt:3.7,mb:3.5,ml:2.8,mr:2.6,h1:'方正小标宋',h1s:22,h2:'黑体',h2s:16,h3:'楷体',h3s:16,bf:'仿宋',bs:16,indent:2,lh:1},
   report:{paper:'A4',mt:2.5,mb:2.5,ml:2.5,mr:2.5,h1:'黑体',h1s:22,h2:'黑体',h2s:14,h3:'黑体',h3s:12,bf:'宋体',bs:12,indent:2,lh:1.5},
 };
 
@@ -1449,8 +1449,8 @@ async function acceptIssue(i){
   const originalText=hl?hl.textContent:null;
 
   if(!originalText || !q.suggestion){
-    // 如果无法获取原始文本或建议，降级处理
-    if(hl){hl.textContent=q.suggestion;hl.className='';hl.removeAttribute('data-issue-id');}
+    // 无精确替换建议：仅移除高亮标记，不修改文本内容
+    if(hl){hl.className='';hl.removeAttribute('data-issue-id');}
     q.status='accepted';
     const card=document.getElementById('issue-'+i);if(card)card.classList.add('accepted');
     checkAllDone();
@@ -1593,7 +1593,7 @@ async function _handleFileSelect(e){
 }
 async function _loadDocxFile(file){
   const ab=await file.arrayBuffer();
-  const res=await mammoth.convertToHtml({arrayBuffer:ab},{styleMap:["p[style-name='Heading 1'] => h1:fresh","p[style-name='Heading 2'] => h2:fresh","p[style-name='Heading 3'] => h3:fresh","p => p:fresh"]});
+  const res=await mammoth.convertToHtml({arrayBuffer:ab},{styleMap:["p[style-name='Heading 1'] => h1:fresh","p[style-name='Heading 2'] => h2:fresh","p[style-name='Heading 3'] => h3:fresh","p[style-name='标题 1'] => h1:fresh","p[style-name='标题 2'] => h2:fresh","p[style-name='标题 3'] => h3:fresh","p => p:fresh"]});
   const els=_htmlToElements(res.value);
   _addFile(file.name,file.size,'docx',els);
 }

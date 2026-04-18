@@ -1127,7 +1127,7 @@ function waitForPywebview() {
                     return;
                 }
                 // 注入到网页版数据结构
-                _addFileToApp(data.name, data.size, data.type, data.elements);
+                _addFile(data.name, data.size, data.type, data.elements);
                 showToast('已打开: ' + data.name);
             } catch(e) {
                 console.error('openFile error:', e);
