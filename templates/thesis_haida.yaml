@@ -1,0 +1,114 @@
+# 广东海洋大学本科毕业论文排版模板
+template_name: "广东海洋大学本科毕业论文"
+template_type: "thesis"
+
+page:
+  paper_size: "A4"
+  orientation: "portrait"
+  margin_top_cm: 2.5
+  margin_bottom_cm: 2.5
+  margin_left_cm: 2.5
+  margin_right_cm: 2.0
+  gutter_cm: 0.5
+  header_distance_cm: 1.7
+  footer_distance_cm: 1.7
+
+title:
+  font_name_cn: "方正姚体"
+  font_size_pt: 18
+  bold: false
+  alignment: "center"
+
+heading1:
+  font_name_cn: "黑体"
+  font_size_pt: 12
+  bold: true
+  alignment: "center"
+  line_spacing_type: "exact"
+  line_spacing_value: 20
+  space_before_pt: 12
+  space_after_pt: 12
+
+heading2:
+  font_name_cn: "黑体"
+  font_size_pt: 12
+  bold: true
+  alignment: "left"
+  line_spacing_type: "exact"
+  line_spacing_value: 20
+  space_before_pt: 6
+  space_after_pt: 6
+
+heading3:
+  font_name_cn: "黑体"
+  font_size_pt: 12
+  bold: true
+  alignment: "left"
+  line_spacing_type: "exact"
+  line_spacing_value: 20
+  space_before_pt: 6
+  space_after_pt: 6
+
+body:
+  font_name_cn: "宋体"
+  font_name_en: "Times New Roman"
+  font_size_pt: 10.5
+  first_indent_chars: 2
+  line_spacing_type: "exact"
+  line_spacing_value: 20
+
+reference:
+  font_name_cn: "宋体"
+  font_size_pt: 9
+  line_spacing_type: "exact"
+  line_spacing_value: 16
+
+table_caption:
+  font_name_cn: "黑体"
+  font_size_pt: 12
+  alignment: "center"
+
+figure_caption:
+  font_name_cn: "黑体"
+  font_size_pt: 12
+  alignment: "center"
+
+sections:
+  - name: "封面"
+    first_page_different: true
+    first_page_header_text: "{届数}届本科生毕业设计"
+    first_page_header_font: "微软雅黑"
+    first_page_header_size_pt: 16
+    first_page_header_bold: true
+    page_number_enabled: false
+
+  - name: "目录"
+    header_text: "目  录"
+    header_size_pt: 10.5
+    page_number_enabled: false
+
+  - name: "正文"
+    header_text: "广东海洋大学{届数}届本科生毕业设计"
+    header_size_pt: 10.5
+    page_number_enabled: true
+    page_number_format: "－ {num} －"
+    page_number_type: "arabic"
+    page_number_start_from: 1
+
+heading1_numbering: "1. 2. 3. ..."
+heading2_numbering: "1.1 1.2 1.3 ..."
+heading3_numbering: "1.1.1 1.1.2 ..."
+
+cross_reference:
+  enabled: true
+  figure_pattern: "图{chapter}-{seq}"
+  table_pattern: "表{chapter}-{seq}"
+  equation_pattern: "({chapter}-{seq})"
+  reference_pattern: "[{seq}]"
+  auto_scan: true
+  interact_confirm: true
+
+special_rules:
+  no_color: true
+  keywords_separator: "；"
+  reference_bracket: "[]"

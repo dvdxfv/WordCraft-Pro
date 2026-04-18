@@ -1,0 +1,394 @@
+cd e:\夏\项目\WordCraft-Pro-分发包\wordcraft-pro
+python app.pycd e:\夏\项目\WordCraft-Pro-分发包\wordcraft-pro
+python app.py<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WordCraft Pro - 登录</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .login-container {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            width: 420px;
+            max-width: 90vw;
+            overflow: hidden;
+        }
+        .login-header {
+            background: linear-gradient(135deg, #1890ff 0%, #096dd9 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        .login-header h1 { font-size: 28px; margin-bottom: 8px; }
+        .login-header p { font-size: 14px; opacity: 0.9; }
+        .login-tabs {
+            display: flex;
+            border-bottom: 1px solid #eee;
+        }
+        .login-tab {
+            flex: 1;
+            padding: 15px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+            border-bottom: 3px solid transparent;
+        }
+        .login-tab.active {
+            color: #1890ff;
+            border-bottom-color: #1890ff;
+        }
+        .login-form { padding: 30px; }
+        .form-group { margin-bottom: 20px; }
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 500;
+        }
+        .form-group input {
+            width: 100%;
+            padding: 12px 15px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+        .form-group input:focus {
+            border-color: #1890ff;
+            outline: none;
+        }
+        .form-group .error-msg {
+            color: #ff4d4f;
+            font-size: 12px;
+            margin-top: 5px;
+            display: none;
+        }
+        .btn {
+            width: 100%;
+            padding: 14px;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #1890ff 0%, #096dd9 100%);
+            color: white;
+        }
+        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(24,144,255,0.4); }
+        .btn-primary:disabled { background: #ccc; cursor: not-allowed; transform: none; }
+        .login-footer {
+            padding: 20px 30px;
+            text-align: center;
+            background: #fafafa;
+            border-top: 1px solid #eee;
+        }
+        .login-footer a { color: #1890ff; text-decoration: none; }
+        .login-footer a:hover { text-decoration: underline; }
+        .divider {
+            display: flex;
+            align-items: center;
+            margin: 20px 0;
+            color: #999;
+        }
+        .divider::before, .divider::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: #ddd;
+        }
+        .divider span { padding: 0 15px; }
+        .other-login {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+        }
+        .other-login button {
+            flex: 1;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            background: white;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+        .other-login button:hover { border-color: #1890ff; color: #1890ff; }
+        .toast {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #52c41a;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 6px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+            display: none;
+            z-index: 1000;
+        }
+        .toast.error { background: #ff4d4f; }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+    <div class="toast" id="toast"></div>
+
+    <div class="login-container">
+        <div class="login-header">
+            <h1>WordCraft Pro</h1>
+            <p>智能文档排版与校对系统</p>
+        </div>
+
+        <div class="login-tabs">
+            <div class="login-tab active" data-tab="email">邮箱登录</div>
+            <div class="login-tab" data-tab="phone">手机号登录</div>
+            <div class="login-tab" data-tab="register">注册账号</div>
+        </div>
+
+        <div class="login-form">
+            <!-- 邮箱登录 -->
+            <div id="email-form">
+                <div class="form-group">
+                    <label>邮箱地址</label>
+                    <input type="email" id="email-input" placeholder="请输入邮箱地址">
+                    <div class="error-msg" id="email-error">请输入有效的邮箱地址</div>
+                </div>
+                <div class="form-group">
+                    <label>密码</label>
+                    <input type="password" id="password-input" placeholder="请输入密码">
+                    <div class="error-msg" id="password-error">密码不能为空</div>
+                </div>
+                <button class="btn btn-primary" id="email-login-btn">登录</button>
+                <div class="divider"><span>其他登录方式</span></div>
+                <div class="other-login">
+                    <button onclick="showToast('微信登录功能开发中')">微信登录</button>
+                </div>
+            </div>
+
+            <!-- 手机号登录 -->
+            <div id="phone-form" class="hidden">
+                <div class="form-group">
+                    <label>手机号</label>
+                    <input type="tel" id="phone-input" placeholder="请输入手机号" maxlength="11">
+                    <div class="error-msg" id="phone-error">请输入有效的手机号</div>
+                </div>
+                <div class="form-group">
+                    <label>验证码</label>
+                    <div style="display: flex; gap: 10px;">
+                        <input type="text" id="code-input" placeholder="请输入验证码" maxlength="6" style="flex: 1;">
+                        <button class="btn btn-primary" id="send-code-btn" style="width: auto; padding: 12px 20px;">获取验证码</button>
+                    </div>
+                    <div class="error-msg" id="code-error">验证码不能为空</div>
+                </div>
+                <button class="btn btn-primary" id="phone-login-btn">登录</button>
+            </div>
+
+            <!-- 注册账号 -->
+            <div id="register-form" class="hidden">
+                <div class="form-group">
+                    <label>邮箱地址</label>
+                    <input type="email" id="reg-email" placeholder="请输入邮箱地址">
+                    <div class="error-msg" id="reg-email-error">请输入有效的邮箱地址</div>
+                </div>
+                <div class="form-group">
+                    <label>密码</label>
+                    <input type="password" id="reg-password" placeholder="请设置密码（至少6位）">
+                    <div class="error-msg" id="reg-password-error">密码至少6位</div>
+                </div>
+                <div class="form-group">
+                    <label>确认密码</label>
+                    <input type="password" id="reg-confirm" placeholder="请再次输入密码">
+                    <div class="error-msg" id="reg-confirm-error">两次输入的密码不一致</div>
+                </div>
+                <button class="btn btn-primary" id="register-btn">注册</button>
+            </div>
+        </div>
+
+        <div class="login-footer">
+            <a href="#" onclick="showToast('密码重置功能开发中')">忘记密码？</a>
+        </div>
+    </div>
+
+    <script>
+        // Tab 切换
+        const tabs = document.querySelectorAll('.login-tab');
+        tabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                tabs.forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+
+                document.getElementById('email-form').classList.add('hidden');
+                document.getElementById('phone-form').classList.add('hidden');
+                document.getElementById('register-form').classList.add('hidden');
+
+                const tabName = tab.dataset.tab;
+                document.getElementById(`${tabName}-form`).classList.remove('hidden');
+            });
+        });
+
+        // 显示 Toast
+        function showToast(message, isError = false) {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.className = isError ? 'toast error' : 'toast';
+            toast.style.display = 'block';
+            setTimeout(() => toast.style.display = 'none', 3000);
+        }
+
+        // 验证邮箱格式
+        function isValidEmail(email) {
+            return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+        }
+
+        // 验证手机号格式
+        function isValidPhone(phone) {
+            return /^1[3-9]\d{9}$/.test(phone);
+        }
+
+        // 邮箱登录
+        document.getElementById('email-login-btn').addEventListener('click', async () => {
+            const email = document.getElementById('email-input').value.trim();
+            const password = document.getElementById('password-input').value;
+
+            let valid = true;
+
+            if (!isValidEmail(email)) {
+                document.getElementById('email-error').style.display = 'block';
+                valid = false;
+            } else {
+                document.getElementById('email-error').style.display = 'none';
+            }
+
+            if (!password) {
+                document.getElementById('password-error').style.display = 'block';
+                valid = false;
+            } else {
+                document.getElementById('password-error').style.display = 'none';
+            }
+
+            if (!valid) return;
+
+            const btn = document.getElementById('email-login-btn');
+            btn.disabled = true;
+            btn.textContent = '登录中...';
+
+            try {
+                let result;
+                // 检查是否在 pywebview 环境中
+                if (window.pywebview && window.pywebview.api && window.appLogin) {
+                    result = await window.appLogin(email, password);
+                } else {
+                    // 浏览器环境，使用 Mock 登录
+                    await new Promise(r => setTimeout(r, 1000));
+                    result = { success: true, user: { email, nickname: email.split('@')[0] } };
+                }
+
+                if (result.success) {
+                    showToast('登录成功，正在跳转...');
+                    localStorage.setItem('wc_user', JSON.stringify(result.user));
+                    setTimeout(() => window.location.href = 'index.html', 1000);
+                } else {
+                    showToast(result.error || '登录失败', true);
+                }
+            } catch (e) {
+                showToast('登录失败: ' + e.message, true);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '登录';
+            }
+        });
+
+        // 手机号登录
+        document.getElementById('phone-login-btn').addEventListener('click', async () => {
+            const phone = document.getElementById('phone-input').value.trim();
+            const code = document.getElementById('code-input').value.trim();
+
+            let valid = true;
+
+            if (!isValidPhone(phone)) {
+                document.getElementById('phone-error').style.display = 'block';
+                valid = false;
+            } else {
+                document.getElementById('phone-error').style.display = 'none';
+            }
+
+            if (!code) {
+                document.getElementById('code-error').style.display = 'block';
+                valid = false;
+            } else {
+                document.getElementById('code-error').style.display = 'none';
+            }
+
+            if (!valid) return;
+
+            showToast('手机号登录功能开发中');
+        });
+
+        // 发送验证码
+        document.getElementById('send-code-btn').addEventListener('click', () => {
+            const phone = document.getElementById('phone-input').value.trim();
+            if (!isValidPhone(phone)) {
+                document.getElementById('phone-error').style.display = 'block';
+                return;
+            }
+            showToast('验证码已发送');
+        });
+
+        // 注册
+        document.getElementById('register-btn').addEventListener('click', async () => {
+            const email = document.getElementById('reg-email').value.trim();
+            const password = document.getElementById('reg-password').value;
+            const confirm = document.getElementById('reg-confirm').value;
+
+            let valid = true;
+
+            if (!isValidEmail(email)) {
+                document.getElementById('reg-email-error').style.display = 'block';
+                valid = false;
+            } else {
+                document.getElementById('reg-email-error').style.display = 'none';
+            }
+
+            if (password.length < 6) {
+                document.getElementById('reg-password-error').style.display = 'block';
+                valid = false;
+            } else {
+                document.getElementById('reg-password-error').style.display = 'none';
+            }
+
+            if (password !== confirm) {
+                document.getElementById('reg-confirm-error').style.display = 'block';
+                valid = false;
+            } else {
+                document.getElementById('reg-confirm-error').style.display = 'none';
+            }
+
+            if (!valid) return;
+
+            showToast('注册功能开发中');
+        });
+
+        // 检查是否已登录
+        (function checkLogin() {
+            const user = localStorage.getItem('wc_user');
+            if (user) {
+                window.location.href = 'index.html';
+            }
+        })();
+    </script>
+</body>
+</html>

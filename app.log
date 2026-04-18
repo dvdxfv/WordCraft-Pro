@@ -1,0 +1,27 @@
+20:02:19 [INFO] WordCraft Pro 启动 (pywebview)
+[pywebview] OPEN_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.OPEN' instead.
+20:03:52 [WARNING] OPEN_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.OPEN' instead.
+[pywebview] OPEN_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.OPEN' instead.
+20:03:52 [WARNING] OPEN_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.OPEN' instead.
+20:03:54 [INFO] openFile: 打开文件 001——2023-2024年山西华瑞成煤机设备制造有限公司矿用液压支柱生产线项目绩效评价报告（7.30）.docx (大小: 5005279, 类型: docx)
+20:03:54 [INFO] openFile: 成功解析 213 个元素
+20:04:00 [INFO] acceptSuggestion: 接受建议 - '帐号' -> '将"帐号"修改为"账号"'
+20:04:00 [INFO] acceptSuggestion: 成功替换
+20:04:07 [INFO] acceptSuggestion: 接受建议 - '1000000 元' -> '统一使用"100 万元"'
+20:04:07 [INFO] acceptSuggestion: 成功替换
+20:04:14 [INFO] runXRef: 开始交叉引用检查
+20:04:14 [INFO]   发现目标: H1 '第一章 绪论'
+20:04:14 [INFO]   发现目标: H2 '1.1 研究背景'
+20:04:14 [INFO]   发现目标: H2 '1.2 研究目的'
+20:04:14 [INFO]   发现目标: H1 '第二章 研究方法'
+20:04:14 [INFO]   发现目标: H1 '第三章 结论'
+20:04:14 [INFO]   发现目标: 图3-1
+20:04:14 [INFO]   发现目标: 图3-1
+20:04:14 [INFO]   发现引用: 图3-1
+20:04:14 [INFO]   发现引用: 如图3-1
+20:04:14 [INFO] runXRef: 检查完成 - 发现 7 个目标, 2 个引用
+[pywebview] OPEN_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.OPEN' instead.
+20:04:19 [WARNING] OPEN_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.OPEN' instead.
+[pywebview] OPEN_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.OPEN' instead.
+20:04:19 [WARNING] OPEN_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.OPEN' instead.
+20:04:43 [INFO] openFile: 用户取消选择

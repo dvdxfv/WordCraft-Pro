@@ -1,0 +1,33 @@
+# WordCraft Pro - 智能Word排版桌面应用
+# 依赖清单
+
+# ===== 核心文档处理 =====
+python-docx>=0.8.11          # Word (.docx) 读写
+pdfplumber>=0.9.0            # PDF 文本/表格提取
+PyMuPDF>=1.23.0              # PDF 处理（备选）
+openpyxl>=3.1.0              # Excel (.xlsx) 读写
+markdown-it-py>=2.2.0        # Markdown 解析
+
+# ===== LLM 集成 =====
+openai>=1.0.0                # OpenAI API 客户端（兼容国产API）
+transformers>=4.36.0         # 本地模型加载（ChatGLM）
+torch>=2.1.0                 # PyTorch（本地模型推理）
+accelerate>=0.25.0           # 模型加速
+
+# ===== 桌面界面 =====
+pywebview>=5.0                 # 轻量 WebView（推荐，使用系统 Edge/WebView2）
+PyQt6>=6.6.0                   # Qt6 Python 绑定（仅 main.py --gui 模式需要）
+
+# ===== 工具库 =====
+PyYAML>=6.0                  # YAML 配置文件
+pydantic>=2.5.0              # 数据校验
+chardet>=5.2.0               # 字符编码检测
+pypinyin>=0.50.0             # 拼音转换（错别字辅助）
+
+# ===== 开发/测试 =====
+pytest>=7.4.0                # 单元测试
+pytest-qt>=4.2.0             # Qt 测试支持
+anyio>=4.0.0                 # 异步测试支持
+
+# ===== 打包分发 =====
+PyInstaller>=6.0.0           # Windows/macOS 打包

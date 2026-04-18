@@ -1,0 +1,81 @@
+# 太原市尖草坪区绩效评价报告排版模板
+template_name: "太原市尖草坪区绩效评价报告"
+template_type: "gov_doc"
+
+page:
+  paper_size: "A4"
+  orientation: "portrait"
+  margin_top_cm: 3.7
+  margin_bottom_cm: 3.5
+  margin_left_cm: 2.7
+  margin_right_cm: 2.7
+
+title:
+  font_name_cn: "方正小标宋简体"
+  font_size_pt: 22
+  bold: true
+  alignment: "center"
+
+heading1:
+  font_name_cn: "黑体"
+  font_size_pt: 16
+  bold: true
+
+heading2:
+  font_name_cn: "楷体"
+  font_size_pt: 16
+
+heading3:
+  font_name_cn: "仿宋GB2312"
+  font_size_pt: 16
+  bold: true
+
+heading4:
+  font_name_cn: "仿宋GB2312"
+  font_size_pt: 16
+
+body:
+  font_name_cn: "仿宋GB2312"
+  font_name_en: "Times New Roman"
+  font_size_pt: 16
+  line_spacing_type: "1.5"
+
+table_caption:
+  font_name_cn: "黑体"
+  font_size_pt: 14
+  alignment: "center"
+
+figure_caption:
+  font_name_cn: "黑体"
+  font_size_pt: 14
+  alignment: "center"
+
+table_body:
+  font_name_cn: "宋体"
+  font_size_pt: 10
+
+sections:
+  - name: "正文"
+    header_text: "{项目名称}"
+    header_font: "仿宋GB2312"
+    header_size_pt: 9
+    page_number_enabled: true
+    page_number_format: "-{num}-"
+    page_number_type: "arabic"
+
+heading1_numbering: "一、二、三、..."
+heading2_numbering: "（一）（二）..."
+heading3_numbering: "1. 2. 3. ..."
+heading4_numbering: "（1）（2）..."
+
+special_rules:
+  punctuation: "必须使用中文输入格式"
+  number_format: "千位分隔符"
+  money_unit: "万元，保留两位小数"
+  max_heading_level: 4
+  forbidden:
+    - "①②"
+    - "I II"
+    - "星号"
+    - "圆点"
+    - "箭头"
