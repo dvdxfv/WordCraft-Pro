@@ -4,8 +4,96 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>WordCraft Pro</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+  const SUPABASE_URL = 'https://nzujajuefdsheggulpze.supabase.co';
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im56dWphanVlZmRzaGVnZ3VscHplIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYyNDY0MDMsImV4cCI6MjA5MTgyMjQwM30.N3jsg3tIi6ezlmp_MvQYvbUo41SzR5kEBECawel5KDE';
+  window.supabaseClient = null;
+  try {
+    if (window.supabase && typeof window.supabase.createClient === 'function') {
+      window.supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    }
+  } catch (e) { console.error('Supabase init failed:', e); }
+
+  window.WC_API = {
+    _isPywebview: false,
+    init() {
+      this._isPywebview = !!(window.pywebview && window.pywebview.api);
+      console.log('[API] 运行环境:', this._isPywebview ? 'pywebview 桌面' : '浏览器 (fetch)');
+    },
+    async _request(endpoint, body) {
+      if (this._isPywebview) {
+        const result = await window.pywebview.api[endpoint](...Object.values(body || {}));
+        return JSON.parse(result);
+      } else {
+        const response = await fetch('/api/' + endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body || {})
+        });
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        return response.json();
+      }
+    },
+    async applyFormat(content, rules) { return this._request('applyFormat', { content, rules }); },
+    async acceptSuggestion(content, issue_id, original_text, suggested_text) { return this._request('acceptSuggestion', { content, issue_id, original_text, suggested_text }); },
+    async runXRef(content) { return this._request('runXRef', { content }); },
+    async runQA(content, categories) { return this._request('runQA', { content, categories }); },
+    async callAI(system_prompt, user_message, config) { return this._request('callAI', { system_prompt, user_message, config }); },
+    async openFile(file_content, file_name) { return this._request('openFile', { file_content, file_name }); },
+    async saveFile(content, file_name) { return this._request('saveFile', { content, file_name }); },
+    async exportDocx(content, format_params, file_name) { return this._request('exportDocx', { content, format_params, file_name }); },
+    async getSystemInfo() {
+      if (this._isPywebview) { const r = await window.pywebview.api.getSystemInfo(); return JSON.parse(r); }
+      const response = await fetch('/api/getSystemInfo'); return response.json();
+    },
+    async getTokenUsage() {
+      if (this._isPywebview) { const r = await window.pywebview.api.getTokenUsage(); return JSON.parse(r); }
+      const response = await fetch('/api/getTokenUsage'); return response.json();
+    },
+    async getUserTemplates() {
+      if (this._isPywebview) { const r = await window.pywebview.api.getUserTemplates(); return JSON.parse(r); }
+      const response = await fetch('/api/getUserTemplates'); return response.json();
+    },
+    async getUserSettings() {
+      if (this._isPywebview) { const r = await window.pywebview.api.getUserSettings(); return JSON.parse(r); }
+      const response = await fetch('/api/getUserSettings'); return response.json();
+    },
+    async saveUserSettings(settings) { return this._request('saveUserSettings', { settings }); },
+    async uploadTemplate(file_content, name, file_name) { return this._request('uploadTemplate', { file_content, name, file_name }); },
+    async deleteTemplate(template_id) { return this._request('deleteTemplate', { template_id }); },
+    async saveTemplateSettings(name, template_data) { return this._request('saveTemplateSettings', { name, template_data }); },
+    async saveDocument(content, title) { return this._request('saveDocument', { content, title }); },
+    async loadDocument(doc_id) { return this._request('loadDocument', { doc_id }); },
+    async getDocumentList() {
+      if (this._isPywebview) { const r = await window.pywebview.api.getDocumentList(); return JSON.parse(r); }
+      const response = await fetch('/api/getDocumentList'); return response.json();
+    },
+    async updateDocument(doc_id, content, title) { return this._request('updateDocument', { doc_id, content, title }); }
+  };
+  window.WC_API.init();
+
+  (async function() {
+    try {
+      const { data, error } = await window.supabaseClient.auth.getSession();
+      if (!data.session) {
+        window.location.href = 'wordcraft_landing.html';
+      }
+    } catch (error) {
+      console.error('Session check error:', error);
+      window.location.href = 'wordcraft_landing.html';
+    }
+  })();
+</script>
 <script src="https://cdn.jsdelivr.net/npm/mammoth@1.6.0/mammoth.browser.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.min.js"></script>
+<script>window.docxExport=window.docx;</script>
+<script src="https://cdn.jsdelivr.net/npm/jszip/dist/jszip.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/docx-preview@0.3.5/dist/docx-preview.min.js"></script>
+<script>window.docxPreview=window.docx;window.docx=window.docxExport;</script>
+<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@2.16.105/build/pdf.min.js"></script>
+<script>if(window.pdfjsLib){window.pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdn.jsdelivr.net/npm/pdfjs-dist@2.16.105/build/pdf.worker.min.js';}</script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -129,6 +217,7 @@ html,body{height:100%;font-family:-apple-system,'SF Pro Text','PingFang SC','Mic
 .fi-icon.docx{background:#EBF3FF;color:#007AFF}
 .fi-icon.pdf{background:#FFECEB;color:#FF3B30}
 .fi-icon.xlsx{background:#EAFAF0;color:#34C759}
+.fi-icon.doc{background:#D6EAF8;color:#1A5276}
 .fi-icon.txt,.fi-icon.md{background:var(--bg3);color:var(--text3)}
 [data-theme=dark] .fi-icon.docx{background:rgba(0,122,255,.15);color:#0a84ff}
 [data-theme=dark] .fi-icon.pdf{background:rgba(255,59,48,.15);color:#ff453a}
@@ -142,6 +231,15 @@ html,body{height:100%;font-family:-apple-system,'SF Pro Text','PingFang SC','Mic
 }
 .file-item.modified .fi-dot{display:block}
 
+.fi-icon.cloud{background:#F0E6FF;color:#AF52DE}
+[data-theme=dark] .fi-icon.cloud{background:rgba(175,82,222,.15);color:#bf5af2}
+.cloud-doc-tree{padding:2px 8px;max-height:200px;overflow-y:auto;border-top:1px solid var(--border)}
+.cloud-doc-item{
+  display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:9px;cursor:pointer;
+  transition:all .18s var(--ease);margin-bottom:1px;
+}
+.cloud-doc-item:hover{background:var(--bg3)}
+.cloud-doc-item .fi-icon{width:24px;height:24px;font-size:7px;border-radius:5px}
 .sidebar-footer{padding:10px 8px;border-top:1px solid var(--border);flex-shrink:0}
 .drop-zone{
   border:1.5px dashed rgba(0,0,0,.1);border-radius:9px;
@@ -182,6 +280,7 @@ html,body{height:100%;font-family:-apple-system,'SF Pro Text','PingFang SC','Mic
 .ft-icon.docx{background:#007AFF;color:#fff}
 .ft-icon.pdf{background:#FF3B30;color:#fff}
 .ft-icon.xlsx{background:#34C759;color:#fff}
+.ft-icon.doc{background:#1A5276;color:#fff}
 .ft-icon.txt,.ft-icon.md{background:var(--text3);color:#fff}
 .ft-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
 .ft-close{
@@ -243,7 +342,10 @@ html,body{height:100%;font-family:-apple-system,'SF Pro Text','PingFang SC','Mic
   font-family:'SimSun','宋体',serif;font-size:14px;line-height:1.85;
   position:relative;flex-shrink:0;border-radius:2px;
   border-top:3px solid var(--accent);
+  overflow-wrap:break-word;word-break:normal;
 }
+.doc-page img,.doc-page table{max-width:100%}
+.doc-page td,.doc-page th{word-break:break-word}
 .doc-page:focus{outline:none}
 .doc-page h1{font-family:'SimHei','黑体',sans-serif;font-size:22px;font-weight:700;text-align:center;margin:24px 0 16px;color:var(--text)}
 .doc-page h2{font-family:'SimHei','黑体',sans-serif;font-size:16px;font-weight:700;margin:20px 0 10px}
@@ -255,6 +357,11 @@ html,body{height:100%;font-family:-apple-system,'SF Pro Text','PingFang SC','Mic
 .doc-page th,.doc-page td{border:1px solid var(--border2);padding:8px 12px;text-align:left}
 .doc-page th{background:var(--bg3);font-weight:600}
 .doc-page li{margin:4px 0 4px 2em;text-indent:0;list-style:disc}
+/* 当容器托管 docx-preview 原生页面时，清除自身内边距/宽度/背景，避免与 section.docx 的 A4 版心叠加导致溢出和双重 margin */
+.doc-page.is-docx{width:auto;min-height:0;padding:0;background:transparent;box-shadow:none;border-top:none;border-radius:0}
+.doc-page.is-docx .docx-wrapper{background:transparent;padding:0;display:flex;flex-direction:column;align-items:center;gap:16px}
+.doc-page.is-docx .docx-wrapper>section.docx{background:var(--bg2);box-shadow:0 2px 8px rgba(0,0,0,.06),0 8px 32px rgba(0,0,0,.08);border-radius:2px}
+[data-theme=dark] .doc-page.is-docx .docx-wrapper>section.docx{background:#2a2a2c;color:#f5f5f7;box-shadow:0 4px 24px rgba(0,0,0,.3)}
 
 /* Empty state */
 .empty-state{
@@ -357,6 +464,13 @@ html,body{height:100%;font-family:-apple-system,'SF Pro Text','PingFang SC','Mic
   flex:1;background:var(--bg2);border:1px solid var(--border);
   border-radius:7px;padding:5px 8px;color:var(--text);font-size:12px;
   outline:none;transition:all .15s;min-width:0;
+}
+.fr select[id$=Font]{
+  min-width: 80px;
+  width: 100%;
+}
+.fr select[id$=Font] option{
+  font-family: inherit;
 }
 .fr input[type=number]{flex:0 0 52px;min-width:52px}
 .fr select[id$=SizeCN]{flex:0 0 112px}
@@ -614,6 +728,29 @@ html,body{height:100%;font-family:-apple-system,'SF Pro Text','PingFang SC','Mic
 @keyframes spin{to{transform:rotate(360deg)}}
 .spin{animation:spin .7s linear infinite}
 
+/* ── IMAGE ALIGNMENT ── */
+.doc-page img{max-width:100%;height:auto;cursor:pointer}
+.doc-page p[style*="text-align:center"] img,
+.doc-page p[style*="text-align: center"] img,
+.doc-page .img-center{display:block;margin:0 auto}
+.doc-page .img-left{display:block;margin-right:auto}
+.doc-page .img-right{display:block;margin-left:auto}
+/* docx-preview paragraph alignment → image alignment */
+.docx-rendered [class*="paragraph"][style*="text-align: center"] img{display:block;margin:0 auto}
+.docx-rendered [class*="paragraph"][style*="text-align: right"] img{display:block;margin-left:auto}
+.img-toolbar{
+  position:absolute;display:flex;gap:3px;
+  background:rgba(28,28,30,.9);border-radius:8px;padding:4px 6px;
+  z-index:500;box-shadow:0 4px 12px rgba(0,0,0,.25);
+}
+.img-toolbar button{
+  border:none;background:transparent;color:#fff;
+  padding:3px 7px;border-radius:5px;font-size:11px;cursor:pointer;
+  display:flex;align-items:center;gap:3px;
+}
+.img-toolbar button:hover{background:rgba(255,255,255,.15)}
+.img-toolbar button.active{background:rgba(0,122,255,.7)}
+
 /* scrollbars */
 ::-webkit-scrollbar{width:5px;height:5px}
 ::-webkit-scrollbar-track{background:transparent}
@@ -632,6 +769,10 @@ html,body{height:100%;font-family:-apple-system,'SF Pro Text','PingFang SC','Mic
 
 <!-- ══ TOOLBAR ══ -->
 <div class="toolbar">
+  <button class="tbtn" onclick="goHome()" title="返回首页">
+    <svg viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>首页
+  </button>
+  <div class="tb-sep"></div>
   <div class="logo"><div class="logo-mark">W</div>WordCraft<span> Pro</span></div>
   <div class="tb-sep"></div>
 
@@ -669,6 +810,9 @@ html,body{height:100%;font-family:-apple-system,'SF Pro Text','PingFang SC','Mic
   <button class="tbtn" onclick="openQualityDashboard()">
     <svg viewBox="0 0 24 24"><path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/></svg>仪表盘
   </button>
+  <button class="tbtn" id="backendMonitorBtn" onclick="openBackendDashboard()">
+    <svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.49.49 0 00-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 00-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 00-.59.22L2.74 8.87a.49.49 0 00.12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32a.49.49 0 00-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>后端监控
+  </button>
 
   <div class="tb-spacer"></div>
 
@@ -699,6 +843,8 @@ html,body{height:100%;font-family:-apple-system,'SF Pro Text','PingFang SC','Mic
 
     <div class="file-tree" id="fileTree"></div>
 
+    <div class="cloud-doc-tree" id="cloudDocTree"></div>
+
     <div class="sidebar-footer">
       <div class="drop-zone" onclick="openFile()">
         <div class="dz-icon">📂</div>
@@ -723,21 +869,44 @@ html,body{height:100%;font-family:-apple-system,'SF Pro Text','PingFang SC','Mic
       <button onclick="execCmd('underline')" title="下划线"><u>U</u></button>
       <button onclick="execCmd('strikeThrough')" title="删除线"><s>S</s></button>
       <div class="et-sep"></div>
-      <select id="editFontFamily" onchange="execCmdVal('fontName',this.value)">
+      <select id="editFontFamily" onchange="execCmdVal('fontName',this.value);updateFontFamilyDisplay(this)">
         <option value="SimSun">宋体</option><option value="SimHei">黑体</option>
         <option value="KaiTi">楷体</option><option value="FangSong">仿宋</option>
         <option value="Microsoft YaHei">雅黑</option><option value="Arial">Arial</option>
         <option value="Times New Roman">Times NR</option>
       </select>
-      <select id="editFontSize" onchange="execCmdVal('fontSize',this.value)">
-        <option value="1">8pt</option><option value="2">10pt</option>
-        <option value="3" selected>12pt</option><option value="4">14pt</option>
-        <option value="5">18pt</option><option value="6">24pt</option>
+      <select id="editFontSize" onchange="applyFontSize(this.value)" style="width:90px">
+        <option value="" disabled selected>字号</option>
+        <optgroup label="中文字号">
+          <option value="42">初号</option><option value="36">小初</option>
+          <option value="26">一号</option><option value="24">小一</option>
+          <option value="22">二号</option><option value="18">小二</option>
+          <option value="16">三号</option><option value="15">小三</option>
+          <option value="14">四号</option><option value="12">小四</option>
+          <option value="10.5">五号</option><option value="9">小五</option>
+          <option value="7.5">六号</option><option value="6.5">小六</option>
+          <option value="5.5">七号</option><option value="5">八号</option>
+        </optgroup>
+        <optgroup label="磅值">
+          <option value="5">5</option><option value="5.5">5.5</option>
+          <option value="6.5">6.5</option><option value="7.5">7.5</option>
+          <option value="8">8</option><option value="9">9</option>
+          <option value="10">10</option><option value="10.5">10.5</option>
+          <option value="11">11</option><option value="12">12</option>
+          <option value="14">14</option><option value="15">15</option>
+          <option value="16">16</option><option value="18">18</option>
+          <option value="20">20</option><option value="22">22</option>
+          <option value="24">24</option><option value="26">26</option>
+          <option value="28">28</option><option value="36">36</option>
+          <option value="42">42</option><option value="48">48</option>
+          <option value="72">72</option>
+        </optgroup>
       </select>
       <div class="et-sep"></div>
       <button onclick="execCmd('justifyLeft')" title="左对齐">⬅</button>
       <button onclick="execCmd('justifyCenter')" title="居中">⬛</button>
       <button onclick="execCmd('justifyRight')" title="右对齐">➡</button>
+      <button onclick="execCmd('justifyFull')" title="两端对齐">⬌</button>
       <div class="et-sep"></div>
       <button onclick="execCmd('insertOrderedList')" title="有序列表">1.</button>
       <button onclick="execCmd('insertUnorderedList')" title="无序列表">•</button>
@@ -788,10 +957,20 @@ html,body{height:100%;font-family:-apple-system,'SF Pro Text','PingFang SC','Mic
               <label>模板</label>
               <select id="templateSelect" onchange="loadTemplate()">
                 <option value="">-- 自定义 --</option>
-                <option value="thesis">海大毕业论文</option>
-                <option value="gov">尖草坪区公文</option>
-                <option value="report">通用实验报告</option>
+                <optgroup label="系统模板">
+                  <option value="thesis">海大毕业论文</option>
+                  <option value="gov">尖草坪区公文</option>
+                  <option value="report">通用实验报告</option>
+                </optgroup>
+                <optgroup label="我的模板" id="myTemplatesGroup"></optgroup>
               </select>
+            </div>
+            <div id="myTemplatesList" style="margin-top:6px;display:none">
+              <div class="fg-title" style="display:flex;align-items:center;justify-content:space-between">
+                <span>我的模板</span>
+                <button class="fbtn" style="padding:2px 8px;font-size:11px" onclick="showSaveTemplateDialog()">+ 另存为模板</button>
+              </div>
+              <div id="myTemplatesItems"></div>
             </div>
           </div>
 
@@ -804,15 +983,15 @@ html,body{height:100%;font-family:-apple-system,'SF Pro Text','PingFang SC','Mic
 
           <div class="fg">
             <div class="fg-title">标题样式</div>
-            <div class="fr"><label>一级</label><input id="fH1Font" value="黑体"><select id="fH1SizeCN" onchange="cnSizeToPt('fH1SizeCN','fH1Size')"><option value="">pt</option><option value="22">二号</option><option value="18">小二</option><option value="16" selected>三号</option><option value="15">小三</option><option value="14">四号</option><option value="12">小四</option></select><input type="number" id="fH1Size" value="16" min="5" max="72" step="0.5" style="flex:0 0 44px"></div>
-            <div class="fr"><label>二级</label><input id="fH2Font" value="黑体"><select id="fH2SizeCN" onchange="cnSizeToPt('fH2SizeCN','fH2Size')"><option value="">pt</option><option value="16">三号</option><option value="15">小三</option><option value="14" selected>四号</option><option value="12">小四</option></select><input type="number" id="fH2Size" value="14" min="5" max="72" step="0.5" style="flex:0 0 44px"></div>
-            <div class="fr"><label>三级</label><input id="fH3Font" value="黑体"><select id="fH3SizeCN" onchange="cnSizeToPt('fH3SizeCN','fH3Size')"><option value="">pt</option><option value="14">四号</option><option value="12" selected>小四</option><option value="10.5">五号</option></select><input type="number" id="fH3Size" value="12" min="5" max="72" step="0.5" style="flex:0 0 44px"></div>
+            <div class="fr"><label>一级</label><select id="fH1Font"><option value="黑体" selected style="font-family: 黑体">黑体</option><option value="宋体" style="font-family: 宋体">宋体</option><option value="楷体" style="font-family: 楷体">楷体</option><option value="仿宋" style="font-family: 仿宋">仿宋</option><option value="微软雅黑" style="font-family: 微软雅黑">微软雅黑</option><option value="Arial" style="font-family: Arial">Arial</option><option value="Times New Roman" style="font-family: 'Times New Roman'">Times New Roman</option></select><select id="fH1SizeCN" onchange="cnSizeToPt('fH1SizeCN','fH1Size')"><option value="">字号</option><option value="42">初号</option><option value="36">小初</option><option value="26">一号</option><option value="24">小一</option><option value="22">二号</option><option value="18">小二</option><option value="16" selected>三号</option><option value="15">小三</option><option value="14">四号</option><option value="12">小四</option><option value="10.5">五号</option><option value="9">小五</option><option value="7.5">六号</option><option value="6.5">小六</option><option value="5.5">七号</option><option value="5">八号</option></select><input type="number" id="fH1Size" value="16" min="5" max="72" step="0.5" style="flex:0 0 44px"></div>
+            <div class="fr"><label>二级</label><select id="fH2Font"><option value="黑体" selected style="font-family: 黑体">黑体</option><option value="宋体" style="font-family: 宋体">宋体</option><option value="楷体" style="font-family: 楷体">楷体</option><option value="仿宋" style="font-family: 仿宋">仿宋</option><option value="微软雅黑" style="font-family: 微软雅黑">微软雅黑</option><option value="Arial" style="font-family: Arial">Arial</option><option value="Times New Roman" style="font-family: 'Times New Roman'">Times New Roman</option></select><select id="fH2SizeCN" onchange="cnSizeToPt('fH2SizeCN','fH2Size')"><option value="">字号</option><option value="42">初号</option><option value="36">小初</option><option value="26">一号</option><option value="24">小一</option><option value="22">二号</option><option value="18">小二</option><option value="16">三号</option><option value="15">小三</option><option value="14" selected>四号</option><option value="12">小四</option><option value="10.5">五号</option><option value="9">小五</option><option value="7.5">六号</option><option value="6.5">小六</option><option value="5.5">七号</option><option value="5">八号</option></select><input type="number" id="fH2Size" value="14" min="5" max="72" step="0.5" style="flex:0 0 44px"></div>
+            <div class="fr"><label>三级</label><select id="fH3Font"><option value="黑体" selected style="font-family: 黑体">黑体</option><option value="宋体" style="font-family: 宋体">宋体</option><option value="楷体" style="font-family: 楷体">楷体</option><option value="仿宋" style="font-family: 仿宋">仿宋</option><option value="微软雅黑" style="font-family: 微软雅黑">微软雅黑</option><option value="Arial" style="font-family: Arial">Arial</option><option value="Times New Roman" style="font-family: 'Times New Roman'">Times New Roman</option></select><select id="fH3SizeCN" onchange="cnSizeToPt('fH3SizeCN','fH3Size')"><option value="">字号</option><option value="42">初号</option><option value="36">小初</option><option value="26">一号</option><option value="24">小一</option><option value="22">二号</option><option value="18">小二</option><option value="16">三号</option><option value="15">小三</option><option value="14">四号</option><option value="12" selected>小四</option><option value="10.5">五号</option><option value="9">小五</option><option value="7.5">六号</option><option value="6.5">小六</option><option value="5.5">七号</option><option value="5">八号</option></select><input type="number" id="fH3Size" value="12" min="5" max="72" step="0.5" style="flex:0 0 44px"></div>
           </div>
 
           <div class="fg">
             <div class="fg-title">正文样式</div>
             <div class="fr"><label>西文</label><select id="fWFont"><option value="Times New Roman">Times NR</option><option value="Arial">Arial</option><option value="Calibri">Calibri</option></select></div>
-            <div class="fr"><label>中文</label><input id="fBFont" value="宋体"><select id="fBSizeCN" onchange="cnSizeToPt('fBSizeCN','fBSize')"><option value="">pt</option><option value="14">四号</option><option value="12" selected>小四</option><option value="10.5">五号</option></select><input type="number" id="fBSize" value="12" min="5" max="72" step="0.5" style="flex:0 0 44px"></div>
+            <div class="fr"><label>中文</label><select id="fBFont"><option value="宋体" selected style="font-family: 宋体">宋体</option><option value="黑体" style="font-family: 黑体">黑体</option><option value="楷体" style="font-family: 楷体">楷体</option><option value="仿宋" style="font-family: 仿宋">仿宋</option><option value="微软雅黑" style="font-family: 微软雅黑">微软雅黑</option><option value="Arial" style="font-family: Arial">Arial</option><option value="Times New Roman" style="font-family: 'Times New Roman'">Times New Roman</option></select><select id="fBSizeCN" onchange="cnSizeToPt('fBSizeCN','fBSize')"><option value="">字号</option><option value="42">初号</option><option value="36">小初</option><option value="26">一号</option><option value="24">小一</option><option value="22">二号</option><option value="18">小二</option><option value="16">三号</option><option value="15">小三</option><option value="14">四号</option><option value="12" selected>小四</option><option value="10.5">五号</option><option value="9">小五</option><option value="7.5">六号</option><option value="6.5">小六</option><option value="5.5">七号</option><option value="5">八号</option></select><input type="number" id="fBSize" value="12" min="5" max="72" step="0.5" style="flex:0 0 44px"></div>
             <div class="fr"><label>首行缩进</label><input type="number" id="fIndent" value="2" step="0.5" min="0"><span class="unit">字符</span></div>
             <div class="fr"><label>行距</label><input type="number" id="fLH" value="1.5" step="0.5" min="1" max="3"><span class="unit">倍</span></div>
             <div class="fr"><label>对齐</label><select id="fAlign"><option value="justify">两端对齐</option><option value="left">左对齐</option><option value="center">居中</option><option value="right">右对齐</option></select></div>
@@ -821,6 +1000,10 @@ html,body{height:100%;font-family:-apple-system,'SF Pro Text','PingFang SC','Mic
           <button class="fbtn primary" onclick="applyFormat()">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg>
             应用排版规则
+          </button>
+          <button class="fbtn secondary" onclick="saveDefaultFormat()" style="margin-top:4px">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M17 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V7l-4-4zm-5 16a3 3 0 110-6 3 3 0 010 6zm3-10H5V5h10v4z"/></svg>
+            设为默认格式
           </button>
         </div>
 
@@ -839,7 +1022,7 @@ html,body{height:100%;font-family:-apple-system,'SF Pro Text','PingFang SC','Mic
             <div class="chip" onclick="setAIInput('haida')">海大论文</div>
           </div>
           <textarea class="ai-input" id="aiInput" placeholder="或直接描述需求：&#10;论文 A4 纸，上下 2.5cm，左右 3cm。一级标题黑体三号居中，正文宋体小四首行缩进 2 字符…"></textarea>
-          <button class="fbtn orange" onclick="runAIParse()">
+          <button id="btnAIParse" class="fbtn orange" onclick="runAIParse()">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M12 2a10 10 0 100 20A10 10 0 0012 2zm-2 14.5v-9l6 4.5-6 4.5z"/></svg>
             AI 解析排版规则
           </button>
@@ -934,6 +1117,10 @@ html,body{height:100%;font-family:-apple-system,'SF Pro Text','PingFang SC','Mic
     <span id="charCount">0 字</span>
     <span id="wordCount">0 词</span>
     <span id="tokenUsage" style="cursor:help"></span>
+    <span id="onlineStatus" style="display:inline-flex;align-items:center;gap:4px;cursor:default" title="后端连接状态">
+      <span id="onlineDot" style="width:6px;height:6px;border-radius:50%;background:#8e8e93;flex-shrink:0"></span>
+      <span id="onlineText">检测中</span>
+    </span>
     <span id="versionLabel" style="cursor:default;color:var(--text3)">WordCraft Pro v0.9</span>
   </div>
 </div>
@@ -1065,15 +1252,15 @@ const docContents={
 };
 const fileQaData={
   '毕业论文_终稿.docx':[
-    {sev:'error',cat:'错别字',title:'"帐号"应为"账号"',desc:'文中使用了"帐号"，正确写法为"账号"',suggestion:'将"帐号"修改为"账号"',hlText:'帐号',hlClass:'hl-error'},
-    {sev:'warn',cat:'数据不一致',title:'金额表示方式不统一',desc:'文中"100 万元"与"1000000 元"表示同一数值，需统一',suggestion:'统一使用"100 万元"',hlText:'1000000 元',hlClass:'hl-warn'},
-    {sev:'info',cat:'格式问题',title:'参考文献 [1] 缺少页码',desc:'参考文献 [1] 缺少具体起止页码',suggestion:'补充文献的起止页码',hlText:'[1] 张三',hlClass:'hl-info'},
+    {sev:'error',cat:'错别字',title:'"帐号"应为"账号"',desc:'文中使用了"帐号"，正确写法为"账号"',suggestion:'账号',hlText:'帐号',hlClass:'hl-error'},
+    {sev:'warn',cat:'数据不一致',title:'金额表示方式不统一',desc:'文中"100 万元"与"1000000 元"表示同一数值，需统一',suggestion:'100 万元',hlText:'1000000 元',hlClass:'hl-warn'},
+    {sev:'info',cat:'格式问题',title:'参考文献 [1] 缺少页码',desc:'参考文献 [1] 缺少具体起止页码',suggestion:'[1] 张三（1-10页）',hlText:'[1] 张三',hlClass:'hl-info'},
   ],
   '实验数据统计.xlsx':[
-    {sev:'warn',cat:'数据不一致',title:'准确率小数位不统一',desc:'95.6%、93.2%、97.1% 小数位一致，但建议核查原始数据精度',suggestion:'核查原始数据后统一精度',hlText:'93.2%',hlClass:'hl-warn'},
+    {sev:'warn',cat:'数据不一致',title:'准确率小数位不统一',desc:'95.6%、93.2%、97.1% 小数位一致，但建议核查原始数据精度',suggestion:'93.2%',hlText:'93.2%',hlClass:'hl-warn'},
   ],
   '参考文献汇总.pdf':[
-    {sev:'warn',cat:'格式问题',title:'中英文文献标点混用',desc:'中英文文献标点格式不统一',suggestion:'统一采用 GB/T 7714 格式',hlText:'[1] 张三',hlClass:'hl-warn'},
+    {sev:'warn',cat:'格式问题',title:'中英文文献标点混用',desc:'中英文文献标点格式不统一',suggestion:'[1] 张三',hlText:'[1] 张三',hlClass:'hl-warn'},
   ],
 };
 const fileXrefTargets={
@@ -1112,6 +1299,9 @@ const fmtTemplates={
 // ── STATE ──
 let openTabs=[],activeTabIdx=-1,activeTip=null,autoSaveTimer=null;
 window.currentQAData=[];
+let rawHtmlContents={};  // stores original mammoth HTML for rich preview
+const tabQAState={};   // per-tab live QA issue list (survives tab switches)
+const tabXrefState={}; // per-tab live xref result {targets, matches}
 
 // ── INIT ──
 function init(){
@@ -1120,6 +1310,12 @@ function init(){
   if(filesData.length>0)openFileTab(0);
   setupResize();setupDragDrop();setupDocEvents();setupKeyboard();
   document.getElementById('versionLabel').addEventListener('click',handleVersionClick);
+  loadCloudUserSettings();
+  loadUserTemplates();
+  loadCloudDocuments();
+  checkOnlineStatus();
+  setInterval(checkOnlineStatus,30000);
+  _setupImgToolbarOnPage();
 }
 let _vc=0,_vt=null;
 function handleVersionClick(){_vc++;clearTimeout(_vt);_vt=setTimeout(()=>_vc=0,2000);if(_vc>=5){_vc=0;openDashboard();}}
@@ -1144,10 +1340,39 @@ function openFileTab(idx){
   openTabs.push({name:f.name,type:f.type,modified:false});
   switchTab(openTabs.length-1);renderFileTree();
 }
+function saveTabDashboardState(){
+  if(activeTabIdx<0||activeTabIdx>=openTabs.length)return;
+  const fn=openTabs[activeTabIdx].name;
+  tabQAState[fn]=window.currentQAData?[...window.currentQAData]:[];
+}
+function restoreTabDashboardState(fn){
+  const qa=tabQAState[fn];
+  if(qa&&qa.length){
+    window.currentQAData=qa;
+    renderQAIssues(qa);
+    const pending=qa.filter(q=>q.status==='pending');
+    if(pending.length)applyHighlights(pending);
+  }else{
+    clearQAResults();
+    window.currentQAData=[];
+  }
+  const xr=tabXrefState[fn];
+  if(xr){
+    const {targets,matches,tableHtml,matchHtml}=xr;
+    document.getElementById('xrefTargets').textContent=targets;
+    document.getElementById('xrefRefs').textContent=xr.refs;
+    document.getElementById('xrefValid').textContent=xr.valid;
+    document.getElementById('xrefDangling').textContent=xr.dangling;
+    document.getElementById('xrefUnref').textContent=xr.unref;
+    document.getElementById('xrefTargetsBody').innerHTML=tableHtml;
+    document.getElementById('xrefMatchesBody').innerHTML=matchHtml;
+  }
+}
 function switchTab(idx){
   if(idx<0||idx>=openTabs.length)return;
+  saveTabDashboardState();
   activeTabIdx=idx;renderFileTabs();renderFileTree();renderDocument();
-  clearHighlights();clearQAResults();setStatus('就绪');updateCounts();
+  clearHighlights();restoreTabDashboardState(openTabs[idx].name);setStatus('就绪');updateCounts();
 }
 async function closeTab(idx,e){
   if(e)e.stopPropagation();
@@ -1192,19 +1417,47 @@ function renderDocument(){
   const page=document.getElementById('docPage');
   if(activeTabIdx<0){page.innerHTML='<div class="empty-state"><div class="empty-icon">📄</div><h3>暂无打开的文档</h3><p>从左侧选择文件或拖拽到此</p><button class="empty-action" onclick="openFile()">打开文件</button></div>';return;}
   const tab=openTabs[activeTabIdx];
+  page.classList.remove('is-docx');
+  // High-fidelity renderers (docx-preview / PDF.js / SheetJS)
+  if(docxBuffers[tab.name]){
+    page.innerHTML='';
+    page.classList.add('is-docx');
+    docxPreview.renderAsync(docxBuffers[tab.name],page,null,{
+      className:'docx-rendered',inWrapper:true,ignoreWidth:false,
+      ignoreHeight:false,breakPages:true,useBase64URL:true
+    }).catch(e=>{page.classList.remove('is-docx');page.innerHTML='<p style="color:#d70015;padding:20px">docx 渲染失败：'+esc(e.message)+'</p>';});
+    return;
+  }
+  if(pdfBuffers[tab.name]){_renderPdfToContainer(pdfBuffers[tab.name],page);return;}
+  if(xlsxBuffers[tab.name]){
+    try{
+      const wb=XLSX.read(xlsxBuffers[tab.name],{type:'array'});
+      page.innerHTML=wb.SheetNames.map(n=>`<h2>${esc(n)}</h2>${XLSX.utils.sheet_to_html(wb.Sheets[n])}`).join('');
+    }catch(e){page.innerHTML='<p style="color:#d70015;padding:20px">Excel 渲染失败：'+esc(e.message)+'</p>';}
+    return;
+  }
+  // Use raw HTML for rich preview (legacy mammoth / cloud HTML)
+  if(rawHtmlContents[tab.name]){page.innerHTML=rawHtmlContents[tab.name];return;}
   const content=docContents[tab.name]||[];
-  page.innerHTML=content.map(it=>{
-    switch(it.type){
-      case'h1':return`<h1>${esc(it.text)}</h1>`;
-      case'h2':return`<h2>${esc(it.text)}</h2>`;
-      case'h3':return`<h3>${esc(it.text)}</h3>`;
-      case'p':return`<p>${esc(it.text)}</p>`;
-      case'caption':return`<div class="caption">${esc(it.text)}</div>`;
-      case'ref':return`<div class="ref">${esc(it.text)}</div>`;
-      case'table':return it.text;
-      default:return`<p>${esc(it.text)}</p>`;
+  // Group consecutive li items into ul/ol
+  const parts=[];let liBuffer=[],liOrdered=false;
+  function flushLi(){if(!liBuffer.length)return;parts.push((liOrdered?'<ol>':'<ul>')+liBuffer.join('')+'</'+(liOrdered?'ol':'ul')+'>');liBuffer=[];}
+  content.forEach(it=>{
+    if(it.type==='li'){if(liBuffer.length&&liOrdered!==!!it.ordered)flushLi();liOrdered=!!it.ordered;liBuffer.push(`<li>${it.text}</li>`);}
+    else{flushLi();
+      switch(it.type){
+        case'h1':parts.push(`<h1>${it.text}</h1>`);break;
+        case'h2':parts.push(`<h2>${it.text}</h2>`);break;
+        case'h3':parts.push(`<h3>${it.text}</h3>`);break;
+        case'caption':parts.push(`<div class="caption">${esc(it.text)}</div>`);break;
+        case'ref':parts.push(`<div class="ref">${esc(it.text)}</div>`);break;
+        case'table':parts.push(it.text);break;
+        default:parts.push(`<p>${it.text}</p>`);
+      }
     }
-  }).join('');
+  });
+  flushLi();
+  page.innerHTML=parts.join('');
 }
 function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function setupDocEvents(){
@@ -1311,21 +1564,138 @@ function switchFormatSub(sub,el){
 }
 
 // ── FORMAT ──
+// 存储云端用户模板（id -> template_data）
+const cloudTemplates = {};
+
+function applyTemplateFields(t){
+  if(!t)return;
+  if(t.paper)document.getElementById('fPaper').value=t.paper;
+  if(t.mt!=null)document.getElementById('fMT').value=t.mt;
+  if(t.mb!=null)document.getElementById('fMB').value=t.mb;
+  if(t.ml!=null)document.getElementById('fML').value=t.ml;
+  if(t.mr!=null)document.getElementById('fMR').value=t.mr;
+  if(t.h1)document.getElementById('fH1Font').value=t.h1;
+  if(t.h1s!=null)document.getElementById('fH1Size').value=t.h1s;
+  if(t.h2)document.getElementById('fH2Font').value=t.h2;
+  if(t.h2s!=null)document.getElementById('fH2Size').value=t.h2s;
+  if(t.h3)document.getElementById('fH3Font').value=t.h3;
+  if(t.h3s!=null)document.getElementById('fH3Size').value=t.h3s;
+  if(t.bf)document.getElementById('fBFont').value=t.bf;
+  if(t.bs!=null)document.getElementById('fBSize').value=t.bs;
+  if(t.indent!=null)document.getElementById('fIndent').value=t.indent;
+  if(t.lh!=null)document.getElementById('fLH').value=t.lh;
+}
+
 function loadTemplate(){
   const v=document.getElementById('templateSelect').value;
-  if(!v||!fmtTemplates[v])return;
-  const t=fmtTemplates[v];
-  document.getElementById('fPaper').value=t.paper;
-  document.getElementById('fMT').value=t.mt;document.getElementById('fMB').value=t.mb;
-  document.getElementById('fML').value=t.ml;document.getElementById('fMR').value=t.mr;
-  document.getElementById('fH1Font').value=t.h1;document.getElementById('fH1Size').value=t.h1s;
-  document.getElementById('fH2Font').value=t.h2;document.getElementById('fH2Size').value=t.h2s;
-  document.getElementById('fH3Font').value=t.h3;document.getElementById('fH3Size').value=t.h3s;
-  document.getElementById('fBFont').value=t.bf;document.getElementById('fBSize').value=t.bs;
-  document.getElementById('fIndent').value=t.indent;document.getElementById('fLH').value=t.lh;
-  showToast('模板已加载');
+  if(!v)return;
+  if(fmtTemplates[v]){applyTemplateFields(fmtTemplates[v]);showToast('模板已加载');}
+  else if(cloudTemplates[v]){applyTemplateFields(cloudTemplates[v]);showToast('云端模板已加载');}
 }
+
+async function loadUserTemplates(){
+  try{
+    const data=await window.WC_API.getUserTemplates();
+    if(!data.success||!data.templates?.length)return;
+    const group=document.getElementById('myTemplatesGroup');
+    const list=document.getElementById('myTemplatesItems');
+    const container=document.getElementById('myTemplatesList');
+    group.innerHTML='';list.innerHTML='';
+    data.templates.forEach(tpl=>{
+      const td=tpl.template_data||{};
+      cloudTemplates[tpl.id]=td;
+      // 添加到下拉 optgroup
+      const opt=document.createElement('option');
+      opt.value=tpl.id;opt.textContent=tpl.name;
+      group.appendChild(opt);
+      // 添加到管理列表
+      const row=document.createElement('div');
+      row.style.cssText='display:flex;align-items:center;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border);font-size:12px';
+      row.innerHTML=`<span style="color:var(--text);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${tpl.name}</span>`+
+        `<button onclick="deleteUserTemplate('${tpl.id}',this.closest('div'))" style="border:none;background:none;color:var(--red);cursor:pointer;font-size:11px;padding:0 4px;flex-shrink:0">删除</button>`;
+      list.appendChild(row);
+    });
+    container.style.display='block';
+  }catch(e){console.error('加载用户模板失败:',e);}
+}
+
+async function deleteUserTemplate(id, rowEl){
+  if(!confirm('确定删除该模板？'))return;
+  try{
+    const data=await window.WC_API.deleteTemplate(id);
+    if(data.success){
+      delete cloudTemplates[id];
+      rowEl?.remove();
+      const opt=document.querySelector(`#myTemplatesGroup option[value="${id}"]`);opt?.remove();
+      showToast('模板已删除');
+      if(!document.getElementById('myTemplatesGroup').children.length)
+        document.getElementById('myTemplatesList').style.display='none';
+    }else{showToast('删除失败：'+(data.error||'未知错误'));}
+  }catch(e){showToast('删除失败');}
+}
+
+function collectCurrentSettings(){
+  return{
+    paper:document.getElementById('fPaper').value,
+    mt:+document.getElementById('fMT').value,mb:+document.getElementById('fMB').value,
+    ml:+document.getElementById('fML').value,mr:+document.getElementById('fMR').value,
+    h1:document.getElementById('fH1Font').value,h1s:+document.getElementById('fH1Size').value,
+    h2:document.getElementById('fH2Font').value,h2s:+document.getElementById('fH2Size').value,
+    h3:document.getElementById('fH3Font').value,h3s:+document.getElementById('fH3Size').value,
+    bf:document.getElementById('fBFont').value,bs:+document.getElementById('fBSize').value,
+    indent:+document.getElementById('fIndent').value,lh:+document.getElementById('fLH').value,
+  };
+}
+
+async function saveDefaultFormat(){
+  const fmt=collectCurrentSettings();
+  await saveUserSettingsToCloud({default_format:fmt});
+  showToast('已设为默认格式');
+}
+
+async function showSaveTemplateDialog(){
+  const name=prompt('请输入模板名称：','我的模板');
+  if(!name?.trim())return;
+  showToast('正在保存…');
+  try{
+    const settings=collectCurrentSettings();
+    const data=await window.WC_API.saveTemplateSettings(name.trim(),settings);
+    if(data.success){
+      showToast('模板已保存到云端');
+      loadUserTemplates();
+    }else{showToast('保存失败：'+(data.error||'未知错误'));}
+  }catch(e){showToast('保存失败');}
+}
+
 function cnSizeToPt(cnId,ptId){const cn=document.getElementById(cnId);if(cn?.value)document.getElementById(ptId).value=cn.value;}
+const PAPER_CM={A4:{w:21,h:29.7},A3:{w:29.7,h:42},B5:{w:17.6,h:25},Letter:{w:21.59,h:27.94}};
+const PX_PER_CM=37.8;
+function applyPageLayout(){
+  const page=document.getElementById('docPage');
+  const viewport=document.getElementById('docViewport');
+  const paper=document.getElementById('fPaper').value;
+  const mt=+document.getElementById('fMT').value||0;
+  const mb=+document.getElementById('fMB').value||0;
+  const ml=+document.getElementById('fML').value||0;
+  const mr=+document.getElementById('fMR').value||0;
+  const dim=PAPER_CM[paper]||PAPER_CM.A4;
+  const fullW=dim.w*PX_PER_CM,fullH=dim.h*PX_PER_CM;
+  const vpPad=2*48;
+  const avail=Math.max(320,(viewport?.clientWidth||900)-vpPad);
+  const targetW=Math.min(fullW,avail);
+  const scale=targetW/fullW;
+  page.style.zoom='';
+  page.style.width=targetW+'px';
+  page.style.minHeight=(fullH*scale)+'px';
+  page.style.padding=`${mt*PX_PER_CM*scale}px ${mr*PX_PER_CM*scale}px ${mb*PX_PER_CM*scale}px ${ml*PX_PER_CM*scale}px`;
+  page.style.boxSizing='border-box';
+  page.style.marginLeft='auto';
+  page.style.marginRight='auto';
+}
+window.addEventListener('resize',()=>{
+  const p=document.getElementById('docPage');
+  if(p&&p.style.width)applyPageLayout();
+});
 async function applyFormat(){
   const page=document.getElementById('docPage');
   const h1Font=document.getElementById('fH1Font').value;
@@ -1340,20 +1710,19 @@ async function applyFormat(){
   const indent=document.getElementById('fIndent').value;
   const lh=document.getElementById('fLH').value;
   const align=document.getElementById('fAlign').value;
+  applyPageLayout();
 
   // 调用后端的 applyFormat 方法
-  if(window.pywebview&&window.pywebview.api){
-    try{
-      const rules={
-        heading1_font:h1Font,heading1_size:h1Size,
-        heading2_font:h2Font,heading2_size:h2Size,
-        heading3_font:h3Font,heading3_size:h3Size,
-        body_font:bFont,body_size:bSize,
-        line_height:lh
-      };
-      const result=await window.pywebview.api.applyFormat(page.innerHTML,JSON.stringify(rules));
-      const data=JSON.parse(result);
-      if(data.success&&data.formatted_content){
+      try{
+        const rules={
+          heading1_font:h1Font,heading1_size:h1Size,
+          heading2_font:h2Font,heading2_size:h2Size,
+          heading3_font:h3Font,heading3_size:h3Size,
+          body_font:bFont,body_size:bSize,
+          line_height:lh
+        };
+        const data=await window.WC_API.applyFormat(page.innerHTML,JSON.stringify(rules));
+        if(data.success&&data.formatted_content){
         page.innerHTML=data.formatted_content;
         setStatus('排版规则已应用');
         showToast('排版规则已成功应用');
@@ -1378,21 +1747,72 @@ async function applyFormat(){
       setStatus('排版规则已应用');
       showToast('排版规则已成功应用');
     }
-  }else{
-    // 本地处理
-    page.style.cssText+=`;font-family:"${bFont}","${wFont}",serif;font-size:${bSize}pt;line-height:${lh}`;
-    page.querySelectorAll('h1').forEach(h=>{h.style.fontFamily=`"${h1Font}","黑体",sans-serif`;h.style.fontSize=h1Size+'pt';});
-    page.querySelectorAll('h2').forEach(h=>{h.style.fontFamily=`"${h2Font}","黑体",sans-serif`;h.style.fontSize=h2Size+'pt';});
-    page.querySelectorAll('h3').forEach(h=>{h.style.fontFamily=`"${h3Font}","黑体",sans-serif`;h.style.fontSize=h3Size+'pt';});
-    page.querySelectorAll('p').forEach(p=>{p.style.textIndent=indent+'em';p.style.textAlign=align;});
-    setStatus('排版规则已应用');
-    showToast('排版规则已成功应用');
   }
-}
 function setAIInput(k){document.getElementById('aiInput').value=aiTemplates[k]||'';}
-function handleTemplateUpload(e){const f=e.target.files[0];if(!f)return;e.target.value='';showToast('正在解析模板…');}
-function runAIParse(){showToast('AI 解析中…（需配置 API Key）');}
-function applyAIRules(){showToast('已应用 AI 规则');}
+async function handleTemplateUpload(e){
+  const f=e.target.files[0];if(!f)return;e.target.value='';
+  showToast('正在上传模板…');
+  try{
+    const buf=await f.arrayBuffer();
+    // chunked encoding avoids call-stack overflow on large files
+    const bytes=new Uint8Array(buf);
+    let binary='';
+    const chunk=8192;
+    for(let i=0;i<bytes.length;i+=chunk)
+      binary+=String.fromCharCode(...bytes.subarray(i,Math.min(i+chunk,bytes.length)));
+    const b64=btoa(binary);
+    const name=f.name.replace(/\.[^.]+$/,'');
+    const data=await window.WC_API.uploadTemplate(b64,name,f.name);
+    if(data.success){
+      showToast('模板已上传：'+name);
+      loadUserTemplates();
+      const ai=document.getElementById('aiInput');
+      if(!ai.value.trim())ai.value='已上传模板：'+f.name+'，请点击"AI 解析排版规则"自动提取格式';
+    }else{showToast('上传失败：'+(data.error||'未知错误'));}
+  }catch(err){showToast('上传失败：'+err.message);console.error(err);}
+}
+async function runAIParse(){
+  const text=document.getElementById('aiInput').value.trim();
+  if(!text){showToast('请先输入排版需求描述');return;}
+  const btn=document.getElementById('btnAIParse');
+  if(btn){btn.disabled=true;btn.style.opacity='0.6';}
+  showToast('AI 解析中…');
+  try{
+    const sys=`你是排版规则解析器。根据用户描述提取排版参数，以纯 JSON 对象返回（不要 markdown 代码块），键名如下：
+h1Font h1Size h2Font h2Size h3Font h3Size bodyFont bodySize westFont indent lineHeight align marginTop marginBottom marginLeft marginRight
+字体用中文名或英文名；尺寸单位磅(pt)；行距为倍数；缩进为字符数；页边距为厘米。只返回 JSON。`;
+    const data=await window.WC_API.callAI(sys,text,{});
+    if(data.error)throw new Error(data.error);
+    const reply=data.content||'';
+    const m=reply.match(/\{[\s\S]*\}/);
+    if(!m)throw new Error('AI 未返回有效 JSON：'+reply.slice(0,100));
+    window._aiParsedRules=JSON.parse(m[0]);
+    const labelMap={h1Font:'一级标题字体',h1Size:'一级标题字号(pt)',h2Font:'二级标题字体',h2Size:'二级标题字号(pt)',
+      h3Font:'三级标题字体',h3Size:'三级标题字号(pt)',bodyFont:'正文字体',bodySize:'正文字号(pt)',
+      westFont:'西文字体',indent:'首行缩进(字符)',lineHeight:'行距(倍)',align:'对齐',
+      marginTop:'上边距(cm)',marginBottom:'下边距(cm)',marginLeft:'左边距(cm)',marginRight:'右边距(cm)'};
+    document.getElementById('aiRulesBody').innerHTML=Object.entries(window._aiParsedRules)
+      .map(([k,v])=>`<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid #eee"><span style="color:#666">${labelMap[k]||k}</span><span style="font-weight:500">${v}</span></div>`).join('');
+    document.getElementById('aiRules').style.display='block';
+    showToast('AI 规则解析完成，点击"应用到文档"填入面板');
+  }catch(err){showToast('解析失败：'+err.message);console.error(err);}
+  finally{if(btn){btn.disabled=false;btn.style.opacity='';}}
+}
+function applyAIRules(){
+  const rules=window._aiParsedRules;
+  if(!rules){showToast('请先运行 AI 解析');return;}
+  const set=(id,v)=>{const el=document.getElementById(id);if(el&&v!=null)el.value=v;};
+  set('fH1Font',rules.h1Font);set('fH1Size',rules.h1Size);
+  set('fH2Font',rules.h2Font);set('fH2Size',rules.h2Size);
+  set('fH3Font',rules.h3Font);set('fH3Size',rules.h3Size);
+  set('fBFont',rules.bodyFont);set('fBSize',rules.bodySize);
+  set('fWFont',rules.westFont);
+  set('fIndent',rules.indent);set('fLH',rules.lineHeight);
+  set('fAlign',rules.align);
+  set('fMT',rules.marginTop);set('fMB',rules.marginBottom);
+  set('fML',rules.marginLeft);set('fMR',rules.marginRight);
+  showToast('AI 规则已填入排版面板');
+}
 
 // ── QA ──
 function runQA(){
@@ -1403,6 +1823,7 @@ function runQA(){
   window.currentQAData=qaData;
   renderQAIssues(qaData);
   applyHighlights(qaData);
+  tabQAState[fn]=qaData;
   switchRightTab('qa');
   setStatus('QA 检查完成：发现 '+qaData.length+' 个问题');
   showToast('已标注 '+qaData.length+' 个问题');
@@ -1462,29 +1883,20 @@ async function acceptIssue(i){
   const currentHtml=page.innerHTML;
 
   // 调用后端的 acceptSuggestion 方法进行精确替换
-  if(window.pywebview&&window.pywebview.api){
-    try{
-      const result=await window.pywebview.api.acceptSuggestion(currentHtml,'issue-'+i,originalText,q.suggestion);
-      const data=JSON.parse(result);
-      if(data.success){
-        // 用后端返回的修正内容更新前端
-        page.innerHTML=data.corrected_content;
-        q.status='accepted';
-        const card=document.getElementById('issue-'+i);if(card)card.classList.add('accepted');
-        showToast(data.message||'已采纳建议');
-      }else{
-        showToast('采纳失败：'+data.error);
-      }
-    }catch(e){
-      console.error('acceptSuggestion 失败:',e);
-      // 降级处理：本地修改
-      if(hl){hl.textContent=q.suggestion;hl.className='';hl.removeAttribute('data-issue-id');}
+  try{
+    const data=await window.WC_API.acceptSuggestion(currentHtml,'issue-'+i,originalText,q.suggestion);
+    if(data.success){
+      // 用后端返回的修正内容更新前端
+      page.innerHTML=data.corrected_content;
       q.status='accepted';
       const card=document.getElementById('issue-'+i);if(card)card.classList.add('accepted');
-      showToast('已采纳建议（本地修改）');
+      showToast(data.message||'已采纳建议');
+    }else{
+      showToast('采纳失败：'+data.error);
     }
-  }else{
-    // 本地修改（降级处理）
+  }catch(e){
+    console.error('acceptSuggestion 失败:',e);
+    // 降级处理：本地修改
     if(hl){hl.textContent=q.suggestion;hl.className='';hl.removeAttribute('data-issue-id');}
     q.status='accepted';
     const card=document.getElementById('issue-'+i);if(card)card.classList.add('accepted');
@@ -1513,46 +1925,45 @@ async function runXRef(){
   clearHighlights();
 
   // 首先尝试调用后端的 runXRef 方法获取实时结果
-  if(window.pywebview&&window.pywebview.api){
-    try{
-      const page=document.getElementById('docPage');
-      const result=await window.pywebview.api.runXRef(page.innerHTML);
-      const data=JSON.parse(result);
-      if(data.success){
-        // 处理后端返回的数据
-        const targets=data.targets||[];
-        const matches=data.matches||[];
+  try{
+    const page=document.getElementById('docPage');
+    const data=await window.WC_API.runXRef(page.innerHTML);
+    if(data.success){
+      // 处理后端返回的数据
+      const targets=data.targets||[];
+      const matches=data.matches||[];
 
-        // 构建与前端兼容的格式
-        const targetMap={};
-        targets.forEach(t=>{
-          targetMap[t.type+'-'+t.text]={type:t.type,num:t.text,label:t.label,title:''};
-        });
+      // 构建与前端兼容的格式
+      const targetMap={};
+      targets.forEach(t=>{
+        targetMap[t.type+'-'+t.text]={type:t.type,num:t.text,label:t.label,title:''};
+      });
 
-        const sl={valid:'ok',dangling:'err',unreferenced:'warn'};
-        const formattedMatches=matches.map(m=>({
-          status:sl[m.status]||'err',
-          ref:m.reference||m.ref||'—',
-          target:m.target?.label||m.target||'',
-          desc:m.message||''
-        }));
+      const sl={valid:'ok',dangling:'err',unreferenced:'warn'};
+      const formattedMatches=matches.map(m=>({
+        status:sl[m.status]||'err',
+        ref:m.reference||m.ref||'—',
+        target:m.target?.label||m.target||'',
+        desc:m.message||''
+      }));
 
-        document.getElementById('xrefTargetsBody').innerHTML=Object.values(targetMap).map(t=>`<tr><td>${t.type}</td><td>${t.num}</td><td>${t.label}</td><td>${esc(t.title)}</td></tr>`).join('');
-        document.getElementById('xrefMatchesBody').innerHTML=formattedMatches.map(m=>`<tr><td><span class="sdot ${m.status}"></span>${{'ok':'有效','err':'悬空','warn':'未引用'}[m.status]}</td><td>${esc(m.ref)}</td><td>${esc(m.target)}</td><td>${esc(m.desc)}</td></tr>`).join('');
-        document.getElementById('xrefTargets').textContent=targets.length;
-        document.getElementById('xrefRefs').textContent=formattedMatches.filter(m=>m.ref!=='—').length;
-        document.getElementById('xrefValid').textContent=formattedMatches.filter(m=>m.status==='ok').length;
-        document.getElementById('xrefDangling').textContent=formattedMatches.filter(m=>m.status==='err').length;
-        document.getElementById('xrefUnref').textContent=formattedMatches.filter(m=>m.status==='warn').length;
-        applyHighlights(formattedMatches);
-        switchRightTab('xref');
-        showToast('已标注引用关系（从后端获取）');
-        setStatus('交叉引用检查完成');
-        return;
-      }
-    }catch(e){
-      console.error('后端 runXRef 失败:',e);
+      document.getElementById('xrefTargetsBody').innerHTML=Object.values(targetMap).map(t=>`<tr><td>${t.type}</td><td>${t.num}</td><td>${t.label}</td><td>${esc(t.title)}</td></tr>`).join('');
+      document.getElementById('xrefMatchesBody').innerHTML=formattedMatches.map(m=>`<tr><td><span class="sdot ${m.status}"></span>${{'ok':'有效','err':'悬空','warn':'未引用'}[m.status]}</td><td>${esc(m.ref)}</td><td>${esc(m.target)}</td><td>${esc(m.desc)}</td></tr>`).join('');
+      document.getElementById('xrefTargets').textContent=targets.length;
+      document.getElementById('xrefRefs').textContent=formattedMatches.filter(m=>m.ref!=='—').length;
+      document.getElementById('xrefValid').textContent=formattedMatches.filter(m=>m.status==='ok').length;
+      document.getElementById('xrefDangling').textContent=formattedMatches.filter(m=>m.status==='err').length;
+      document.getElementById('xrefUnref').textContent=formattedMatches.filter(m=>m.status==='warn').length;
+      applyHighlights(formattedMatches);
+      const _fn2=activeTabIdx>=0?openTabs[activeTabIdx].name:'';
+      tabXrefState[_fn2]={targets:targets.length,refs:formattedMatches.filter(m=>m.ref!=='—').length,valid:formattedMatches.filter(m=>m.status==='ok').length,dangling:formattedMatches.filter(m=>m.status==='err').length,unref:formattedMatches.filter(m=>m.status==='warn').length,tableHtml:document.getElementById('xrefTargetsBody').innerHTML,matchHtml:document.getElementById('xrefMatchesBody').innerHTML};
+      switchRightTab('xref');
+      showToast('已标注引用关系（从后端获取）');
+      setStatus('交叉引用检查完成');
+      return;
     }
+  }catch(e){
+    console.error('后端 runXRef 失败:',e);
   }
 
   // 降级处理：使用本地缓存数据
@@ -1567,6 +1978,7 @@ async function runXRef(){
   document.getElementById('xrefValid').textContent=matches.filter(m=>m.status==='ok').length;
   document.getElementById('xrefDangling').textContent=matches.filter(m=>m.status==='err').length;
   document.getElementById('xrefUnref').textContent=matches.filter(m=>m.status==='warn').length;
+  tabXrefState[fn]={targets:targets.length,refs:matches.filter(m=>m.ref!=='—').length,valid:matches.filter(m=>m.status==='ok').length,dangling:matches.filter(m=>m.status==='err').length,unref:matches.filter(m=>m.status==='warn').length,tableHtml:document.getElementById('xrefTargetsBody').innerHTML,matchHtml:document.getElementById('xrefMatchesBody').innerHTML};
   applyHighlights(matches);switchRightTab('xref');
   showToast('已标注引用关系（本地缓存）');setStatus('交叉引用检查完成');
 }
@@ -1578,14 +1990,19 @@ function switchXRefSub(sub,el){
 
 // ── TOOLBAR ACTIONS ──
 const _fi=document.createElement('input');
-_fi.type='file';_fi.accept='.docx,.txt,.md';_fi.style.display='none';
+_fi.type='file';_fi.accept='.docx,.pdf,.xlsx,.xls,.doc,.txt,.md';_fi.style.display='none';
 _fi.addEventListener('change',_handleFileSelect);document.body.appendChild(_fi);
 function openFile(){_fi.click();}
+// High-fidelity renderer buffers (keyed by file name)
+let docxBuffers={},pdfBuffers={},xlsxBuffers={};
 async function _handleFileSelect(e){
   const f=e.target.files[0];if(!f)return;_fi.value='';
   const ext=f.name.split('.').pop().toLowerCase();
   try{
     if(ext==='docx')await _loadDocxFile(f);
+    else if(ext==='pdf')await _loadPdfFile(f);
+    else if(ext==='xlsx'||ext==='xls')await _loadXlsxFile(f);
+    else if(ext==='doc')await _loadDocFile(f);
     else if(ext==='txt'||ext==='md')await _loadTextFile(f);
     else{showToast('不支持的格式：.'+ext);return;}
     showToast('已打开：'+f.name);
@@ -1593,29 +2010,120 @@ async function _handleFileSelect(e){
 }
 async function _loadDocxFile(file){
   const ab=await file.arrayBuffer();
-  const res=await mammoth.convertToHtml({arrayBuffer:ab},{styleMap:["p[style-name='Heading 1'] => h1:fresh","p[style-name='Heading 2'] => h2:fresh","p[style-name='Heading 3'] => h3:fresh","p => p:fresh"]});
-  const els=_htmlToElements(res.value);
+  docxBuffers[file.name]=ab;
+  // mammoth extraction for QA / export 元素链路兼容
+  let els=[];
+  try{
+    const res=await mammoth.convertToHtml({arrayBuffer:ab.slice(0)},{styleMap:[
+      "p[style-name='Heading 1'] => h1:fresh",
+      "p[style-name='标题 1'] => h1:fresh",
+      "p[style-name='Heading 2'] => h2:fresh",
+      "p[style-name='标题 2'] => h2:fresh",
+      "p[style-name='Heading 3'] => h3:fresh",
+      "p[style-name='标题 3'] => h3:fresh",
+      "p => p:fresh"
+    ]});
+    els=_htmlToElements(res.value);
+  }catch(err){els=[{type:'p',text:'(mammoth 元素提取失败，但高保真预览可用)'}];}
   _addFile(file.name,file.size,'docx',els);
+}
+async function _loadPdfFile(file){
+  const ab=await file.arrayBuffer();
+  pdfBuffers[file.name]=ab;
+  const els=[];
+  try{
+    const pdf=await pdfjsLib.getDocument({data:ab.slice(0)}).promise;
+    for(let i=1;i<=pdf.numPages;i++){
+      const p=await pdf.getPage(i);
+      const tc=await p.getTextContent();
+      const text=tc.items.map(it=>it.str).join(' ').trim();
+      if(text)els.push({type:'p',text:esc(text)});
+    }
+  }catch(err){els.push({type:'p',text:'(PDF 文本提取失败，但高保真预览可用)'});}
+  _addFile(file.name,file.size,'pdf',els);
+}
+async function _loadXlsxFile(file){
+  const ab=await file.arrayBuffer();
+  xlsxBuffers[file.name]=ab;
+  const els=[];
+  try{
+    const wb=XLSX.read(ab,{type:'array'});
+    wb.SheetNames.forEach(name=>{
+      els.push({type:'h2',text:esc(name)});
+      els.push({type:'table',text:XLSX.utils.sheet_to_html(wb.Sheets[name])});
+    });
+  }catch(err){els.push({type:'p',text:'(Excel 解析失败)'});}
+  _addFile(file.name,file.size,'xlsx',els);
+}
+async function _loadDocFile(file){
+  showToast('.doc 转换中，请稍候…');
+  const ab=await file.arrayBuffer();
+  const bytes=new Uint8Array(ab);
+  // chunked encoding: avoids both stack overflow and O(n²) string concat
+  let bin='';
+  const chunk=8192;
+  for(let i=0;i<bytes.length;i+=chunk)
+    bin+=String.fromCharCode(...bytes.subarray(i,Math.min(i+chunk,bytes.length)));
+  const b64=btoa(bin);
+  const resp=await fetch('/api/convertDoc',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({file_content:b64,file_name:file.name})});
+  const j=await resp.json();
+  if(!j.success)throw new Error(j.error||'转换失败');
+  const docxBin=atob(j.content);
+  const docxAb=new ArrayBuffer(docxBin.length);
+  const view=new Uint8Array(docxAb);
+  for(let i=0;i<docxBin.length;i++)view[i]=docxBin.charCodeAt(i);
+  docxBuffers[file.name]=docxAb;
+  let els=[];
+  try{
+    const res=await mammoth.convertToHtml({arrayBuffer:docxAb.slice(0)});
+    els=_htmlToElements(res.value);
+  }catch(err){els=[{type:'p',text:'(.doc 已转为 .docx 并渲染)'}];}
+  _addFile(file.name,file.size,'doc',els);
 }
 async function _loadTextFile(file){
   const text=await file.text();
   const ext=file.name.split('.').pop().toLowerCase();
   _addFile(file.name,file.size,ext==='md'?'md':'txt',_parseMd(text));
 }
+async function _renderPdfToContainer(ab,container){
+  container.innerHTML='<p style="color:#888;text-align:center;padding:20px">PDF 渲染中…</p>';
+  try{
+    const pdf=await pdfjsLib.getDocument({data:ab.slice(0)}).promise;
+    container.innerHTML='';
+    for(let i=1;i<=pdf.numPages;i++){
+      const p=await pdf.getPage(i);
+      const vp=p.getViewport({scale:1.5});
+      const canvas=document.createElement('canvas');
+      canvas.width=vp.width;canvas.height=vp.height;
+      canvas.style.cssText='display:block;margin:0 auto 12px;box-shadow:0 2px 8px rgba(0,0,0,.1);max-width:100%';
+      container.appendChild(canvas);
+      await p.render({canvasContext:canvas.getContext('2d'),viewport:vp}).promise;
+    }
+  }catch(e){container.innerHTML='<p style="color:#d70015;padding:20px">PDF 渲染失败：'+esc(e.message)+'</p>';}
+}
 function _htmlToElements(html){
   const els=[];const p=new DOMParser();
   const doc=p.parseFromString('<div>'+html+'</div>','text/html');
-  doc.body.firstChild.childNodes.forEach(c=>{
+  function processNode(c){
     if(c.nodeType!==1)return;
-    const tag=c.tagName.toLowerCase();const text=c.textContent.trim();
-    if(!text&&tag!=='table')return;
+    const tag=c.tagName.toLowerCase();
+    const text=c.textContent.trim();
     switch(tag){
-      case'h1':els.push({type:'h1',text});break;case'h2':els.push({type:'h2',text});break;
-      case'h3':els.push({type:'h3',text});break;case'p':els.push({type:'p',text});break;
+      case'h1':if(text)els.push({type:'h1',text:c.innerHTML});break;
+      case'h2':if(text)els.push({type:'h2',text:c.innerHTML});break;
+      case'h3':if(text)els.push({type:'h3',text:c.innerHTML});break;
+      case'p':if(text)els.push({type:'p',text:c.innerHTML});break;
+      case'ul':case'ol':
+        c.querySelectorAll('li').forEach(li=>{const t=li.textContent.trim();if(t)els.push({type:'li',text:li.innerHTML,ordered:tag==='ol'});});
+        break;
+      case'li':if(text)els.push({type:'li',text:c.innerHTML});break;
       case'table':els.push({type:'table',text:c.outerHTML});break;
       default:if(text)els.push({type:'p',text});
     }
-  });return els;
+  }
+  doc.body.firstChild.childNodes.forEach(processNode);
+  return els;
 }
 function _parseMd(text){
   const els=[];text.split('\n').forEach(line=>{
@@ -1641,7 +2149,8 @@ function saveFile(){
   const html='<!DOCTYPE html><html><head><meta charset="UTF-8"><title>'+esc(tab.name)+'</title></head><body>'+document.getElementById('docPage').innerHTML+'</body></html>';
   const blob=new Blob([html],{type:'text/html;charset=utf-8'});
   saveAs(blob,tab.name.replace(/\.\w+$/,'')+'.html');
-  tab.modified=false;renderFileTabs();renderFileTree();showToast('已保存');
+  tab.modified=false;renderFileTabs();renderFileTree();
+  saveDocumentToCloud();
 }
 function deleteSelectedFile(){
   if(activeTabIdx<0){showToast('未选中文件');return;}
@@ -1657,18 +2166,24 @@ async function exportDoc(){
   if(!content.length){showToast('文档内容为空');return;}
   const h1Font=document.getElementById('fH1Font').value||'黑体';
   const h1Size=parseFloat(document.getElementById('fH1Size').value)||16;
+  const h2Font=document.getElementById('fH2Font').value||'黑体';
+  const h2Size=parseFloat(document.getElementById('fH2Size').value)||14;
+  const h3Font=document.getElementById('fH3Font').value||'黑体';
+  const h3Size=parseFloat(document.getElementById('fH3Size').value)||12;
   const bFont=document.getElementById('fBFont').value||'宋体';
   const bSize=parseFloat(document.getElementById('fBSize').value)||12;
+  const wFont=document.getElementById('fWFont').value||'Times New Roman';
   const indent=parseFloat(document.getElementById('fIndent').value)||2;
   const lh=parseFloat(document.getElementById('fLH').value)||1.5;
   const hp=pt=>Math.round(pt*2);
   try{
     const{Document,Packer,Paragraph,TextRun,HeadingLevel,AlignmentType}=docx;
     const children=content.map(it=>{
-      if(it.type==='h1')return new Paragraph({children:[new TextRun({text:it.text,font:{name:h1Font,eastAsia:h1Font},size:hp(h1Size),bold:true})],heading:HeadingLevel.HEADING_1});
-      if(it.type==='h2')return new Paragraph({children:[new TextRun({text:it.text,bold:true})],heading:HeadingLevel.HEADING_2});
-      if(it.type==='ref'||it.type==='caption')return new Paragraph({children:[new TextRun({text:it.text,size:hp(10.5)})]});
-      return new Paragraph({children:[new TextRun({text:it.text,font:{eastAsia:bFont},size:hp(bSize)})],indent:{firstLine:Math.round(indent*bSize*0.35/2.54*1440)},spacing:{line:Math.round(lh*240)}});
+      if(it.type==='h1')return new Paragraph({children:[new TextRun({text:it.text,font:{name:wFont,eastAsia:h1Font},size:hp(h1Size),bold:true})],heading:HeadingLevel.HEADING_1});
+      if(it.type==='h2')return new Paragraph({children:[new TextRun({text:it.text,font:{name:wFont,eastAsia:h2Font},size:hp(h2Size),bold:true})],heading:HeadingLevel.HEADING_2});
+      if(it.type==='h3')return new Paragraph({children:[new TextRun({text:it.text,font:{name:wFont,eastAsia:h3Font},size:hp(h3Size),bold:true})],heading:HeadingLevel.HEADING_3});
+      if(it.type==='ref'||it.type==='caption')return new Paragraph({children:[new TextRun({text:it.text,font:{name:wFont,eastAsia:bFont},size:hp(10.5)})]});
+      return new Paragraph({children:[new TextRun({text:it.text,font:{name:wFont,eastAsia:bFont},size:hp(bSize)})],indent:{firstLine:Math.round(indent*bSize*0.35/2.54*1440)},spacing:{line:Math.round(lh*240)}});
     });
     const docObj=new Document({sections:[{children}]});
     const blob=await Packer.toBlob(docObj);
@@ -1679,6 +2194,26 @@ async function exportDoc(){
 
 function execCmd(cmd){document.execCommand(cmd,false,null);document.getElementById('docPage').focus();}
 function execCmdVal(cmd,val){document.execCommand(cmd,false,val);document.getElementById('docPage').focus();}
+function applyFontSize(pt){
+  if(!pt)return;
+  const docPage=document.getElementById('docPage');
+  const sel=window.getSelection();
+  if(!sel||sel.rangeCount===0){docPage.focus();return;}
+  if(!sel.isCollapsed){
+    // styleWithCSS must be OFF so execCommand creates <font size="7"> as a marker
+    document.execCommand('styleWithCSS',false,false);
+    document.execCommand('fontSize',false,'7');
+    // Replace all marker <font size="7"> with <span style="font-size:Xpt">
+    docPage.querySelectorAll('font[size="7"]').forEach(el=>{
+      const span=document.createElement('span');
+      span.style.fontSize=pt+'pt';
+      span.innerHTML=el.innerHTML;
+      el.parentNode.replaceChild(span,el);
+    });
+  }
+  docPage.focus();
+  document.getElementById('editFontSize').value='';
+}
 
 // ── RESIZE ──
 function setupResize(){
@@ -1731,17 +2266,221 @@ function setTheme(t){
   localStorage.setItem(THEME_KEY,t);
   document.documentElement.setAttribute('data-theme',t==='system'?(window.matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light'):t);
 }
-function toggleTheme(){const c=getTheme();const n=c==='light'?'dark':c==='dark'?'system':'light';setTheme(n);showToast('主题：'+{light:'亮色',dark:'暗色',system:'跟随系统'}[n]);}
+function toggleTheme(){
+  const c=getTheme();const n=c==='light'?'dark':c==='dark'?'system':'light';
+  setTheme(n);showToast('主题：'+{light:'亮色',dark:'暗色',system:'跟随系统'}[n]);
+  saveUserSettingsToCloud({theme:n});
+}
+
+// ── 用户设置云端同步 ──
+let _cloudSettings={};
+
+async function loadCloudUserSettings(){
+  try{
+    const data=await window.WC_API.getUserSettings();
+    if(!data.success)return;
+    _cloudSettings=data.settings||{};
+    // 应用主题
+    if(_cloudSettings.theme){setTheme(_cloudSettings.theme);}
+    // 应用默认格式
+    if(_cloudSettings.default_format){applyTemplateFields(_cloudSettings.default_format);}
+    // 应用 AI 模型
+    if(_cloudSettings.ai_model){
+      const sel=document.getElementById('aiModel');
+      if(sel)sel.value=_cloudSettings.ai_model;
+    }
+  }catch(e){console.error('加载云端设置失败:',e);}
+}
+
+async function saveUserSettingsToCloud(patch){
+  try{
+    const merged=Object.assign({},_cloudSettings,patch);
+    _cloudSettings=merged;
+    await window.WC_API.saveUserSettings(merged);
+  }catch(e){console.error('保存云端设置失败:',e);}
+}
+
+// ── 云端文档 ──
+let cloudDocs=[];
+
+async function loadCloudDocuments(){
+  try{
+    const data=await window.WC_API.getDocumentList();
+    if(!data.success||!data.documents?.length){document.getElementById('cloudDocTree').innerHTML='';return;}
+    cloudDocs=data.documents;
+    renderCloudDocTree();
+  }catch(e){console.error('加载云端文档失败:',e);}
+}
+
+function renderCloudDocTree(){
+  const el=document.getElementById('cloudDocTree');
+  if(!cloudDocs.length){el.innerHTML='';return;}
+  el.innerHTML='<div class="file-group-label">云端文档</div>'+
+    cloudDocs.map(d=>`<div class="cloud-doc-item" onclick="openCloudDocument('${esc(d.id)}','${esc(d.title||'未命名')}')">
+      <div class="fi-icon cloud">云</div>
+      <div class="fi-meta">
+        <div class="fi-name">${esc(d.title||'未命名')}</div>
+        <div class="fi-size">${(d.updated_at||'').substring(0,10)}</div>
+      </div>
+    </div>`).join('');
+}
+
+async function openCloudDocument(doc_id,title){
+  try{
+    setStatus('加载中…');
+    const data=await window.WC_API.loadDocument(doc_id);
+    if(!data.success||!data.document){showToast('加载失败');setStatus('就绪');return;}
+    const doc=data.document;
+    const htmlContent=doc.content?.html_content||'';
+    if(!htmlContent){showToast('文档内容为空');setStatus('就绪');return;}
+    const name=(doc.title||title||'未命名')+'.html';
+    rawHtmlContents[name]=htmlContent;
+    const els=_htmlToElements(htmlContent);
+    const ex=filesData.findIndex(f=>f.name===name);
+    if(ex>=0){docContents[name]=els;const ti=openTabs.findIndex(t=>t.name===name);if(ti>=0){openTabs[ti].doc_id=doc_id;switchTab(ti);}else{openFileTab(ex);openTabs[activeTabIdx].doc_id=doc_id;}}
+    else{filesData.push({name,size:_fmtSize(htmlContent.length),type:'html',modified:false});docContents[name]=els;openTabs.push({name,type:'html',modified:false,doc_id});switchTab(openTabs.length-1);}
+    renderFileTree();
+    showToast('已加载：'+(doc.title||title));
+  }catch(e){showToast('加载失败');console.error(e);}finally{setStatus('就绪');}
+}
+
+async function saveDocumentToCloud(){
+  if(activeTabIdx<0)return;
+  const tab=openTabs[activeTabIdx];
+  const content=document.getElementById('docPage').innerHTML;
+  const title=tab.name.replace(/\.\w+$/,'');
+  try{
+    let result;
+    if(tab.doc_id){
+      result=await window.WC_API.updateDocument(tab.doc_id,content,title);
+    }else{
+      result=await window.WC_API.saveDocument(content,title);
+      if(result.success&&result.doc_id){tab.doc_id=result.doc_id;loadCloudDocuments();}
+    }
+    if(result.success)showToast('已保存到云端');
+  }catch(e){console.error('云端保存失败:',e);}
+}
 
 // ── AI (stub) ──
 function getAIConfig(){try{return JSON.parse(localStorage.getItem('wc_ai'))||{};}catch{return{};}}
-function openSettings(){document.getElementById('settingsModal').classList.add('show');}
+function openSettings(){
+  document.getElementById('settingsModal').classList.add('show');
+  if(_cloudSettings.ai_model){const sel=document.getElementById('aiModel');if(sel)sel.value=_cloudSettings.ai_model;}
+  // 检测后端连接状态
+  const backendEl=document.getElementById('aiBackendStatus');
+  if(backendEl){
+    backendEl.textContent='检测中…';backendEl.style.color='var(--text2)';
+    fetch('/api/getSystemInfo').then(r=>r.json()).then(d=>{
+      backendEl.textContent=`✅ 后端在线 · Python ${d.python||''} · v${d.version||''}`;
+      backendEl.style.color='#34c759';
+    }).catch(()=>{
+      backendEl.textContent='❌ 后端离线，请先启动 flask_app.py';
+      backendEl.style.color='#ff3b30';
+    });
+  }
+}
 function closeSettings(){document.getElementById('settingsModal').classList.remove('show');}
-function testAIConnection(){showToast('测试连接中…（需配置后端）');}
-function saveSettings(){showToast('设置已保存');closeSettings();}
+async function testAIConnection(){
+  const btn=document.getElementById('btnTestAI');
+  const statusEl=document.getElementById('aiStatus');
+  const model=document.getElementById('aiModel')?.value||'doubao-seed-1-6-251015';
+  btn.disabled=true;
+  if(statusEl){statusEl.textContent='测试中…';statusEl.style.color='var(--text2)';}
+  try{
+    const res=await WC.callAI('你是助手，请只回复"ok"。','ok',{model});
+    const data=typeof res==='string'?JSON.parse(res):res;
+    if(data.error)throw new Error(data.error);
+    if(statusEl){statusEl.textContent=`✅ 连接正常 · 模型: ${model}`;statusEl.style.color='#34c759';}
+  }catch(e){
+    if(statusEl){statusEl.textContent=`❌ 连接失败: ${e.message}`;statusEl.style.color='#ff3b30';}
+  }finally{btn.disabled=false;}
+}
+function saveSettings(){
+  const model=document.getElementById('aiModel')?.value;
+  if(model)saveUserSettingsToCloud({ai_model:model});
+  showToast('设置已保存');closeSettings();
+}
+
+// ── IMAGE ALIGNMENT ──
+let _imgToolbar=null,_activeImg=null;
+function _removeImgToolbar(){if(_imgToolbar){_imgToolbar.remove();_imgToolbar=null;}_activeImg=null;}
+function _setImgAlign(align){
+  if(!_activeImg)return;
+  const img=_activeImg;
+  const parent=img.parentElement;
+  // Remove old alignment classes/styles
+  img.classList.remove('img-center','img-left','img-right');
+  if(parent){
+    ['text-align:center','text-align: center','text-align:left','text-align: left','text-align:right','text-align: right'].forEach(s=>{if(parent.style&&parent.style.textAlign)parent.style.textAlign='';});
+  }
+  if(align==='center'){
+    img.classList.add('img-center');
+    if(parent)parent.style.textAlign='center';
+  }else if(align==='left'){
+    img.classList.add('img-left');
+    if(parent)parent.style.textAlign='left';
+  }else if(align==='right'){
+    img.classList.add('img-right');
+    if(parent)parent.style.textAlign='right';
+  }
+  // refresh toolbar button states
+  if(_imgToolbar){_imgToolbar.querySelectorAll('button[data-align]').forEach(b=>b.classList.toggle('active',b.dataset.align===align));}
+}
+function _showImgToolbar(img,e){
+  _removeImgToolbar();
+  _activeImg=img;
+  const tb=document.createElement('div');
+  tb.className='img-toolbar';
+  tb.innerHTML=`
+    <button data-align="left" onclick="_setImgAlign('left')" title="左对齐">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M15 15H3v2h12v-2zm0-8H3v2h12V7zM3 13h18v-2H3v2zm0 8h18v-2H3v2zM3 3v2h18V3H3z"/></svg>左
+    </button>
+    <button data-align="center" onclick="_setImgAlign('center')" title="居中">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M7 15v2h10v-2H7zm-4 6h18v-2H3v2zm0-8h18v-2H3v2zm4-6v2h10V7H7zM3 3v2h18V3H3z"/></svg>居中
+    </button>
+    <button data-align="right" onclick="_setImgAlign('right')" title="右对齐">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M3 21h18v-2H3v2zm6-4h12v-2H9v2zm-6-4h18v-2H3v2zm6-4h12V7H9v2zM3 3v2h18V3H3z"/></svg>右
+    </button>
+    <button onclick="_removeImgToolbar()" title="关闭" style="color:#ff6b6b">×</button>
+  `;
+  document.body.appendChild(tb);
+  _imgToolbar=tb;
+  // Position near image
+  const rect=img.getBoundingClientRect();
+  let top=rect.top+window.scrollY-44;
+  let left=rect.left+window.scrollX+rect.width/2-tb.offsetWidth/2;
+  if(top<4)top=rect.bottom+window.scrollY+4;
+  if(left<4)left=4;
+  tb.style.top=top+'px';tb.style.left=left+'px';
+  // Highlight current align
+  const cur=img.classList.contains('img-center')?'center':img.classList.contains('img-right')?'right':'left';
+  tb.querySelectorAll('button[data-align]').forEach(b=>b.classList.toggle('active',b.dataset.align===cur));
+}
+function _setupImgToolbarOnPage(){
+  const page=document.getElementById('docPage');
+  if(!page)return;
+  page.addEventListener('click',e=>{
+    if(e.target.tagName==='IMG'){_showImgToolbar(e.target,e);e.stopPropagation();}
+    else if(!_imgToolbar||!_imgToolbar.contains(e.target)){_removeImgToolbar();}
+  });
+}
+
+// ── NAVIGATION ──
+function goHome(){window.location.href='wordcraft_landing.html';}
+async function checkOnlineStatus(){
+  const dot=document.getElementById('onlineDot');
+  const txt=document.getElementById('onlineText');
+  if(!dot||!txt)return;
+  try{
+    const r=await fetch('/api/getSystemInfo',{signal:AbortSignal.timeout(4000)});
+    if(r.ok){dot.style.background='#34c759';txt.textContent='在线';}
+    else{dot.style.background='#ff9500';txt.textContent='异常';}
+  }catch{dot.style.background='#ff3b30';txt.textContent='离线';}
+}
 
 // ── QUALITY DASHBOARD ──
 function openQualityDashboard(){document.getElementById('qualityDashboardModal').classList.add('show');}
+function openBackendDashboard(){window.open('dashboard.html', '_blank');}
 function closeQualityDashboard(){document.getElementById('qualityDashboardModal').classList.remove('show');}
 function refreshQualityData(){showToast('数据已刷新');}
 function fixAllIssues(){showToast('正在修复所有问题…');}
@@ -1763,6 +2502,60 @@ function showToast(msg){
   requestAnimationFrame(()=>requestAnimationFrame(()=>t.classList.add('show')));
   clearTimeout(t._timer);t._timer=setTimeout(()=>t.classList.remove('show'),2600);
 }
+
+// ── FONT DISPLAY ──
+function updateFontFamilyDisplay(selectElement) {
+  // 更新字体选择框的字体为当前选中的字体
+  const selectedFont = selectElement.value;
+  selectElement.style.fontFamily = selectedFont;
+}
+
+// 初始化字体选择框的显示
+window.onload = function() {
+  const fontSelect = document.getElementById('editFontFamily');
+  if (fontSelect) {
+    updateFontFamilyDisplay(fontSelect);
+  }
+  
+  // 初始化排版面板中的字体选择框
+  const fontSelects = ['fH1Font', 'fH2Font', 'fH3Font', 'fBFont'];
+  fontSelects.forEach(id => {
+    const select = document.getElementById(id);
+    if (select) {
+      // 添加onchange事件
+      select.onchange = function() {
+        updateFontFamilyDisplay(this);
+      };
+      // 初始化显示
+      updateFontFamilyDisplay(select);
+    }
+  });
+  
+  // 控制后端监控按钮的显示
+  const backendBtn = document.getElementById('backendMonitorBtn');
+  if (backendBtn) {
+    // 获取登录用户信息
+    const userStr = sessionStorage.getItem('wc_user');
+    if (userStr) {
+      try {
+        const user = JSON.parse(userStr);
+        // 检查用户角色（这里假设用户对象中有role字段）
+        // 管理员账号显示后端监控按钮，普通账号隐藏
+        if (user.role === 'admin' || user.email === 'admin@example.com') {
+          backendBtn.style.display = 'inline-flex';
+        } else {
+          backendBtn.style.display = 'none';
+        }
+      } catch (e) {
+        // 如果解析失败，默认隐藏
+        backendBtn.style.display = 'none';
+      }
+    } else {
+      // 未登录，隐藏按钮
+      backendBtn.style.display = 'none';
+    }
+  }
+};
 
 init();
 </script>

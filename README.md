@@ -1,142 +1,185 @@
 # WordCraft Pro
 
-**智能 Word 排版桌面应用** —— 一键解析文档、自动排版、质量检查、交叉引用校验、AI 辅助，全流程桌面工具。
+**智能 Word 排版 Web 应用** —— 多格式文档解析、自动排版、AI 辅助、质量检查、交叉引用校验，一站式文档处理工具。
+
+> 版本：0.7.0 | 架构：Flask API + 单页 Web 应用 | AI：豆包 doubao-seed-1-6-251015
 
 ---
 
-## ✨ 核心功能
+## 核心功能
 
-| 模块 | 功能 |
-|------|------|
-| **多格式解析** | 支持 `.docx` `.pdf` `.xlsx` `.txt` `.md` `.doc`（需 LibreOffice 转换），统一输出为内部文档模型 |
-| **智能排版** | 基于模板规则自动排版：字体、字号、页边距、行距、缩进、页眉页脚、多节配置，一键应用 |
-| **自然语言排版** | 用中文描述排版需求（如"一级标题黑体三号居中"），LLM 自动解析为结构化规则 |
-| **质量检查（QA）** | 错别字检测（常见错别字词典 + 的地得用法）、数据一致性检查、逻辑合理性检查 |
+| 模块 | 功能描述 |
+|------|---------|
+| **多格式解析** | `.docx` `.doc` `.pdf` `.xlsx` `.xls` `.txt` `.md`，统一输出为内部文档模型 |
+| **智能排版** | 基于 YAML 模板自动排版：字体、字号、页边距、行距、缩进、对齐，一键应用 |
+| **AI 排版解析** | 上传参考模板或用中文描述需求，LLM 自动解析为结构化排版规则并填入设置面板 |
+| **质量检查（QA）** | 错别字检测（常见错别字词典 + 的地得）、数据一致性检查、逻辑合理性检查 |
 | **交叉引用校验** | 自动扫描图/表/公式/章节编号，检测悬空引用、未引用目标、重复编号 |
-| **AI 辅助** | 内置豆包大模型集成，支持排版规则生成、QA 分析、自然语言交互 |
-| **Word 导出** | 排版后导出 `.docx`，保留完整格式（字体、缩进、页眉页脚、页码等） |
-| **模板系统** | 内置政府公文、高校论文等排版模板，支持 YAML 自定义模板 |
+| **Word 导出** | 排版后导出 `.docx`，所有 TextRun 正确设置中文字体（`eastAsia`）和西文字体，避免乱码 |
+| **模板系统** | 内置政府公文、高校论文 YAML 模板，支持自定义模板 |
+| **用户系统** | Supabase Auth 邮箱登录，离线时自动回退到本地 Mock 模式 |
 
 ---
 
-## 📸 界面预览
-
-应用提供两种桌面界面模式：
-
-- **pywebview 模式**（默认）：轻量 WebView，使用系统 Edge/WebView2 渲染
-- **PyQt6 模式**：完整 Qt 原生体验，QWebEngineView + QWebChannel 双向桥接
-
----
-
-## 🚀 快速开始
+## 快速开始
 
 ### 环境要求
 
 - Python 3.10+
 - Windows / macOS / Linux
+- `.doc` 格式转换需要 LibreOffice 或 Microsoft Word（可选）
 
 ### 安装依赖
+
+```bash
+pip install python-docx pdfplumber openpyxl PyYAML pydantic openai flask flask-cors supabase
+```
+
+完整依赖（含开发工具）：
 
 ```bash
 pip install -r requirements.txt
 ```
 
-> **注意**：完整依赖包含 PyTorch（本地模型推理），如果只使用云端 API，可按需安装核心子集：
-> ```bash
-> pip install python-docx pdfplumber openpyxl pywebview PyYAML pydantic openai
-> ```
+### Windows 终端中文乱码修复
+
+启动前在终端运行：
+
+```bash
+chcp 65001
+```
 
 ### 启动应用
 
+**第一步：启动后端 Flask API 服务**
+
 ```bash
-# 默认启动 pywebview 图形界面
-python main.py
-
-# PyQt6 模式
-python main.py --gui
-
-# 运行功能演示
-python main.py --demo
-
-# 运行单元测试
-python main.py --test
+cd web
+python flask_app.py
 ```
+
+服务运行在 `http://localhost:5000`，提供所有业务 API。
+
+**第二步：启动前端静态服务器**
+
+```bash
+cd web
+python run_web.py
+```
+
+服务运行在 `http://localhost:8081`，自动打开浏览器访问应用。
+
+两个进程需同时运行，前端通过代理将 `/api/*` 请求转发至后端。
 
 ---
 
-## 📁 项目结构
+## 项目结构
 
 ```
 wordcraft-pro/
-├── main.py                  # 应用入口（CLI 分发）
-├── app.py                   # pywebview 桌面应用
-├── webview_app.py           # PyQt6 WebView 桌面应用
-├── config.yaml              # 全局配置（LLM / 解析 / QA / 交叉引用）
+├── app.py                   # 核心业务逻辑（Api 类，所有方法的单一来源）
+├── config.yaml              # 全局配置（LLM / QA / 格式 / 交叉引用）
 ├── requirements.txt         # 依赖清单
-├── build.py                 # 跨平台打包脚本（PyInstaller）
-├── build_offline.py         # 离线包构建
-├── build.bat / build.sh     # 一键打包入口
 │
 ├── core/                    # 核心引擎
 │   ├── document_model.py    # 统一文档模型（所有模块的数据核心）
-│   ├── formatting_rules.py  # 排版规则定义
 │   ├── formatter.py         # 排版引擎：规则 → 文档模型
 │   ├── exporter.py          # 导出引擎：文档模型 → .docx
-│   ├── template_manager.py  # 模板管理器
-│   ├── qa_engine.py         # 质量检查引擎（统一调度）
-│   ├── qa_models.py         # QA 数据模型
-│   ├── typo_checker.py      # 错别字检查器
-│   ├── consistency_checker.py # 数据一致性检查器
-│   ├── logic_checker.py     # 逻辑合理性检查器
-│   ├── crossref_engine.py   # 交叉引用引擎
-│   ├── crossref_executor.py # 交叉引用修复执行器
-│   ├── crossref_models.py   # 交叉引用数据模型
-│   └── template_parser/     # 模板解析器（docx 样式 / 文本规则）
+│   ├── qa_engine.py         # QA 调度：错别字 → 一致性 → 逻辑
+│   ├── typo_checker.py      # 错别字检查器（词典 + 的地得）
+│   ├── consistency_checker.py # 数据一致性检查
+│   ├── logic_checker.py     # 逻辑合理性检查
+│   ├── crossref_engine.py   # 交叉引用扫描与校验
+│   ├── template_manager.py  # YAML 模板加载与管理
+│   └── supabase_client.py   # Supabase Auth / DB / Storage 封装
 │
 ├── llm/                     # LLM 集成
-│   ├── client.py            # LLM 客户端抽象层（豆包/OpenAI/ChatGLM）
-│   ├── nl_rule_parser.py    # 自然语言 → 排版规则解析
-│   └── qa_analyzer.py       # AI 质量分析
+│   ├── client.py            # LLM 客户端（豆包 / OpenAI 兼容 / MockClient）
+│   ├── nl_rule_parser.py    # 自然语言 → 排版规则
+│   └── qa_analyzer.py       # AI 辅助 QA 分析
 │
 ├── parsers/                 # 文件解析器
-│   ├── base.py              # 解析器基类
-│   ├── dispatcher.py        # 解析器调度器（自动选择 + .doc 转换）
-│   ├── docx_parser.py       # Word 文档解析
-│   ├── pdf_parser.py        # PDF 解析
-│   ├── xlsx_parser.py       # Excel 解析
+│   ├── dispatcher.py        # 调度器：按扩展名选解析器，处理 .doc 转换
+│   ├── docx_parser.py       # .docx 解析（含图片提取、对齐、样式）
+│   ├── pdf_parser.py        # PDF 解析（pdfplumber）
+│   ├── xlsx_parser.py       # Excel 解析（openpyxl）
 │   ├── md_parser.py         # Markdown 解析
 │   └── txt_parser.py        # 纯文本解析
 │
 ├── templates/               # 排版模板（YAML）
-│   ├── gov_jiancaoping.yaml # 政府公文模板（太原市尖草坪区绩效评价报告）
-│   └── thesis_haida.yaml    # 高校论文模板（广东海洋大学本科毕业论文）
+│   ├── gov_jiancaoping.yaml # 太原市尖草坪区政府公文模板
+│   ├── thesis_haida.yaml    # 广东海洋大学本科毕业论文模板
+│   └── custom/              # 用户自定义模板目录
 │
-├── ui/                      # PyQt6 图形界面
-│   ├── main_window.py       # 主窗口
-│   ├── workflow_engine.py   # 工作流引擎（解析→排版→QA→交叉引用→导出）
-│   ├── file_panel.py        # 文件面板
-│   ├── format_panel.py      # 排版参数面板
-│   ├── preview_panel.py     # 文档预览面板
-│   ├── qa_panel.py          # QA 检查结果面板
-│   ├── crossref_panel.py    # 交叉引用面板
-│   ├── llm_chat_panel.py    # AI 对话面板
-│   └── styles.py            # 样式定义
+├── samples/                 # 测试样本文件
+│   └── 益海嘉里项目综合效益评价（打印最终版）.doc
 │
-├── web/                     # 网页版 UI
-│   ├── index.html           # 单页应用
-│   └── test_template.docx   # 测试模板文件
+├── web/                     # Web 应用
+│   ├── index.html           # 单页应用（~2500 行，无构建步骤）
+│   ├── flask_app.py         # Flask 路由（薄包装层，仅转发到 app.py）
+│   ├── run_web.py           # 静态服务器 + API 代理（端口 8081）
+│   └── wordcraft_landing.html # 登录/欢迎页
+│
+├── docs/                    # 开发文档
+│   └── 问题分析与优化计划.md  # Bug 记录与修复历史
 │
 └── tests/                   # 单元测试
-    ├── test_phase1.py ~ test_phase7.py  # 各阶段功能测试
-    ├── test_core_functions.py           # 核心功能测试
-    └── test_webapp.py                  # Web 应用测试
+    ├── test_phase1.py ~ test_phase7.py
+    ├── test_core_functions.py
+    └── test_webapp.py
 ```
 
 ---
 
-## 🔧 配置说明
+## 架构说明
 
-编辑 `config.yaml` 进行全局配置：
+### 两层 API 设计
+
+`app.py` 是**业务逻辑的唯一来源**，包含 `Api` 类及所有方法（`openFile`、`exportDocx`、`callAI`、`runQA` 等）。`web/flask_app.py` 是薄包装层，仅将 HTTP 请求路由到 `Api` 方法。
+
+### 前端 SPA
+
+`web/index.html` 是完整的单页应用，不需要 Node.js 或构建工具。从 CDN 加载以下库：
+- `docx-preview 0.3.5` — .docx 在线预览
+- `mammoth.js 1.6.0` — .doc 格式 HTML 提取
+- `docx.js 8.5.0` — 客户端 .docx 生成导出
+- `PDF.js 2.16` — PDF 渲染
+- `SheetJS 0.18` — Excel 渲染
+- `FileSaver.js` — 文件下载
+
+前端所有 API 调用统一通过 `window.WC_API`（封装 `fetch('/api/...')`）发出。
+
+### AI 集成
+
+`app.py:callAI` 采用双通道回退：
+1. Supabase Edge Function 代理（`/functions/v1/ai-proxy`，豆包 Seed 1.6）
+2. 直连豆包 ARK API（`ark.cn-beijing.volces.com`，模型 `doubao-seed-1-6-251015`）
+
+返回格式：`{"content": "...", "usage": {...}}` 成功 / `{"error": "..."}` 失败（无 `success` 字段）。
+
+`config.yaml` 中的 `llm.api` 配置供 Python 端 `llm/client.py` 使用（QA 分析、自然语言规则解析），与前端直调分开管理。
+
+### .doc 文件处理
+
+`parsers/dispatcher.py` 对 `.doc` 文件执行三级转换回退：
+
+| 优先级 | 方法 | 依赖 |
+|--------|------|------|
+| 1 | python-docx 直接打开（部分 .doc 实为 Open XML） | 仅 python-docx |
+| 2 | LibreOffice headless 转换 | LibreOffice 已安装 |
+| 3 | Windows PowerShell + Word COM | Microsoft Word 已安装 |
+
+三级均失败时抛出清晰错误，注明安装建议。
+
+### Supabase 集成
+
+`core/supabase_client.py` 封装 Auth / PostgreSQL / Storage。`app.py` 中所有方法检查 `self._supabase`，为 `None` 时自动回退到本地 Mock 响应，应用可在无 Supabase 配置的情况下离线运行。
+
+---
+
+## 配置说明
+
+编辑 `config.yaml`：
 
 ### LLM 配置
 
@@ -144,14 +187,15 @@ wordcraft-pro/
 llm:
   mode: "api"
   api:
-    provider: "doubao"          # 豆包 / openai / chatglm
+    provider: "doubao"
     api_key: "your-api-key"
     base_url: "https://ark.cn-beijing.volces.com/api/v3"
-    model: "Doubao-Seed-1.6"
+    model: "doubao-seed-1-6-251015"
     temperature: 0.3
+    max_tokens: 4096
 ```
 
-> 未配置 API Key 时，应用使用 `MockLLMClient`（模拟回复），不影响排版和 QA 规则检查功能。
+未配置 API Key 时使用 `MockLLMClient`，排版和规则检查功能不受影响。
 
 ### QA 配置
 
@@ -159,54 +203,54 @@ llm:
 qa:
   typo_check:
     enabled: true
-    use_llm: true               # 是否使用 LLM 辅助检测
+    use_llm: true
   consistency_check:
     enabled: true
-    check_numbers: true         # 数字格式一致性
-    check_dates: true           # 日期格式一致性
-    check_names: true           # 专有名词一致性
+    check_numbers: true
+    check_dates: true
+    check_names: true
   logic_check:
     enabled: true
-    check_causality: true       # 因果关系检查
-    check_conclusion: true      # 结论支撑检查
-    check_timeline: true        # 时间线矛盾检查
+    check_causality: true
+    check_conclusion: true
+    check_timeline: true
 ```
 
 ### 中文字号映射
 
-内置中国标准字号与磅值对照表（初号 42pt → 八号 5pt），在 `config.yaml` 的 `formatter.cn_size_map` 中定义，LLM 解析自然语言排版需求时自动引用。
+`config.yaml` 的 `formatter.cn_size_map` 定义初号（42pt）至八号（5pt）的完整对照表，LLM 解析自然语言排版需求时自动引用。
 
 ---
 
-## 📐 工作流程
+## 处理流程
 
 ```
-  文件输入 ──→ 解析器调度 ──→ 统一文档模型
-                                  │
-                     ┌────────────┼────────────┐
-                     ▼            ▼            ▼
-                 排版引擎     QA 引擎     交叉引用引擎
-                     │            │            │
-                     └────────────┼────────────┘
-                                  ▼
-                            导出 Word (.docx)
+文件输入
+   │
+   ▼
+parsers/dispatcher.py
+   ├─ .docx/.pdf/.xlsx/.txt/.md → 对应解析器
+   └─ .doc → 三级转换 → DocxParser
+   │
+   ▼
+DocumentModel（core/document_model.py）
+   │
+   ├──────────────────────────────────┐
+   ▼                                  ▼
+排版引擎（formatter.py）          QA 引擎（qa_engine.py）
+   │                                  │
+   ▼                                  ├─ 错别字检查
+导出引擎（exporter.py）            ├─ 一致性检查
+   │                                  └─ 逻辑检查
+   ▼
+.docx 文件输出                    交叉引用引擎（crossref_engine.py）
 ```
-
-1. **解析**：根据文件扩展名自动选择解析器，`.doc` 通过 LibreOffice 转换后解析
-2. **排版**：加载模板规则或自然语言解析结果，应用到文档模型
-3. **QA**：错别字 → 一致性 → 逻辑，三阶段检查生成报告
-4. **交叉引用**：扫描目标 → 扫描引用点 → 匹配校验，检测悬空/未引用/重复
-5. **导出**：将排版后的文档模型写入 `.docx`，保留完整格式
 
 ---
 
-## 🎯 排版模板
+## 自定义排版模板
 
-模板以 YAML 格式定义，包含页面设置、各级标题样式、正文样式、页眉页脚、编号规则等。
-
-### 自定义模板
-
-在 `templates/` 目录下创建 YAML 文件：
+模板以 YAML 格式定义，放入 `templates/` 或 `templates/custom/` 目录：
 
 ```yaml
 template_name: "我的论文模板"
@@ -233,97 +277,55 @@ body:
   line_spacing_value: 1.5
 ```
 
-### 自然语言排版
-
-无需手动编写 YAML，直接用中文描述需求：
-
-> "论文用 A4 纸，上下边距 2.5cm，左右边距 3cm 和 2.5cm。一级标题黑体三号居中，正文宋体小四首行缩进2字符，1.5倍行距。"
-
-LLM 自动解析为结构化排版规则并应用。
+内置模板：
+- `gov_jiancaoping.yaml` — 太原市尖草坪区绩效评价政府公文格式
+- `thesis_haida.yaml` — 广东海洋大学本科毕业论文格式
 
 ---
 
-## 🧪 测试
+## 运行测试
 
 ```bash
-# 运行全部测试
-python main.py --test
-
-# 或直接使用 pytest
 python -m pytest tests/ -v
+
+# 运行单个文件
+python -m pytest tests/test_core_functions.py -v
+
+# 运行单个用例
+python -m pytest tests/test_phase1.py::TestClassName::test_method_name -v
 ```
 
 ---
 
-## 📦 打包分发
-
-```bash
-# 使用 PyInstaller 打包为可执行文件
-python build.py
-
-# Windows 产出: dist/WordCraft-Pro.exe
-# macOS 产出:   dist/WordCraft-Pro.app
-```
-
-打包脚本自动安装依赖、收集资源文件、处理平台差异。
-
----
-
-## 🛠 技术栈
+## 技术栈
 
 | 类别 | 技术 |
 |------|------|
-| 核心语言 | Python 3.10+ |
-| 文档处理 | python-docx, pdfplumber, PyMuPDF, openpyxl |
-| LLM 集成 | OpenAI SDK（兼容豆包 API）, Transformers（ChatGLM 本地） |
-| 桌面界面 | pywebview / PyQt6 + QWebEngineView |
-| 数据校验 | PyYAML, pydantic |
-| 打包 | PyInstaller |
-| 云端服务 | Supabase（Auth / PostgreSQL / Storage） |
+| 语言 | Python 3.10+ |
+| 后端 | Flask 2.x + Flask-CORS |
+| 前端 | 原生 HTML5 / CSS / JS，无构建工具 |
+| 文档处理 | python-docx, pdfplumber, openpyxl |
+| LLM | 豆包 API（OpenAI 兼容），模型 doubao-seed-1-6-251015 |
+| 云端 | Supabase（Auth + PostgreSQL + Storage），Free Plan |
+| 前端库 | docx-preview 0.3.5, mammoth.js 1.6.0, docx.js 8.5.0, PDF.js 2.16, SheetJS 0.18, FileSaver.js |
+| .doc 转换 | python-docx → LibreOffice → Word COM（三级回退） |
 
 ---
 
-## ⚠️ 注意事项
+## 已知限制
 
-### 1. Windows 终端中文乱码
-
-管理后台启动时终端可能显示中文乱码，这是因为 PowerShell 默认编码不是 UTF-8。
-
-**解决方法**：在启动前运行：
-```powershell
-chcp 65001
-```
-
-### 2. 微信登录
-
-当前仅支持邮箱/手机号登录，微信 OAuth 登录需要额外配置，功能开发中。
-
-### 3. 管理后台日志
-
-管理后台 `/logs` 页面显示"开发中..."，完整的操作日志功能尚未实现。
-
-### 4. Supabase Free Plan 限制
-
-- 数据库会在 7 天无活跃连接后自动暂停
-- 免费计划不含自动备份，建议定期手动导出
-- 数据库限制 500MB，文件存储限制 1GB
-
-### 5. API 密钥安全
-
-Supabase Anon Key 在前端可见是 Supabase 的设计模式，数据安全由行级安全策略（RLS）保障。
-
-### 6. 本地数据目录
-
-用户数据存储在 `%APPDATA%\WordCraft-Pro\` 目录下，包含：
-- `user.json` - 用户信息
-- `settings.json` - 用户设置
-- `token_quota.json` - Token 配额
-- `token_logs.json` - Token 使用记录
-- `templates/` - 模板缓存
-- `documents/` - 文档缓存
+| 项目 | 说明 |
+|------|------|
+| 桌面版 | pywebview 桌面模式已放弃，仅维护 Web 版 |
+| `.doc` 转换 | 需要 LibreOffice 或 Microsoft Word；两者均未安装时解析失败 |
+| 微信登录 | 微信 OAuth 功能开发中，当前仅支持邮箱密码登录 |
+| AI 深度 QA | `runAIQA()` 按钮为桩函数（提示需配置 API Key） |
+| PDF 导出 | 前端和后端均未实现 PDF 格式导出 |
+| 管理后台日志 | `/logs` 端点返回"开发中..."，功能未实现 |
+| Supabase 限制 | Free Plan 数据库在 7 天无连接后自动暂停；存储上限 1 GB |
 
 ---
 
-## 📄 许可证
+## 许可证
 
 本项目仅供学习和研究使用。

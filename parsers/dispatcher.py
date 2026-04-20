@@ -93,72 +93,93 @@ def get_parser_for_file(file_path: str) -> Optional[BaseParser]:
 def _convert_doc_to_docx(doc_path: str) -> str:
     """
     将 .doc 文件转换为 .docx 格式。
-    使用 LibreOffice 进行转换。
-
-    Returns:
-        str: 转换后的 .docx 文件路径
+    回退顺序：① 直接当 .docx 打开  ② LibreOffice  ③ Windows Word COM
     """
-    # 检查 LibreOffice 是否可用
+    import sys, shutil
+
+    # 回退1：部分 .doc 文件实际上是 Open XML（.docx）格式
+    try:
+        from docx import Document as _Doc
+        _Doc(doc_path)
+        output_dir = tempfile.mkdtemp(prefix="wordcraft_")
+        out = os.path.join(output_dir, Path(doc_path).stem + ".docx")
+        shutil.copy2(doc_path, out)
+        return out
+    except Exception:
+        pass
+
+    # 回退2：LibreOffice
     libreoffice_paths = [
         "libreoffice",
+        "soffice",
         "/usr/bin/libreoffice",
         "/usr/bin/soffice",
         "C:\\Program Files\\LibreOffice\\program\\soffice.exe",
+        "C:\\Program Files (x86)\\LibreOffice\\program\\soffice.exe",
         "/Applications/LibreOffice.app/Contents/MacOS/soffice",
     ]
-
     libreoffice_cmd = None
     for cmd in libreoffice_paths:
         try:
-            result = subprocess.run(
-                [cmd, "--version"],
-                capture_output=True, text=True, timeout=10
-            )
-            if result.returncode == 0:
+            r = subprocess.run([cmd, "--version"], capture_output=True, text=True, timeout=10)
+            if r.returncode == 0:
                 libreoffice_cmd = cmd
                 break
         except (FileNotFoundError, subprocess.TimeoutExpired):
             continue
 
-    if libreoffice_cmd is None:
-        raise RuntimeError(
-            "无法找到 LibreOffice，.doc 格式转换需要 LibreOffice。\n"
-            "请安装 LibreOffice: https://www.libreoffice.org/"
+    if libreoffice_cmd is not None:
+        output_dir = tempfile.mkdtemp(prefix="wordcraft_")
+        try:
+            result = subprocess.run(
+                [libreoffice_cmd, "--headless", "--convert-to", "docx",
+                 "--outdir", output_dir, doc_path],
+                capture_output=True, text=True, timeout=60,
+            )
+            if result.returncode != 0:
+                raise RuntimeError(f"LibreOffice 转换失败: {result.stderr}")
+            base_name = Path(doc_path).stem
+            docx_path = os.path.join(output_dir, f"{base_name}.docx")
+            if not os.path.isfile(docx_path):
+                for f in os.listdir(output_dir):
+                    if f.endswith(".docx"):
+                        docx_path = os.path.join(output_dir, f)
+                        break
+            if not os.path.isfile(docx_path):
+                raise RuntimeError(f"LibreOffice 未生成输出文件: {output_dir}")
+            return docx_path
+        except Exception as lo_err:
+            shutil.rmtree(output_dir, ignore_errors=True)
+            import logging as _log
+            _log.getLogger(__name__).warning("LibreOffice 转换失败，尝试下一方法: %s", lo_err)
+
+    # 回退3：Windows Word COM（通过 PowerShell，无需 pywin32）
+    if sys.platform == "win32":
+        output_dir = tempfile.mkdtemp(prefix="wordcraft_")
+        out_path = os.path.join(output_dir, Path(doc_path).stem + ".docx")
+        # 路径转义（PowerShell 字符串用双引号，反斜杠需转义）
+        src_ps = doc_path.replace("'", "''")
+        dst_ps = out_path.replace("'", "''")
+        ps = (
+            f"$w=New-Object -ComObject Word.Application;"
+            f"$w.Visible=$false;"
+            f"try{{$d=$w.Documents.Open('{src_ps}');"
+            f"$d.SaveAs('{dst_ps}',16);$d.Close();Write-Output 'OK'}}"
+            f"catch{{Write-Error $_.Exception.Message}}"
+            f"finally{{$w.Quit()}}"
         )
-
-    # 转换到临时目录
-    output_dir = tempfile.mkdtemp(prefix="wordcraft_")
-    try:
-        result = subprocess.run(
-            [
-                libreoffice_cmd,
-                "--headless",
-                "--convert-to", "docx",
-                "--outdir", output_dir,
-                doc_path,
-            ],
-            capture_output=True, text=True, timeout=60
-        )
-        if result.returncode != 0:
-            raise RuntimeError(f"LibreOffice 转换失败: {result.stderr}")
-
-        # 查找转换后的文件
-        base_name = Path(doc_path).stem
-        docx_path = os.path.join(output_dir, f"{base_name}.docx")
-        if not os.path.isfile(docx_path):
-            # 尝试查找目录中任何 .docx 文件
-            for f in os.listdir(output_dir):
-                if f.endswith(".docx"):
-                    docx_path = os.path.join(output_dir, f)
-                    break
-
-        if not os.path.isfile(docx_path):
-            raise RuntimeError(f"转换后的文件未找到: {docx_path}")
-
-        return docx_path
-
-    except Exception:
-        # 清理临时目录
-        import shutil
+        try:
+            r = subprocess.run(
+                ["powershell", "-NonInteractive", "-Command", ps],
+                capture_output=True, text=True, timeout=90,
+            )
+            if r.returncode == 0 and os.path.isfile(out_path):
+                return out_path
+        except Exception:
+            pass
         shutil.rmtree(output_dir, ignore_errors=True)
-        raise
+
+    raise RuntimeError(
+        ".doc 转换失败：未检测到 LibreOffice 或 Microsoft Word。\n"
+        "解决方案之一：安装 LibreOffice（https://www.libreoffice.org/）"
+    )

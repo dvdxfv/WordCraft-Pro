@@ -193,6 +193,33 @@ class SupabaseClient:
             logger.error("获取用户模板失败: %s", e)
             return []
 
+    def get_system_templates(self) -> list:
+        """获取系统模板列表（is_system=true，所有用户可见）"""
+        try:
+            result = self.client.table("templates").select("*").eq("is_system", True).order("created_at").execute()
+            return result.data if result.data else []
+        except Exception as e:
+            logger.error("获取系统模板失败: %s", e)
+            return []
+
+    def insert_template(self, user_id: str, name: str, file_url: str = "", category: str = "custom", template_data: dict = None) -> Optional[dict]:
+        """插入模板记录到 templates 表"""
+        try:
+            record = {
+                "user_id": user_id,
+                "name": name,
+                "category": category,
+                "file_url": file_url,
+                "is_system": False,
+            }
+            if template_data:
+                record["template_data"] = template_data
+            result = self.client.table("templates").insert(record).execute()
+            return result.data[0] if result.data else None
+        except Exception as e:
+            logger.error("插入模板失败: %s", e)
+            return None
+
     def delete_template(self, template_id: str, user_id: str) -> bool:
         """删除模板"""
         try:
@@ -217,6 +244,44 @@ class SupabaseClient:
             return False
         except Exception as e:
             logger.error("删除模板失败: %s", e)
+            return False
+
+    # ------------------------------------------------------------------
+    #  user_settings 表操作
+    # ------------------------------------------------------------------
+
+    _DEFAULT_SETTINGS = {
+        "theme": "light",
+        "default_format": {
+            "paper": "A4", "mt": 2.5, "mb": 2.5, "ml": 3.0, "mr": 2.5,
+            "h1": "黑体", "h1s": 16, "h2": "黑体", "h2s": 14,
+            "h3": "黑体", "h3s": 12, "bf": "宋体", "bs": 12,
+            "indent": 2, "lh": 1.5,
+        },
+        "ai_model": "doubao-seed-1-6-251015",
+    }
+
+    def get_user_settings(self, user_id: str) -> dict:
+        """读取用户设置，不存在时返回默认值"""
+        try:
+            result = self.client.table("user_settings").select("settings_data").eq("user_id", user_id).execute()
+            if result.data:
+                return result.data[0].get("settings_data") or self._DEFAULT_SETTINGS.copy()
+            return self._DEFAULT_SETTINGS.copy()
+        except Exception as e:
+            logger.error("读取用户设置失败: %s", e)
+            return self._DEFAULT_SETTINGS.copy()
+
+    def save_user_settings(self, user_id: str, settings_data: dict) -> bool:
+        """保存用户设置（upsert，不存在则创建）"""
+        try:
+            self.client.table("user_settings").upsert({
+                "user_id": user_id,
+                "settings_data": settings_data,
+            }, on_conflict="user_id").execute()
+            return True
+        except Exception as e:
+            logger.error("保存用户设置失败: %s", e)
             return False
 
     # ------------------------------------------------------------------

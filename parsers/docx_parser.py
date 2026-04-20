@@ -278,27 +278,42 @@ class DocxParser(BaseParser):
         return element
 
     def _detect_element_type(self, para, text: str) -> tuple[ElementType, int]:
-        """检测段落类型（标题/正文/参考文献等）"""
+        """检测段落类型（标题/正文/参考文献等）✅ 改进: 更精确的检测逻辑"""
         style_name = (para.style.name or "").lower()
 
-        # 标题检测
-        if style_name.startswith("heading") or style_name.startswith("标题"):
-            # 提取标题级别
-            level = 0
-            match = re.search(r"(\d+)", style_name)
-            if match:
-                level = int(match.group(1))
+        # 标题检测 - 使用精确匹配以避免误匹配
+        if style_name in ("heading 1", "标题 1", "title", "toc 1") or \
+           style_name.startswith("heading 1 ") or style_name.startswith("标题 1 "):
+            return ElementType.HEADING, 1
+        
+        if style_name in ("heading 2", "标题 2", "toc 2") or \
+           style_name.startswith("heading 2 ") or style_name.startswith("标题 2 "):
+            return ElementType.HEADING, 2
+        
+        if style_name in ("heading 3", "标题 3", "toc 3") or \
+           style_name.startswith("heading 3 ") or style_name.startswith("标题 3 "):
+            return ElementType.HEADING, 3
+        
+        if style_name in ("heading 4", "标题 4") or \
+           style_name.startswith("heading 4 ") or style_name.startswith("标题 4 "):
+            return ElementType.HEADING, 4
+        
+        # 其他heading级别（5-9）
+        match = re.search(r"heading ([5-9])|标题 ([5-9])", style_name)
+        if match:
+            level = int(match.group(1) or match.group(2))
             return ElementType.HEADING, level
-
+        
         if style_name in ("title", "标题"):
             return ElementType.HEADING, 0
 
         # 参考文献检测
-        if style_name.startswith("bibliography") or "参考" in style_name:
+        if style_name.startswith("bibliography") or "参考" in style_name or "reference" in style_name:
             return ElementType.REFERENCE, 0
 
         # 题注检测
-        if style_name.startswith("caption") or "题注" in style_name:
+        if style_name in ("caption", "题注") or style_name.startswith("caption ") or \
+           style_name.startswith("题注 "):
             return ElementType.CAPTION, 0
 
         # 通过内容特征检测
@@ -312,21 +327,41 @@ class DocxParser(BaseParser):
         return ElementType.PARAGRAPH, 0
 
     def _extract_font_style(self, para) -> FontStyle:
-        """提取段落的字体样式（取第一个 run 的样式）"""
+        """提取段落的字体样式（取第一个 run 的样式）✅ 改进: 更好地处理中文字体"""
         style = FontStyle()
         for run in para.runs:
-            if run.font.name:
-                # 区分中英文字体
-                rpr = run._element.find(qn("w:rPr"))
-                if rpr is not None:
-                    ea_font = rpr.find(qn("w:rFonts"))
-                    if ea_font is not None:
-                        style.font_name_cn = ea_font.get(qn("w:eastAsia")) or ""
-                        style.font_name_en = ea_font.get(qn("w:ascii")) or ea_font.get(qn("w:hAnsi")) or ""
-                if not style.font_name_cn and not style.font_name_en:
-                    style.font_name_en = run.font.name
+            # 首先尝试从 run 的 rPr 属性中提取字体信息（更可靠）
+            rpr = run._element.find(qn("w:rPr"))
+            if rpr is not None:
+                ea_font = rpr.find(qn("w:rFonts"))
+                if ea_font is not None:
+                    # 优先提取 eastAsia（中文字体）和 ascii/hAnsi（英文字体）
+                    ea_font_name = ea_font.get(qn("w:eastAsia"))
+                    if ea_font_name:
+                        style.font_name_cn = ea_font_name
+                    ascii_font_name = ea_font.get(qn("w:ascii")) or ea_font.get(qn("w:hAnsi"))
+                    if ascii_font_name:
+                        style.font_name_en = ascii_font_name
+            
+            # 如果 rPr 中没有找到，回退到 run.font.name
+            if not style.font_name_cn and not style.font_name_en and run.font.name:
+                style.font_name_en = run.font.name
+            
+            # 提取字体大小
             if run.font.size:
                 style.font_size_pt = run.font.size.pt
+            elif rpr is not None:
+                # 尝试从 rPr 中提取字体大小
+                sz = rpr.find(qn("w:sz"))
+                if sz is not None:
+                    try:
+                        # w:sz 属性值是磅数的两倍（半磅单位）
+                        sz_val = int(sz.get(qn("w:val"), "0"))
+                        style.font_size_pt = sz_val / 2
+                    except (ValueError, TypeError):
+                        pass
+            
+            # 提取其他样式
             if run.font.bold is not None:
                 style.bold = run.font.bold
             if run.font.italic is not None:
@@ -339,7 +374,8 @@ class DocxParser(BaseParser):
                 style.super_script = True
             if run.font.subscript:
                 style.sub_script = True
-            # 取第一个有效 run 的样式即可
+            
+            # 如果已经提取到关键信息，就可以结束
             if style.font_name_cn or style.font_name_en or style.font_size_pt:
                 break
 
@@ -496,12 +532,50 @@ class DocxParser(BaseParser):
     # ---- 图片 ----
 
     def _extract_images(self, doc: Document, model: DocumentModel):
-        """提取文档中的图片信息"""
-        # 遍历文档中的 inline shapes
+        """提取文档中的图片信息（扫描段落内 w:drawing 元素，保留对齐/尺寸）"""
+        # 建立 rel_id → file_path 映射，供后续查找
+        rel_map = {}
         for rel in doc.part.rels.values():
             if "image" in rel.reltype:
-                image_data = ImageData(
-                    file_path=rel.target_ref if hasattr(rel, "target_ref") else "",
-                    metadata={"rel_id": rel.rId},
-                )
-                model.images.append(image_data)
+                rel_map[rel.rId] = getattr(rel, "target_ref", "")
+
+        # 遍历段落，找含 w:drawing 的段落
+        for para in doc.paragraphs:
+            drawings = para._element.findall(".//" + qn("w:drawing"))
+            if not drawings:
+                continue
+
+            # 段落对齐
+            pf = para.paragraph_format
+            alignment = _ALIGN_MAP.get(pf.alignment, Alignment.CENTER) if pf.alignment is not None else Alignment.CENTER
+
+            for drawing in drawings:
+                # inline 尺寸（EMU → cm）
+                extent = drawing.find(".//" + qn("wp:extent"))
+                width_cm = height_cm = 0.0
+                if extent is not None:
+                    cx = extent.get("cx")
+                    cy = extent.get("cy")
+                    if cx:
+                        width_cm = int(cx) / 914400.0 * 2.54
+                    if cy:
+                        height_cm = int(cy) / 914400.0 * 2.54
+
+                # 找到对应的 rel_id
+                blip = drawing.find(".//" + qn("a:blip"))
+                rel_id = ""
+                file_path = ""
+                if blip is not None:
+                    rel_id = blip.get("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed", "")
+                    file_path = rel_map.get(rel_id, "")
+
+                # 查找图片题注（紧跟段落的下一段若为 Caption 样式）
+                caption = ""
+
+                model.images.append(ImageData(
+                    file_path=file_path,
+                    width_cm=round(width_cm, 2),
+                    height_cm=round(height_cm, 2),
+                    alignment=alignment,
+                    metadata={"rel_id": rel_id},
+                ))

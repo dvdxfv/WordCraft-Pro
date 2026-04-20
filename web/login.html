@@ -1,11 +1,21 @@
-cd e:\夏\项目\WordCraft-Pro-分发包\wordcraft-pro
-python app.pycd e:\夏\项目\WordCraft-Pro-分发包\wordcraft-pro
-python app.py<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>WordCraft Pro - 登录</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script>
+        // Supabase 初始化
+        const SUPABASE_URL = 'https://nzujajuefdsheggulpze.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im56dWphanVlZmRzaGVnZ3VscHplIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYyNDY0MDMsImV4cCI6MjA5MTgyMjQwM30.N3jsg3tIi6ezlmp_MvQYvbUo41SzR5kEBECawel5KDE';
+        window.supabaseClient = null;
+        try {
+            if (window.supabase && typeof window.supabase.createClient === 'function') {
+                window.supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+            }
+        } catch (e) { console.error('Supabase init failed:', e); }
+    </script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -287,22 +297,18 @@ python app.py<!DOCTYPE html>
             btn.textContent = '登录中...';
 
             try {
-                let result;
-                // 检查是否在 pywebview 环境中
-                if (window.pywebview && window.pywebview.api && window.appLogin) {
-                    result = await window.appLogin(email, password);
-                } else {
-                    // 浏览器环境，使用 Mock 登录
-                    await new Promise(r => setTimeout(r, 1000));
-                    result = { success: true, user: { email, nickname: email.split('@')[0] } };
-                }
+                // 使用 Supabase Auth 登录
+                const { data, error } = await window.supabaseClient.auth.signInWithPassword({
+                    email: email,
+                    password: password
+                });
 
-                if (result.success) {
-                    showToast('登录成功，正在跳转...');
-                    localStorage.setItem('wc_user', JSON.stringify(result.user));
-                    setTimeout(() => window.location.href = 'index.html', 1000);
+                if (error) {
+                    showToast('登录失败: ' + (error.message || '未知错误'), true);
                 } else {
-                    showToast(result.error || '登录失败', true);
+                    showToast('登录成功，正在跳转...');
+                    // Supabase 已自动管理 session
+                    setTimeout(() => window.location.href = 'index.html', 1000);
                 }
             } catch (e) {
                 showToast('登录失败: ' + e.message, true);
@@ -383,10 +389,14 @@ python app.py<!DOCTYPE html>
         });
 
         // 检查是否已登录
-        (function checkLogin() {
-            const user = localStorage.getItem('wc_user');
-            if (user) {
-                window.location.href = 'index.html';
+        (async function checkLogin() {
+            try {
+                const { data, error } = await window.supabaseClient.auth.getSession();
+                if (data.session) {
+                    window.location.href = 'index.html';
+                }
+            } catch (error) {
+                console.error('Session check error:', error);
             }
         })();
     </script>
