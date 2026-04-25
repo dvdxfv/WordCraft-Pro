@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current status
 
-All tracked work items completed as of 2026-04-26 (第十一批). P1 QA卡片定位修复 + 的地得语法检查修复 + P3/P4 暗色主题文本颜色 + 选区字体/字号显示。
+All tracked work items completed as of 2026-04-25 (第十二批). 单位不统一误报消除（ML/L/t在缩写中）+ 采纳后字体保护（无损accept）+ AutoCorrect高亮精确定位 + P5问题记录。QA问题数从38→17（-55%）。
 
 ---
 
@@ -69,6 +69,16 @@ python -m pytest tests/test_batch_regression.py -v
 4. 用 `document.fonts.check('12px "字体名"')` 检查是否已加载；未加载则提示"未安装"
 5. 注意：`computed style` 的 `font-family` 可能包含 fallback 列表（`宋体, SimSun, serif`），只取第一个 token 即可
 6. 显示位置：格式面板中现有字体输入框（`#fBFont` 或类似 id），或顶部工具栏新增只读字体提示 `<span>`
+
+### P5：标题内部字体大小不一致检查
+
+**现象**：标题中的不同字符有不同的字号，如"混合层深度（MLD）"中"M"和"L"是四号（14pt），"D"是小四（12pt）。这样的基础排版问题目前无法检出。
+
+**根因**：现有的 `DocElement` 数据模型只记录**元素级别**的 `font_size_pt`，无法表示同一元素内部不同位置（run 级别）的字体大小差异。
+
+**修复方向**：
+- **短期（Quick fix）**：在 consistency_checker.py 中增加启发式检查——当一个标题被解析成多个微小的 DocElement 时（如 docx-preview 的 span 拆分），比较相邻元素的字体大小，如果在视觉上属于同一标题但字号不同则报错
+- **长期（正确方案）**：重构数据模型，引入 `DocRun` 类来记录 run 级别的样式（类似 Word 的内部结构），修改 docx_parser.py 从源文件提取 run 级别的字体大小信息。后者工作量较大，但能准确处理各种混合格式文本
 
 ---
 

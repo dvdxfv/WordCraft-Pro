@@ -299,11 +299,10 @@ class ConsistencyChecker:
 
     def _check_units(self, doc: DocumentModel, report: QAReport):
         """检查计量单位一致性
-        
-        检查同一物理量的不同单位表示，如：
-        - km vs 公里
-        - kg vs 千克
-        - m vs 米
+
+        仅在"数字+单位"的上下文中检查，避免误报（如在缩写名词如"MLD"中）。
+        - 单个字母的单位（L, l, t, d, m, s, h, K, N, J, W, V, A, B）需要前面有数字
+        - 多字母单位可直接匹配但需要词边界检查
         """
         # 单位对照表：{标准单位：[同义单位，缩写]}
         unit_mapping = {
@@ -340,31 +339,43 @@ class ConsistencyChecker:
             "吉字节": ["GB", "gigabyte"],
             "太字节": ["TB", "terabyte"],
         }
-        
+
+        # 单个字母的单位（需要数字前缀）
+        single_letter_units = set('mLltdshKNJWVABg')
+
         # 收集文档中出现的单位
         found_units: dict[str, list[tuple[int, str]]] = defaultdict(list)
-        
+
         for idx, elem in enumerate(doc.elements):
             if not elem.content:
                 continue
             text = elem.content
-            
+
             # 检查每个单位及其同义词
             for standard_unit, synonyms in unit_mapping.items():
-                # 检查标准单位
-                if standard_unit in text:
-                    found_units[standard_unit].append((idx, standard_unit))
-                
-                # 检查同义词
-                for synonym in synonyms:
-                    if synonym in text:
-                        found_units[standard_unit].append((idx, synonym))
-        
+                units_to_check = [standard_unit] + synonyms
+
+                for unit_form in units_to_check:
+                    if unit_form not in text:
+                        continue
+
+                    # 对于单个字母的单位，要求前面有数字（避免在缩写名词中匹配）
+                    if len(unit_form) == 1 and unit_form in single_letter_units:
+                        # 匹配 "数字+空格(可选)+单位字母+非单词字符" 的模式
+                        pattern = r'\d\s*' + re.escape(unit_form) + r'(?!\w)'
+                        if re.search(pattern, text):
+                            found_units[standard_unit].append((idx, unit_form))
+                    else:
+                        # 多字母单位或特殊符号（°C等），用词边界检查
+                        pattern = r'\b' + re.escape(unit_form) + r'\b'
+                        if re.search(pattern, text):
+                            found_units[standard_unit].append((idx, unit_form))
+
         # 检查同一物理量的不同单位
         for standard_unit, occurrences in found_units.items():
             if len(occurrences) < 2:
                 continue
-            
+
             used_forms = set(form for _, form in occurrences)
             if len(used_forms) > 1:
                 # 同一单位有多种表达
