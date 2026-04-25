@@ -116,6 +116,24 @@ Key frontend state:
 - `.xlsx` files: rendered using SheetJS
 - All other formats: mammoth.js extracts HTML into `rawHtmlContents[name]`, or falls back to `docContents[name]` (simple element array)
 
+### QA 两层分工架构
+
+**规则层（Rule-based, 免费）**：`core/qa_engine.py` 编排的本地检查
+- TypoChecker — 错别字（内置词库）
+- ConsistencyChecker — 数据一致性（单位、日期、数值范围）
+- PunctuationChecker — 标点/空格规范（中英混用、重复标点、括号配对）
+- AutoCorrectChecker — 中文规范化（调用 autocorrect CLI）
+- CrossRefEngine — 交叉引用检查（参考文献编号、图表链接）
+- **不包括逻辑问题**（Logic 层已下沉到 AI）
+
+**AI 深度检查（Premium）**：`runAIQA` 调用 LLM
+- 继承规则层的所有检查结果
+- 新增 AI 增强：**逻辑问题检查**（论证流畅性、因果关系、结论有效性）
+- 语法/表述优化建议
+- 需要语义理解的高阶问题
+
+**核心原则**：规则层专注明确的、可自动化的错误，AI 层处理需要理解语境的问题。
+
 ### AI integration
 
 `app.py:callAI` uses a two-channel fallback: first tries Supabase Edge Function proxy (`/functions/v1/ai-proxy`), then falls back to direct Doubao API call. The model is configurable per-call via the `config` parameter. `config.yaml` holds the LLM configuration for the Python-side `llm/client.py` (used by `qa_analyzer.py` and `nl_rule_parser.py`), separate from the `app.py` direct calls.
@@ -162,7 +180,7 @@ The "AI" tab in the format panel:
 | `core/document_model.py` | Central data model — read this first |
 | `parsers/dispatcher.py` | Parser entry point; `.doc` three-level conversion fallback |
 | `parsers/docx_parser.py` | Most complex parser; extracts styles, images, sections |
-| `core/qa_engine.py` | QA orchestration: typo → consistency → logic → format → crossref |
+| `core/qa_engine.py` | QA 规则层编排：typo → consistency → format → crossref（逻辑问题由 AI 层处理） |
 | `core/crossref_engine.py` | 交叉引用扫描与匹配：`TargetScanner` + `RefPointScanner` + `CrossRefMatcher` |
 | `core/punctuation_checker.py` | Non-AI format/punctuation checks (标点、空格、括号、叠字) |
 | `core/typo_lib.py` | 错别字词库聚合器：内置词典 + `common_typos.tsv` + `user_typos.tsv` + 可选 SIGHAN |
