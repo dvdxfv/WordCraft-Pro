@@ -145,11 +145,14 @@ class AutoCorrectChecker:
             or ""
         )
 
-        # 过滤：跳过中英文/数字间的空格建议（项目规范：中英文间不加空格）
+        # 过滤：跳过中英文/数字间的空格建议（项目规范：中英文/数字间都不加空格）
         import re
         if old_text and new_text:
-            # 跳过"数字+空格+中文"的建议
-            if re.match(r'[\d.]+\s+[一-鿿]', new_text) and re.match(r'[\d.]+[一-鿿]', old_text):
+            # 跳过"数字+空格+中文"的建议（如"204.94 万吨" → "204.94万吨"）
+            if re.search(r'[\d.]+\s+[一-鿿]', new_text) and re.search(r'[\d.]+[一-鿿]', old_text):
+                return None
+            # 跳过"中文+空格+数字"的建议（如"年份 2022" → "年份2022"）
+            if re.search(r'[一-鿿]\s+[\d.]', new_text) and re.search(r'[一-鿿][\d.]', old_text):
                 return None
             # 跳过"中文+空格+英文"的建议
             if re.search(r'[一-鿿]\s+[a-zA-Z]', new_text) and re.search(r'[一-鿿][a-zA-Z]', old_text):
