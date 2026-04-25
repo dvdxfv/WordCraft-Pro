@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current status
 
-All tracked work items completed as of 2026-04-25 (第十二批). 单位不统一误报消除（ML/L/t在缩写中）+ 采纳后字体保护（无损accept）+ AutoCorrect高亮精确定位 + P5问题记录。QA问题数从38→17（-55%）。
+All tracked work items completed as of 2026-04-25 (第十二批 + P3/P4修复）. 单位不统一误报消除（ML/L/t在缩写中）+ 采纳后字体保护（无损accept）+ AutoCorrect高亮精确定位 + P3暗色主题修复 + P4选区字体显示 + P5问题记录。QA问题数从38→17（-55%）。
 
 ---
 
@@ -40,35 +40,6 @@ python -m pytest tests/test_batch_regression.py -v
 - 需要中文词性标注（POS tagging）或依存句法分析，例如使用 `jieba` 词性标注或 `spacy zh` 模型
 - 最小可行方案：维护一张"常见并列关键词对"列表（如 "生物物理" → 提示可能需要 "生物、物理"），但维护成本高且精度有限
 - 推荐方案：在 LLM QA 层（`runAIQA`）中增加并列关系检查 prompt，让 AI 判断是否缺顿号
-
-### P3：暗色主题文档预览视觉差
-
-**现象**（见截图）：暗色主题下 docx-preview 渲染的文档内容区域，文字颜色接近背景色（深灰文字 + 深灰背景），可读性极差，标题区几乎不可见。
-
-**根因分析**：
-- docx-preview 注入的 `section.docx-rendered` 及其子元素带有源文档的原始颜色（如黑色 `#000` 或深灰），在亮色主题下合理，但在暗色主题（`--bg` ≈ `#1c1c1e`）下与背景融合。
-- 第九批已强制 `section.docx-rendered` 的 `background: #fff !important`，但这只修复了白底问题；如果 section 本身 background 未生效（选择器权重被 docx-preview 内联样式压制），页面内容背景仍为暗色。
-- 另一可能：暗色主题 CSS 变量覆盖了 `.doc-page` 的 `background`，使整个 `.doc-page` 变暗，section 的白底浮于其上但文字颜色仍继承暗色系。
-
-**修复方向**：
-- 暗色主题下 `.doc-page`（和 `.doc-page.is-docx`）强制 `background: #fff`，文字 `color: #1a1a1a`（覆盖暗色主题变量）
-- 对 `[data-theme=dark] .doc-page *`（或更具体的 docx-preview 节点）追加 `color: inherit` 并从 `.doc-page` 继承亮色值
-- 注意：修改需同时照顾 PDF、XLSX、纯文本等预览路径，不能只覆盖 docx 路径
-
-### P4：文本选中时显示当前字体名
-
-**需求**：用户在预览区（`#docPage`）用光标选中文本时，顶部中间区域（格式工具栏的字体名输入框或独立的字体提示区）实时显示：
-- **单一字体**：显示字体名称（如 `宋体`、`Times New Roman`）
-- **混合字体**：选区跨越多种字体时显示 `混合字体`
-- **未安装字体**：字体名在本机 `document.fonts` 中查不到时显示 `当前所选未安装字体`
-
-**实现要点**：
-1. 监听 `#docPage` 上的 `mouseup` / `selectionchange` 事件
-2. 用 `window.getSelection()` 获取选区；遍历选区内所有文本节点，对每个节点向上找最近带 `font-family` 内联样式或 `computed style` 的祖先元素，提取字体名
-3. 收集所有字体名 → 去重 → 若只有一个则显示该名；多个则"混合字体"
-4. 用 `document.fonts.check('12px "字体名"')` 检查是否已加载；未加载则提示"未安装"
-5. 注意：`computed style` 的 `font-family` 可能包含 fallback 列表（`宋体, SimSun, serif`），只取第一个 token 即可
-6. 显示位置：格式面板中现有字体输入框（`#fBFont` 或类似 id），或顶部工具栏新增只读字体提示 `<span>`
 
 ### P5：标题内部字体大小不一致检查
 
