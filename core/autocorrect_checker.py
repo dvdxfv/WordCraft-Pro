@@ -163,12 +163,37 @@ class AutoCorrectChecker:
 
         element_index = max(0, min(len(lines) - 1, line - 1))
         line_text = lines[element_index] if lines else ""
-        snippet = old_text.strip() or line_text[max(0, col - 1): max(0, col + 9)].strip() or line_text[:20].strip()
 
         severity = IssueSeverity.WARNING if sev in ("error", "warning") else IssueSeverity.INFO
 
         # 根据具体内容识别问题分类
         problem_type = self._classify_problem(old_text, new_text, message)
+
+        # 精确定位问题位置：在行文本中找到有问题的部分
+        start_pos = max(0, col - 1)
+        end_pos = max(0, col)
+        snippet = old_text.strip() or ""
+
+        if old_text and line_text:
+            # 尝试在行文本中找到问题文本的确切位置
+            import re
+            idx = line_text.find(old_text)
+            if idx >= 0:
+                start_pos = idx
+                end_pos = idx + len(old_text)
+                snippet = old_text
+            else:
+                # 如果找不到完整的old_text，尝试找到最关键的部分（通常是标点）
+                # 提取标点符号
+                punctuation = '。，；：！？…·—""''【】（）《》、·'
+                for p in punctuation:
+                    if p in old_text:
+                        idx = line_text.find(p)
+                        if idx >= 0:
+                            start_pos = idx
+                            end_pos = idx + 1
+                            snippet = p
+                            break
 
         if old_text and new_text:
             title = f'建议规范化（{problem_type}）："{old_text[:16]}"'
@@ -186,8 +211,8 @@ class AutoCorrectChecker:
             element_index=element_index,
             element_type="paragraph",
             location_text=snippet,
-            start_pos=max(0, col - 1),
-            end_pos=max(0, col),
+            start_pos=start_pos,
+            end_pos=end_pos,
             confidence=0.82,
         )
 
