@@ -306,19 +306,20 @@ class TestBatch10FalsePositiveReduction:
         assert len(repeat_issues) > 0, "真实重复字'的的'未被检出"
 
     def test_autocorrect_title_is_descriptive(self):
-        """AutoCorrect 问题标题应是'建议规范化：...'而非'AutoCorrect 文案规范问题'"""
+        """AutoCorrect 问题标题应清晰描述具体的规范问题类型"""
         from core.autocorrect_checker import AutoCorrectChecker
 
         checker = AutoCorrectChecker()
-        # _diag_to_issue 是实际内部方法名
-        fake_entry = {"old": "你好Hello", "new": "你好 Hello", "severity": 1, "line": 1, "col": 1}
-        issue = checker._diag_to_issue(fake_entry, lines=["你好Hello世界"])
+        # 使用标点混用的例子（中英文空格建议会被过滤掉）
+        fake_entry = {"old": "你好.", "new": "你好。", "severity": 1, "line": 1, "col": 1}
+        issue = checker._diag_to_issue(fake_entry, lines=["你好.世界"])
         assert issue is not None
         assert "AutoCorrect 文案规范问题" not in issue.title, (
             f"标题仍是旧的通用文案：'{issue.title}'"
         )
-        assert "建议规范化" in issue.title or "文案格式规范" in issue.title, (
-            f"标题未改善为描述性文案：'{issue.title}'"
+        # 标题应包含"建议规范化"和具体的问题分类
+        assert "建议规范化" in issue.title, (
+            f"标题应包含'建议规范化'关键词：'{issue.title}'"
         )
 
     def test_cjk_spacing_disabled_no_noise_in_academic_text(self):

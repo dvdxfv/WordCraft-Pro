@@ -145,11 +145,18 @@ class AutoCorrectChecker:
             or ""
         )
 
-        # 过滤：跳过"数字+空格+中文"的建议（标题中本不需要）
+        # 过滤：跳过中英文/数字间的空格建议（项目规范：中英文间不加空格）
         import re
-        if old_text and new_text and re.match(r'[\d.]+\s+[一-鿿]', new_text):
-            if re.match(r'[\d.]+[一-鿿]', old_text):
-                return None  # 跳过这个建议
+        if old_text and new_text:
+            # 跳过"数字+空格+中文"的建议
+            if re.match(r'[\d.]+\s+[一-鿿]', new_text) and re.match(r'[\d.]+[一-鿿]', old_text):
+                return None
+            # 跳过"中文+空格+英文"的建议
+            if re.search(r'[一-鿿]\s+[a-zA-Z]', new_text) and re.search(r'[一-鿿][a-zA-Z]', old_text):
+                return None
+            # 跳过"英文+空格+中文"的建议
+            if re.search(r'[a-zA-Z]\s+[一-鿿]', new_text) and re.search(r'[a-zA-Z][一-鿿]', old_text):
+                return None
 
         element_index = max(0, min(len(lines) - 1, line - 1))
         line_text = lines[element_index] if lines else ""
