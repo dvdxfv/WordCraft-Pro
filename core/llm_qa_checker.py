@@ -133,6 +133,43 @@ category 可选值：typo / grammar / logic / style / punctuation
 {text}
 """
 
+FLASH_SEMANTIC_PROMPT = """你是文档语义校对助手。请只检测规则引擎难以覆盖的问题：
+1. 错别字（需结合上下文）
+2. 病句/表达不通
+3. 简单上下文冲突（同段或相邻段）
+
+不要报告字体、格式、数值、单位、标点、交叉引用等硬规则问题。
+
+请输出严格 JSON：
+{"issues":[{"text":"问题片段","suggestion":"建议改为","reason":"原因","category":"typo|grammar|logic","confidence":0.82,"needs_review":true}]}
+
+规则：
+- 对不确定项设置 needs_review=true（这类就是疑难项）
+- 置信度低于 0.6 不输出
+- 若无问题，输出 {"issues":[]}
+
+待检查文本：
+{text}
+"""
+
+PRO_REVIEW_PROMPT = """你是资深审校专家，请仅做复核定性，不做全量重扫。
+
+输入包括两部分：
+1) 待复核疑难项（来自 Flash）
+2) 文档核心段落（合同付款条款、报告核心结论、政策/法规引用）
+
+请输出严格 JSON：
+{"issues":[{"text":"问题片段","suggestion":"建议改为","reason":"复核结论","category":"logic|grammar|typo","confidence":0.9,"needs_review":false}]}
+
+规则：
+- 只输出你确认有问题的项
+- 不输出格式类硬规则问题
+- 若无新增或无确认问题，输出 {"issues":[]}
+
+待复核内容：
+{text}
+"""
+
 
 class LLMQAChecker:
     """LLM 辅助质量检测器
@@ -377,6 +414,94 @@ class LLMQAChecker:
 
         return merged
 
+    def check_semantic_flash(
+        self,
+        doc: DocumentModel,
+        model: str = "deepseek-v4-flash",
+    ) -> tuple[QAReport, list[dict]]:
+        """二级全量：Flash 处理语义类问题，并标记疑难项。"""
+        report = QAReport()
+        review_candidates: list[dict] = []
+        client = self._ensure_client()
+        if not client or not client.is_available():
+            return report, review_candidates
+
+        chunks = self._split_text(doc)
+        for chunk_text, start_elem_idx in chunks:
+            issues = self._call_llm(
+                FLASH_SEMANTIC_PROMPT.format(text=chunk_text),
+                client,
+                model=model,
+            )
+            for issue_data in issues:
+                confidence = float(issue_data.get("confidence", 0.7))
+                if confidence < self.min_confidence:
+                    continue
+                category = self._map_category(issue_data.get("category", "typo"))
+                issue = QAIssue(
+                    category=category,
+                    severity=IssueSeverity.WARNING,
+                    title=f"语义问题：{issue_data.get('reason', '需要复核')}",
+                    description=f"原文：\"{issue_data.get('text', '')}\"",
+                    suggestion=issue_data.get("suggestion", ""),
+                    element_index=start_elem_idx,
+                    element_type="paragraph",
+                    location_text=issue_data.get("text", ""),
+                    confidence=confidence,
+                    checker="deepseek_flash",
+                    rule_id="llm.semantic.flash",
+                )
+                report.add_issue(issue)
+                if issue_data.get("needs_review", False):
+                    review_candidates.append(issue_data)
+
+        return report, review_candidates
+
+    def check_pro_review(
+        self,
+        doc: DocumentModel,
+        review_candidates: list[dict],
+        model: str = "deepseek-v4-pro",
+    ) -> QAReport:
+        """三级复核：仅复核疑难项与核心段落。"""
+        report = QAReport()
+        client = self._ensure_client()
+        if not client or not client.is_available():
+            return report
+
+        core_segments = self._extract_core_segments(doc)
+        if not review_candidates and not core_segments:
+            return report
+
+        payload = {
+            "review_candidates": review_candidates[:30],
+            "core_segments": core_segments[:20],
+        }
+        issues = self._call_llm(
+            PRO_REVIEW_PROMPT.format(text=json.dumps(payload, ensure_ascii=False)),
+            client,
+            model=model,
+        )
+        for issue_data in issues:
+            confidence = float(issue_data.get("confidence", 0.8))
+            if confidence < self.min_confidence:
+                continue
+            issue = QAIssue(
+                category=self._map_category(issue_data.get("category", "logic")),
+                severity=IssueSeverity.ERROR if confidence >= 0.85 else IssueSeverity.WARNING,
+                title=f"复核结论：{issue_data.get('reason', '疑难项确认')}",
+                description=f"原文：\"{issue_data.get('text', '')}\"",
+                suggestion=issue_data.get("suggestion", ""),
+                element_index=0,
+                element_type="paragraph",
+                location_text=issue_data.get("text", ""),
+                confidence=confidence,
+                checker="deepseek_pro",
+                rule_id="llm.semantic.pro_review",
+            )
+            report.add_issue(issue)
+        return report
+
     def _split_text(
         self,
         doc: DocumentModel,
@@ -459,7 +584,7 @@ class LLMQAChecker:
 
         return chunks
 
-    def _call_llm(self, prompt: str, client: LLMClient) -> list[dict]:
+    def _call_llm(self, prompt: str, client: LLMClient, model: Optional[str] = None) -> list[dict]:
         """调用 LLM 并解析 JSON 结果
 
         Args:
@@ -471,7 +596,15 @@ class LLMQAChecker:
         """
         messages = [ChatMessage(role="user", content=prompt)]
         try:
-            result_text = client.chat(messages, temperature=0.1)
+            if model and hasattr(client, "_config"):
+                original = client._config.model
+                client._config.model = model
+                try:
+                    result_text = client.chat(messages, temperature=0.1)
+                finally:
+                    client._config.model = original
+            else:
+                result_text = client.chat(messages, temperature=0.1)
             # 解析 JSON
             parsed = self._parse_json_result(result_text)
             return parsed.get("issues", [])
@@ -561,3 +694,29 @@ class LLMQAChecker:
             return 0.0
 
         return len(intersection) / len(union)
+
+    @staticmethod
+    def _map_category(category_str: str) -> IssueCategory:
+        category_map = {
+            "typo": IssueCategory.TYPO,
+            "grammar": IssueCategory.GRAMMAR,
+            "logic": IssueCategory.LOGIC,
+            "style": IssueCategory.STYLE,
+            "punctuation": IssueCategory.FORMAT,
+        }
+        return category_map.get(category_str, IssueCategory.TYPO)
+
+    def _extract_core_segments(self, doc: DocumentModel) -> list[str]:
+        """抽取核心段落：合同付款、核心结论、政策引用。"""
+        patterns = (
+            "付款", "支付", "结论", "综上", "因此", "条例", "办法", "通知",
+            "合同", "协议", "依据", "按照", "政策", "法规",
+        )
+        core_segments: list[str] = []
+        for elem in doc.elements:
+            text = (elem.content or "").strip()
+            if not text:
+                continue
+            if any(k in text for k in patterns):
+                core_segments.append(text[:600])
+        return core_segments

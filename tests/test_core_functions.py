@@ -32,7 +32,11 @@ class TestParseDocx:
     @pytest.fixture(scope="class")
     def elements(self):
         """解析测试模板，整个类共享结果"""
-        return Api._parse_docx(TEMPLATE_DOCX)
+        result = Api._parse_docx(TEMPLATE_DOCX)
+        # _parse_docx returns (elements, sections, styles); keep backward compat for legacy tests.
+        if isinstance(result, tuple):
+            return result[0]
+        return result
 
     def test_parse_docx_returns_non_empty_list(self, elements):
         """解析返回非空列表"""

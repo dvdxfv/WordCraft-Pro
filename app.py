@@ -7,8 +7,11 @@ import json
 import logging
 import os
 import re
+import subprocess
 import sys
 import time
+import zipfile
+from urllib.request import urlretrieve
 from functools import wraps
 
 logger = logging.getLogger(__name__)
@@ -42,6 +45,208 @@ class Api:
         self._supabase = None
         self._supabase_enabled = supabase_enabled
         self._supabase_initialized = False
+        self._qa_health: dict = {}
+        self._qa_runtime_config: dict = {}
+        self._qa_autofix_attempted = False
+        self._qa_autofix_attempted_at = 0
+        self._qa_last_aggressive_retry_at = 0
+        self._qa_install_state: dict = {
+            "status": "idle",
+            "message": "",
+            "updated_at": int(time.time()),
+        }
+        self._warmup_qa_capabilities(force=True)
+
+    def _load_runtime_config(self) -> dict:
+        cfg = {}
+        try:
+            import yaml
+            cfg_path = os.path.join(os.path.dirname(__file__), "config.yaml")
+            if os.path.exists(cfg_path):
+                with open(cfg_path, "r", encoding="utf-8") as f:
+                    cfg = yaml.safe_load(f) or {}
+        except Exception as exc:
+            logger.warning("读取 config.yaml 失败: %s", exc)
+        return cfg
+
+    def _probe_autocorrect(self) -> dict:
+        result = {"enabled": False, "available": False, "detail": "", "command": ""}
+        qa_cfg = (self._qa_runtime_config.get("qa") or {})
+        ac_cfg = qa_cfg.get("autocorrect_check") or {}
+        enabled = bool(ac_cfg.get("enabled", True))
+        cmd = str(ac_cfg.get("command", "autocorrect"))
+        result["enabled"] = enabled
+        result["command"] = cmd
+        if not enabled:
+            result["detail"] = "disabled by config"
+            return result
+        try:
+            proc = subprocess.run(
+                [cmd, "--version"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=5,
+            )
+            if proc.returncode == 0:
+                result["available"] = True
+                result["detail"] = (proc.stdout or proc.stderr).strip() or "ok"
+            else:
+                result["detail"] = (proc.stderr or proc.stdout).strip() or f"exit={proc.returncode}"
+        except Exception as exc:
+            result["detail"] = f"exec failed: {exc}"
+        return result
+
+    def _get_autocorrect_target_command(self) -> str:
+        """返回项目内推荐 autocorrect 可执行路径。"""
+        exe = "autocorrect.exe" if sys.platform == "win32" else "autocorrect"
+        return os.path.join(os.path.dirname(__file__), "tools", "autocorrect", exe)
+
+    def _ensure_autocorrect_command(self):
+        """若配置缺失 command，自动填充项目内命令路径。"""
+        qa_cfg = self._qa_runtime_config.setdefault("qa", {})
+        ac_cfg = qa_cfg.setdefault("autocorrect_check", {})
+        if not ac_cfg.get("command"):
+            ac_cfg["command"] = self._get_autocorrect_target_command()
+
+    def _auto_install_autocorrect(self) -> tuple[bool, str]:
+        """自动安装 autocorrect（当前优先 Windows 二进制分发）。"""
+        try:
+            cmd = self._get_autocorrect_target_command()
+            if os.path.isfile(cmd):
+                return True, "binary already exists"
+
+            if sys.platform != "win32":
+                return False, "auto-install autocorrect currently supports win32 only"
+
+            tools_dir = os.path.dirname(cmd)
+            os.makedirs(tools_dir, exist_ok=True)
+            zip_path = os.path.join(os.path.dirname(__file__), "tools", "autocorrect-windows-amd64.zip")
+            url = "https://github.com/huacnlee/autocorrect/releases/download/v2.16.3/autocorrect-windows-amd64.zip"
+            urlretrieve(url, zip_path)
+            with zipfile.ZipFile(zip_path, "r") as zf:
+                zf.extractall(tools_dir)
+            if os.path.isfile(cmd):
+                return True, "downloaded autocorrect binary"
+            return False, "download finished but binary missing"
+        except Exception as exc:
+            return False, f"autocorrect install failed: {exc}"
+
+    def _auto_fix_qa_dependencies(self, ac: dict, ignore_cooldown: bool = False) -> dict:
+        """autocorrect 依赖自动修复（带冷却重试，避免频繁安装）。"""
+        autofix = {"attempted": False, "actions": []}
+        qa_cfg = self._qa_runtime_config.get("qa") or {}
+        auto_install_enabled = bool(qa_cfg.get("auto_install_dependencies", True))
+        retry_interval = int(qa_cfg.get("auto_install_retry_seconds", 300))
+        if not auto_install_enabled:
+            autofix["actions"].append({"name": "autofix", "ok": False, "detail": "disabled by config"})
+            self._qa_install_state = {
+                "status": "disabled",
+                "message": "auto install disabled",
+                "updated_at": int(time.time()),
+            }
+            return autofix
+        if (not ignore_cooldown) and self._qa_autofix_attempted and (time.time() - self._qa_autofix_attempted_at) < retry_interval:
+            autofix["actions"].append({"name": "autofix", "ok": False, "detail": "cooldown"})
+            self._qa_install_state = {
+                "status": "cooldown",
+                "message": f"next retry in <= {retry_interval}s",
+                "updated_at": int(time.time()),
+            }
+            return autofix
+
+        self._qa_autofix_attempted = True
+        self._qa_autofix_attempted_at = int(time.time())
+        autofix["attempted"] = True
+        self._qa_install_state = {
+            "status": "installing",
+            "message": "starting dependency auto-install" if not ignore_cooldown else "retrying dependency auto-install now",
+            "updated_at": int(time.time()),
+        }
+
+        if ac.get("enabled") and not ac.get("available"):
+            self._qa_install_state = {
+                "status": "installing",
+                "message": "installing autocorrect",
+                "updated_at": int(time.time()),
+            }
+            ok, detail = self._auto_install_autocorrect()
+            autofix["actions"].append({"name": "autocorrect", "ok": ok, "detail": detail})
+            self._ensure_autocorrect_command()
+
+        self._qa_install_state = {
+            "status": "verifying",
+            "message": "verifying capabilities",
+            "updated_at": int(time.time()),
+        }
+        return autofix
+
+    def _warmup_qa_capabilities(self, force: bool = False, aggressive_retry: bool = False) -> dict:
+        if self._qa_health and not force:
+            return self._qa_health
+
+        self._qa_runtime_config = self._load_runtime_config()
+        self._ensure_autocorrect_command()
+        ac = self._probe_autocorrect()
+
+        # 首次发现缺依赖时尝试自动修复，再重探测一次。
+        autofix = self._auto_fix_qa_dependencies(ac, ignore_cooldown=aggressive_retry)
+        if autofix.get("attempted"):
+            ac = self._probe_autocorrect()
+
+        # 硬门禁：启用的能力必须全部可用。
+        required = []
+        if ac["enabled"]:
+            required.append(("autocorrect", ac["available"]))
+        missing = [name for name, ok in required if not ok]
+
+        self._qa_health = {
+            "ready": len(missing) == 0,
+            "checked_at": int(time.time()),
+            "missing": missing,
+            "autofix": autofix,
+            "install_state": {
+                **self._qa_install_state,
+                "completed": len(missing) == 0,
+            },
+            "capabilities": {
+                "autocorrect": ac,
+            },
+        }
+        if len(missing) == 0:
+            self._qa_install_state = {
+                "status": "completed",
+                "message": "qa dependencies ready",
+                "updated_at": int(time.time()),
+            }
+            self._qa_health["install_state"] = {
+                **self._qa_install_state,
+                "completed": True,
+            }
+        elif self._qa_install_state.get("status") in ("idle", "verifying", "completed"):
+            self._qa_install_state = {
+                "status": "pending",
+                "message": "waiting for dependencies",
+                "updated_at": int(time.time()),
+            }
+            self._qa_health["install_state"] = {
+                **self._qa_install_state,
+                "completed": False,
+            }
+        return self._qa_health
+
+    def getQAHealth(self) -> str:
+        health = self._warmup_qa_capabilities(force=True)
+        # 纯网页场景下，前端主要靠 health 轮询；这里按节流自动触发一次“立即重试安装”。
+        if not health.get("ready", False):
+            now_ts = int(time.time())
+            qa_cfg = self._qa_runtime_config.get("qa") or {}
+            aggressive_interval = int(qa_cfg.get("auto_install_aggressive_retry_seconds", 20))
+            if (now_ts - self._qa_last_aggressive_retry_at) >= aggressive_interval:
+                self._qa_last_aggressive_retry_at = now_ts
+                health = self._warmup_qa_capabilities(force=True, aggressive_retry=True)
+        return json.dumps({"success": True, **health}, ensure_ascii=False)
 
     def _ensure_supabase_initialized(self):
         if not self._supabase_initialized and self._supabase_enabled:
@@ -90,16 +295,18 @@ class Api:
         if size > 100 * 1024 * 1024:
             return json.dumps({"success": False, "error": "文件过大（超过100MB）", "error_code": "FILE_TOO_LARGE"})
 
+        sections = []
+        styles_meta: dict = {}
         try:
             if ext == "docx":
-                elements = self._parse_docx(path)
+                elements, sections, styles_meta = self._parse_docx(path)
             elif ext in ("txt", "md"):
                 elements = self._parse_text(path)
             else:
                 try:
                     elements = self._parse_text(path)
                 except Exception:
-                    elements = self._parse_docx(path)
+                    elements, sections, styles_meta = self._parse_docx(path)
 
             if not elements:
                 return json.dumps({"success": False, "error": "文件为空或无可解析内容", "error_code": "EMPTY_FILE"})
@@ -125,7 +332,8 @@ class Api:
 
         return json.dumps({
             "success": True, "name": name, "size": size,
-            "type": ext, "elements": elements, "element_count": len(elements)
+            "type": ext, "elements": elements, "element_count": len(elements),
+            "sections": sections, "styles": styles_meta,
         }, ensure_ascii=False)
 
     def saveFile(self, content: str, file_name: str = "document.html") -> str:
@@ -151,6 +359,116 @@ class Api:
         except Exception as exc:
             logger.error("导出失败: %s", exc)
             return json.dumps({"success": False, "error": str(exc)}, ensure_ascii=False)
+
+    def refreshDocxFields(self, docx_b64: str) -> str:
+        """
+        用 Word COM (PowerShell) 刷新 docx 的域/目录编号。
+        回退：LibreOffice headless 重存（不刷域，但不破坏文件）。
+        两者均不可用时返回 error_code=NO_OFFICE_ENGINE。
+        """
+        import base64 as _b64
+        import subprocess
+        import tempfile
+        import shutil
+        from pathlib import Path as _Path
+
+        try:
+            docx_bytes = _b64.b64decode(docx_b64)
+        except Exception as exc:
+            return json.dumps({"error": f"base64 decode failed: {exc}"})
+
+        tmp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as tmp:
+                tmp.write(docx_bytes)
+                tmp_path = tmp.name
+
+            # 尝试 Word COM（PowerShell，Windows only）
+            if sys.platform == "win32":
+                src_ps = tmp_path.replace("'", "''")
+                ps = (
+                    "$ErrorActionPreference='Stop';"
+                    "$w=$null;"
+                    "try{"
+                    f"$w=New-Object -ComObject Word.Application;"
+                    "$w.Visible=$false;"
+                    f"$d=$w.Documents.Open('{src_ps}');"
+                    "$d.Fields.Update();"
+                    "$d.TablesOfContents|ForEach-Object{$_.Update()};"
+                    "$d.Save();"
+                    "$d.Close();"
+                    "Write-Output 'OK'"
+                    "}catch{Write-Error $_.Exception.Message}"
+                    "finally{if($w){$w.Quit()}}"
+                )
+                try:
+                    r = subprocess.run(
+                        ["powershell", "-NonInteractive", "-Command", ps],
+                        capture_output=True, text=True, timeout=120,
+                    )
+                    if r.returncode == 0 and "OK" in r.stdout:
+                        with open(tmp_path, "rb") as f:
+                            out_b64 = _b64.b64encode(f.read()).decode("utf-8")
+                        return json.dumps({"success": True, "content": out_b64})
+                    logger.warning("Word COM Fields.Update 失败: %s", r.stderr[:200])
+                except subprocess.TimeoutExpired:
+                    return json.dumps({"error_code": "TIMEOUT", "error": "Word COM 超时（>120s）"})
+                except Exception as ps_err:
+                    logger.warning("PowerShell 调用失败: %s", ps_err)
+
+            # 尝试 LibreOffice headless（重转存，不真正刷域，但保持文件完整）
+            lo_candidates = [
+                "libreoffice", "soffice",
+                "/usr/bin/libreoffice", "/usr/bin/soffice",
+                "C:\\Program Files\\LibreOffice\\program\\soffice.exe",
+                "C:\\Program Files (x86)\\LibreOffice\\program\\soffice.exe",
+                "/Applications/LibreOffice.app/Contents/MacOS/soffice",
+            ]
+            lo_cmd = None
+            for cmd in lo_candidates:
+                try:
+                    chk = subprocess.run([cmd, "--version"], capture_output=True, text=True, timeout=10)
+                    if chk.returncode == 0:
+                        lo_cmd = cmd
+                        break
+                except (FileNotFoundError, subprocess.TimeoutExpired):
+                    continue
+
+            if lo_cmd:
+                out_dir = tempfile.mkdtemp(prefix="wc_refresh_")
+                try:
+                    r = subprocess.run(
+                        [lo_cmd, "--headless", "--convert-to", "docx",
+                         "--outdir", out_dir, tmp_path],
+                        capture_output=True, text=True, timeout=120,
+                    )
+                    stem = _Path(tmp_path).stem
+                    lo_out = os.path.join(out_dir, stem + ".docx")
+                    if not os.path.isfile(lo_out):
+                        for fn in os.listdir(out_dir):
+                            if fn.endswith(".docx"):
+                                lo_out = os.path.join(out_dir, fn)
+                                break
+                    if r.returncode == 0 and os.path.isfile(lo_out):
+                        with open(lo_out, "rb") as f:
+                            out_b64 = _b64.b64encode(f.read()).decode("utf-8")
+                        return json.dumps({"success": True, "content": out_b64})
+                except Exception as lo_err:
+                    logger.warning("LibreOffice refresh 失败: %s", lo_err)
+                finally:
+                    shutil.rmtree(out_dir, ignore_errors=True)
+
+            return json.dumps({"error_code": "NO_OFFICE_ENGINE",
+                               "error": "Word COM 和 LibreOffice 均不可用，请安装其中之一"})
+        except Exception as exc:
+            logger.error("refreshDocxFields 异常: %s", exc)
+            return json.dumps({"error_code": "ERROR", "error": str(exc)})
+        finally:
+            if tmp_path:
+                try:
+                    os.unlink(tmp_path)
+                except Exception:
+                    pass
 
     @cached_response(ttl_seconds=600)
     def getSystemInfo(self) -> str:
@@ -236,19 +554,108 @@ class Api:
         except Exception as exc:
             return json.dumps({"success": False, "error": str(exc)}, ensure_ascii=False)
 
+    @staticmethod
+    def _extract_docx_format_rules(file_path: str) -> dict:
+        """从 .docx 文件提取排版参数，返回与前端 _aiParsedRules 格式相同的 dict。"""
+        try:
+            from docx import Document
+            from docx.oxml.ns import qn
+            doc = Document(file_path)
+        except Exception:
+            return {}
+
+        def _pt(sz):
+            try:
+                return round(float(sz.pt), 1)
+            except Exception:
+                return None
+
+        def _cm(emu):
+            try:
+                return round(emu / 360000.0, 2)
+            except Exception:
+                return None
+
+        def _cn_font(run):
+            try:
+                rpr = run._r.find(qn('w:rPr'))
+                if rpr is None:
+                    return None
+                rf = rpr.find(qn('w:rFonts'))
+                if rf is None:
+                    return None
+                return rf.get(qn('w:eastAsia')) or rf.get(qn('w:hAnsi'))
+            except Exception:
+                return None
+
+        ALIGN = {1: '左对齐', 2: '居中', 3: '右对齐', 4: '两端对齐'}
+        rules = {}
+
+        if doc.sections:
+            s = doc.sections[0]
+            rules.update({
+                'marginTop': _cm(s.top_margin),
+                'marginBottom': _cm(s.bottom_margin),
+                'marginLeft': _cm(s.left_margin),
+                'marginRight': _cm(s.right_margin),
+            })
+
+        found = {k: False for k in ('h1', 'h2', 'h3', 'body')}
+        for para in doc.paragraphs[:300]:
+            if all(found.values()):
+                break
+            sname = (para.style.name or '').lower().strip()
+            for lvl in (1, 2, 3):
+                key = f'h{lvl}'
+                if found[key]:
+                    continue
+                if sname in (f'heading {lvl}', f'标题 {lvl}', f'标题{lvl}', f'heading{lvl}'):
+                    if para.runs:
+                        run = para.runs[0]
+                        rules[f'h{lvl}Font'] = _cn_font(run) or run.font.name
+                        rules[f'h{lvl}Size'] = _pt(run.font.size)
+                        found[key] = True
+                    break
+            if not found['body'] and sname in ('normal', '正文', 'body text', 'default paragraph font'):
+                if para.text.strip() and para.runs:
+                    run = para.runs[0]
+                    cn = _cn_font(run)
+                    rules['bodyFont'] = cn or run.font.name
+                    rules['bodySize'] = _pt(run.font.size)
+                    rules['westFont'] = run.font.name
+                    pf = para.paragraph_format
+                    try:
+                        if pf.first_line_indent and run.font.size and run.font.size.pt > 0:
+                            rules['indent'] = round(float(pf.first_line_indent / run.font.size), 1)
+                    except Exception:
+                        pass
+                    try:
+                        if pf.line_spacing is not None:
+                            rules['lineHeight'] = round(float(pf.line_spacing), 2)
+                    except Exception:
+                        pass
+                    rules['align'] = ALIGN.get(pf.alignment)
+                    found['body'] = True
+
+        return {k: v for k, v in rules.items() if v is not None}
+
     def uploadTemplate(self, file_path: str, name: str) -> str:
         try:
+            format_rules = {}
+            if file_path.lower().endswith('.docx') and os.path.exists(file_path):
+                format_rules = self._extract_docx_format_rules(file_path)
+
             if self._supabase and self._session.get("user_id"):
                 user_id = self._session["user_id"]
                 file_url = self._supabase.upload_template_file(user_id, file_path, name)
                 if file_url:
                     record = self._supabase.insert_template(user_id, name, file_url, "custom")
-                    return json.dumps({"success": True, "template_id": record.get("id", "") if record else "", "name": name, "file_url": file_url}, ensure_ascii=False)
+                    return json.dumps({"success": True, "template_id": record.get("id", "") if record else "", "name": name, "file_url": file_url, "format_rules": format_rules}, ensure_ascii=False)
                 return json.dumps({"success": False, "error": "上传失败"})
             else:
                 if not os.path.exists(file_path):
                     return json.dumps({"success": False, "error": "文件不存在"})
-                return json.dumps({"success": True, "template_id": "template-new-001", "name": name}, ensure_ascii=False)
+                return json.dumps({"success": True, "template_id": "template-new-001", "name": name, "format_rules": format_rules}, ensure_ascii=False)
         except Exception as exc:
             return json.dumps({"success": False, "error": str(exc)}, ensure_ascii=False)
 
@@ -300,22 +707,78 @@ class Api:
     #  质量检查
     # ------------------------------------------------------------------
 
-    def runQA(self, content: str, categories_str: str = '["typo", "consistency", "logic"]') -> str:
+    def runQA(self, content: str, categories_str: str = '["typo", "consistency", "logic", "format", "crossref"]') -> str:
         try:
+            qa_health = self._warmup_qa_capabilities(force=False)
+            if not qa_health.get("ready", False):
+                # 用户刚完成依赖安装时，给一次强制重检机会，避免必须重启后端。
+                qa_health = self._warmup_qa_capabilities(force=True, aggressive_retry=True)
+            if not qa_health.get("ready", False):
+                return json.dumps({
+                    "success": False,
+                    "error_code": "QA_CAPABILITY_NOT_READY",
+                    "error": "QA 能力未就绪，请联系管理员完成依赖安装。",
+                    "missing": qa_health.get("missing", []),
+                    "capabilities": qa_health.get("capabilities", {}),
+                }, ensure_ascii=False)
+
             from core.qa_engine import QAEngine
-            from core.document_model import DocumentModel
+            from core.document_model import DocumentModel, DocElement, ElementType
+            from html.parser import HTMLParser
+
+            class _StripHTML(HTMLParser):
+                def __init__(self): super().__init__(); self._parts = []
+                def handle_data(self, d): self._parts.append(d)
+                def get_text(self): return ''.join(self._parts)
+
             doc = DocumentModel(title="检查文档", source_format="html")
-            categories = json.loads(categories_str)
-            engine = QAEngine()
+            # 将 HTML/纯文本 content 解析为 DocElement 列表
+            if content:
+                import re as _re
+                raw = content if isinstance(content, str) else str(content)
+                # 逐个匹配 HTML 块元素（h1-h6, p, li）以及换行纯文本
+                for m in _re.finditer(
+                    r'<h([1-6])[^>]*>(.*?)</h[1-6]>|<(?:p|li)[^>]*>(.*?)</(?:p|li)>|([^\n<]+)',
+                    raw, _re.IGNORECASE | _re.DOTALL
+                ):
+                    if m.group(1):  # heading
+                        p = _StripHTML(); p.feed(m.group(2)); txt = p.get_text().strip()
+                        if txt:
+                            doc.elements.append(DocElement(element_type=ElementType.HEADING,
+                                content=txt, level=int(m.group(1))))
+                    elif m.group(3) is not None:  # p / li
+                        p = _StripHTML(); p.feed(m.group(3)); txt = p.get_text().strip()
+                        if txt:
+                            elem_type = ElementType.PARAGRAPH
+                            if _re.match(r"^(图|表)\s*\d+([\-\.]\d+)?", txt):
+                                elem_type = ElementType.CAPTION
+                            elif _re.match(r"^\[\d+\]", txt):
+                                elem_type = ElementType.REFERENCE
+                            doc.elements.append(DocElement(element_type=elem_type, content=txt))
+                    elif m.group(4):  # 纯文本行
+                        txt = m.group(4).strip()
+                        if txt:
+                            elem_type = ElementType.PARAGRAPH
+                            if _re.match(r"^(图|表)\s*\d+([\-\.]\d+)?", txt):
+                                elem_type = ElementType.CAPTION
+                            elif _re.match(r"^\[\d+\]", txt):
+                                elem_type = ElementType.REFERENCE
+                            doc.elements.append(DocElement(element_type=elem_type, content=txt))
+
+            categories = json.loads(categories_str) if isinstance(categories_str, str) else categories_str
+            engine = QAEngine(config=self._qa_runtime_config)
             report = engine.check(doc, categories)
             return json.dumps({
                 "success": True,
                 "issues": [
-                    {"id": i.id,
+                    {"id": i.issue_id,
                      "category": i.category.value if hasattr(i.category, 'value') else str(i.category),
                      "severity": i.severity.value if hasattr(i.severity, 'value') else str(i.severity),
                      "title": i.title, "description": i.description,
-                     "suggestion": i.suggestion, "confidence": i.confidence}
+                     "suggestion": i.suggestion, "confidence": i.confidence,
+                     "location_text": (i.location_text or '').strip(),
+                     "rule_id": getattr(i, "rule_id", ""),
+                     "checker": getattr(i, "checker", "")}
                     for i in report.issues
                 ],
                 "stats": {
@@ -354,44 +817,62 @@ class Api:
 
     def runXRef(self, content: str) -> str:
         try:
-            targets_found = []
-            references_found = []
+            from core.document_model import DocumentModel, DocElement, ElementType
+            from core.crossref_engine import TargetScanner, RefPointScanner, CrossRefMatcher
+            from core.crossref_models import CrossRefStatus
+            from html.parser import HTMLParser
 
-            for match in re.finditer(r'<h([1-3])>([^<]+)</h\1>', content):
-                targets_found.append({"type": f"heading_{match.group(1)}", "text": match.group(2), "label": match.group(2)})
+            class _Strip(HTMLParser):
+                def __init__(self): super().__init__(); self._parts = []
+                def handle_data(self, d): self._parts.append(d)
+                def get_text(self): return ''.join(self._parts)
 
-            for match in re.finditer(r'表\s*(\d+)[\-\.]?(\d*)\s*([^<\n]*)', content):
-                label = f"表{match.group(1)}" + (f"-{match.group(2)}" if match.group(2) else "")
-                targets_found.append({"type": "table", "text": label, "label": f"{label} {match.group(3).strip()}".strip()})
+            doc = DocumentModel(title="xref", source_format="html")
+            for m in re.finditer(
+                r'<h([1-6])[^>]*>(.*?)</h[1-6]>|<(?:p|li)[^>]*>(.*?)</(?:p|li)>',
+                content, re.IGNORECASE | re.DOTALL
+            ):
+                if m.group(1):
+                    p = _Strip(); p.feed(m.group(2)); txt = p.get_text().strip()
+                    if txt:
+                        doc.elements.append(DocElement(element_type=ElementType.HEADING,
+                            content=txt, level=int(m.group(1))))
+                elif m.group(3) is not None:
+                    p = _Strip(); p.feed(m.group(3)); txt = p.get_text().strip()
+                    if txt:
+                        et = ElementType.PARAGRAPH
+                        if re.match(r"^\s*\[\d+\]", txt):
+                            et = ElementType.REFERENCE
+                        doc.elements.append(DocElement(element_type=et, content=txt))
 
-            for match in re.finditer(r'图\s*(\d+)[\-\.]?(\d*)\s*([^<\n]*)', content):
-                label = f"图{match.group(1)}" + (f"-{match.group(2)}" if match.group(2) else "")
-                targets_found.append({"type": "figure", "text": label, "label": f"{label} {match.group(3).strip()}".strip()})
+            scanner = TargetScanner()
+            targets = scanner.scan(doc)
+            ref_scanner = RefPointScanner()
+            ref_points = ref_scanner.scan(doc)
+            multi_refs = ref_scanner.scan_multi_references(doc)
+            ref_points.extend(multi_refs)
+            matcher = CrossRefMatcher()
+            report = matcher.match(targets, ref_points)
 
-            for match in re.finditer(r'(如图|见表|查看图|参见表|图|表)\s*(\d+)[\-\.]?(\d*)', content):
-                ref_type = match.group(1)
-                ref_text = match.group(2) + (f"-{match.group(3)}" if match.group(3) else "")
-                references_found.append({"type": "图" if "图" in ref_type else "表",
-                                          "text": ref_text, "full_text": match.group(0), "location": match.start()})
-
-            matches = []
-            for ref in references_found:
-                found = any(
-                    (ref["type"] == "图" and "figure" in t["type"] and ref["text"] in t["label"]) or
-                    (ref["type"] == "表" and "table" in t["type"] and ref["text"] in t["label"])
-                    for t in targets_found
-                )
-                if found:
-                    matches.append({"status": "valid", "reference": ref["full_text"], "message": "匹配成功"})
-                else:
-                    matches.append({"status": "dangling", "reference": ref["full_text"],
-                                    "message": f"找不到{ref['type']}{ref['text']}的定义"})
+            status_map = {
+                CrossRefStatus.VALID: "valid",
+                CrossRefStatus.DANGLING: "dangling",
+                CrossRefStatus.UNREFERENCED: "unreferenced",
+                CrossRefStatus.MISMATCH: "dangling",
+            }
+            targets_out = [{"type": t.target_type.value, "text": t.number, "label": t.label, "title": t.title or ""} for t in targets]
+            matches_out = [{"status": status_map.get(m.status, "dangling"),
+                            "reference": m.ref_point.ref_text if m.ref_point.ref_text else "—",
+                            "target": m.target.label if m.target else "",
+                            "message": m.message,
+                            "element_index": getattr(m.ref_point, 'element_index', None)} for m in report.matches]
 
             return json.dumps({
-                "success": True, "targets": targets_found, "references": references_found, "matches": matches,
-                "summary": {"total_targets": len(targets_found), "total_references": len(references_found),
-                             "valid_matches": len([m for m in matches if m["status"] == "valid"]),
-                             "dangling_references": len([m for m in matches if m["status"] == "dangling"])},
+                "success": True, "targets": targets_out, "matches": matches_out,
+                "summary": {"total_targets": len(targets_out),
+                             "valid_matches": sum(1 for m in matches_out if m["status"] == "valid"),
+                             "dangling_references": sum(1 for m in matches_out if m["status"] == "dangling"),
+                             "unreferenced": sum(1 for m in matches_out if m["status"] == "unreferenced")},
             }, ensure_ascii=False)
         except Exception as exc:
             return json.dumps({"success": False, "error": str(exc)})
@@ -493,8 +974,6 @@ class Api:
     # ------------------------------------------------------------------
 
     def callAI(self, system_prompt: str, user_message: str, config_str: str = "{}") -> str:
-        import urllib.request, urllib.error
-
         config = {}
         if config_str:
             try:
@@ -502,67 +981,113 @@ class Api:
             except Exception:
                 pass
 
-        model = config.get("model", "doubao-seed-1-6-251015")
+        model = str(config.get("model", "deepseek-v4-flash")).strip()
+        if (not model) or (not model.lower().startswith("deepseek-")):
+            # 兼容旧前端保存的 doubao/deepseek-v3 模型名，统一回退到可用默认模型。
+            model = "deepseek-v4-flash"
         temperature = config.get("temperature", 0.3)
-
-        payload = json.dumps({
-            "model": model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_message},
-            ],
-            "temperature": temperature,
-            "max_tokens": 2048,
-        }).encode("utf-8")
-
-        # 通道1: Supabase Edge Function 代理
-        supabase_url = "https://nzujajuefdsheggulpze.supabase.co"
-        supabase_anon = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im56dWphanVlZmRzaGVnZ3VscHplIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYyNDY0MDMsImV4cCI6MjA5MTgyMjQwM30.N3jsg3tIi6ezlmp_MvQYvbUo41SzR5kEBECawel5KDE"
-        proxy_endpoint = f"{supabase_url}/functions/v1/ai-proxy"
+        max_tokens = int(config.get("max_tokens", 2048))
+        reasoning_effort = config.get("reasoning_effort", "high")
+        api_key = (
+            os.environ.get("DEEPSEEK_API_KEY")
+            or ((self._qa_runtime_config.get("llm") or {}).get("deepseek") or {}).get("api_key", "")
+        )
+        if not api_key:
+            return json.dumps({"error": "DEEPSEEK_API_KEY 未配置，已停用豆包通道。"}, ensure_ascii=False)
 
         try:
-            req = urllib.request.Request(
-                proxy_endpoint, data=payload,
-                headers={"Content-Type": "application/json", "Authorization": f"Bearer {supabase_anon}"},
-                method="POST",
-            )
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-                content = data.get("choices", [{}])[0].get("message", {}).get("content", "") or data.get("content", "")
-                return json.dumps({"content": content, "usage": data.get("usage", {})}, ensure_ascii=False)
-        except Exception as proxy_err:
-            # 通道2: 直接调用豆包 API
-            direct_endpoint = "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
-            api_key = "d9523eb2-f741-4122-ab0f-e6ed95ce59f2"
-            req = urllib.request.Request(
-                direct_endpoint, data=payload,
-                headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
-                method="POST",
-            )
-            try:
-                with urllib.request.urlopen(req, timeout=30) as resp:
-                    data = json.loads(resp.read().decode("utf-8"))
-                    content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-                    return json.dumps({"content": content, "usage": data.get("usage", {})}, ensure_ascii=False)
-            except urllib.error.HTTPError as e:
-                body = e.read().decode("utf-8", errors="replace")
-                try:
-                    msg = json.loads(body).get("error", {}).get("message", f"HTTP {e.code}")
-                except Exception:
-                    msg = f"HTTP {e.code}: {body[:200]}"
-                return json.dumps({"error": msg}, ensure_ascii=False)
-            except Exception as exc:
-                return json.dumps({"error": str(exc)}, ensure_ascii=False)
+            from openai import OpenAI
+
+            client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
+            req = {
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_message},
+                ],
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+            }
+            if model in ("deepseek-v4-flash", "deepseek-v4-pro"):
+                req["reasoning_effort"] = reasoning_effort
+                req["extra_body"] = {"thinking": {"type": "enabled"}}
+            resp = client.chat.completions.create(**req)
+            content = (resp.choices[0].message.content or "").strip()
+            usage = getattr(resp, "usage", None)
+            return json.dumps({"content": content, "usage": usage.model_dump() if usage else {}}, ensure_ascii=False)
+        except Exception as exc:
+            return json.dumps({"error": str(exc)}, ensure_ascii=False)
 
     # ------------------------------------------------------------------
     #  文件解析
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _parse_docx(path: str) -> list:
+    def _parse_docx(path: str):
+        """Return (elements, sections, styles).
+
+        - elements: paragraph / table list (each paragraph carries fmt + runs for round-trip export).
+        - sections: page geometry per section.
+        - styles: metadata for Normal / Heading 1-3 (font name, size, bold, rFonts) so the exporter
+          can rewrite ``word/styles.xml`` to match the source. python-docx auto-materialises any
+          missing style, so always emitting a 4-entry dict keeps the downstream code simple.
+        """
         from docx import Document
+        from docx.oxml.ns import qn
         doc = Document(path)
         elements = []
+
+        def _para_fmt(para):
+            fmt = para.paragraph_format
+            def _tw(length):
+                if length is None:
+                    return None
+                try:
+                    return int(length.twips)
+                except Exception:
+                    return None
+            rule_name = str(fmt.line_spacing_rule).split()[0] if fmt.line_spacing_rule is not None else None
+            line_spacing = None
+            line_spacing_twips = None
+            if fmt.line_spacing is not None:
+                if rule_name in ("EXACTLY", "AT_LEAST"):
+                    line_spacing_twips = _tw(fmt.line_spacing)
+                else:
+                    try:
+                        line_spacing = float(fmt.line_spacing)
+                    except Exception:
+                        line_spacing = None
+            return {
+                "style": para.style.name if para.style else None,
+                "alignment": str(para.alignment).split()[0] if para.alignment is not None else None,
+                "first_line_indent_twips": _tw(fmt.first_line_indent),
+                "left_indent_twips": _tw(fmt.left_indent),
+                "right_indent_twips": _tw(fmt.right_indent),
+                "space_before_twips": _tw(fmt.space_before),
+                "space_after_twips": _tw(fmt.space_after),
+                "line_spacing_rule": rule_name,
+                "line_spacing": line_spacing,
+                "line_spacing_twips": line_spacing_twips,
+            }
+
+        def _runs(para):
+            out = []
+            for r in para.runs:
+                r_pr = getattr(r._element, "rPr", None)
+                r_fonts = getattr(r_pr, "rFonts", None) if r_pr is not None else None
+                out.append({
+                    "text": r.text or "",
+                    "font_name": r.font.name,
+                    "font_size_pt": float(r.font.size.pt) if r.font.size else None,
+                    "bold": bool(r.bold) if r.bold is not None else None,
+                    "italic": bool(r.italic) if r.italic is not None else None,
+                    "underline": bool(r.underline) if r.underline is not None else None,
+                    "font_ascii": r_fonts.get(qn("w:ascii")) if r_fonts is not None else None,
+                    "font_hansi": r_fonts.get(qn("w:hAnsi")) if r_fonts is not None else None,
+                    "font_eastAsia": r_fonts.get(qn("w:eastAsia")) if r_fonts is not None else None,
+                    "font_cs": r_fonts.get(qn("w:cs")) if r_fonts is not None else None,
+                })
+            return out
 
         for element in doc.element.body:
             tag = element.tag.split("}")[-1] if "}" in element.tag else element.tag
@@ -570,9 +1095,8 @@ class Api:
             if tag == "p":
                 from docx.text.paragraph import Paragraph
                 para = Paragraph(element, doc)
-                text = para.text.strip()
-                if not text:
-                    continue
+                text = para.text or ""
+                text_stripped = text.strip()
                 style_name = ((para.style.name if para.style else "") or "").lower()
                 elem_type = "p"
                 if style_name in ("heading 1", "标题 1", "title") or style_name.startswith("heading 1 "):
@@ -587,12 +1111,33 @@ class Api:
                     elem_type = "caption"
                 elif "list bullet" in style_name or "无序列表" in style_name:
                     elem_type = "li"
-                    text = "• " + text
                 elif "list number" in style_name or "有序列表" in style_name:
                     elem_type = "li"
-                elif re.match(r"^\[\d+\]", text):
+                elif re.match(r"^\[\d+\]", text_stripped):
                     elem_type = "ref"
-                elements.append({"type": elem_type, "text": text})
+                # Detect section break contained inside this paragraph's pPr (w:sectPr). Word
+                # stores section breaks on the paragraph that ends each section except the last,
+                # which is captured by the body-level sectPr.
+                sect_pr = element.find(qn("w:pPr") + "/" + qn("w:sectPr")) if False else None
+                try:
+                    p_pr = element.find(qn("w:pPr"))
+                    sect_pr = p_pr.find(qn("w:sectPr")) if p_pr is not None else None
+                except Exception:
+                    sect_pr = None
+                section_break_type = None
+                if sect_pr is not None:
+                    type_el = sect_pr.find(qn("w:type"))
+                    if type_el is not None:
+                        section_break_type = type_el.get(qn("w:val")) or "nextPage"
+                    else:
+                        section_break_type = "nextPage"
+                elements.append({
+                    "type": elem_type,
+                    "text": text,
+                    "fmt": _para_fmt(para),
+                    "runs": _runs(para),
+                    "section_break": section_break_type,
+                })
 
             elif tag == "tbl":
                 from docx.table import Table
@@ -612,9 +1157,55 @@ class Api:
             for para in doc.paragraphs:
                 text = para.text.strip()
                 if text:
-                    elements.append({"type": "p", "text": text})
+                    elements.append({"type": "p", "text": text, "fmt": _para_fmt(para), "runs": _runs(para)})
 
-        return elements
+        sections = []
+        for s in doc.sections:
+            def _tw(v):
+                try:
+                    return int(v.twips) if v is not None else None
+                except Exception:
+                    return None
+            sections.append({
+                "page_width_twips": _tw(s.page_width),
+                "page_height_twips": _tw(s.page_height),
+                "left_margin_twips": _tw(s.left_margin),
+                "right_margin_twips": _tw(s.right_margin),
+                "top_margin_twips": _tw(s.top_margin),
+                "bottom_margin_twips": _tw(s.bottom_margin),
+            })
+
+        tracked_styles = ("Normal", "Heading 1", "Heading 2", "Heading 3")
+        styles_meta: dict = {}
+        for style_name in tracked_styles:
+            try:
+                style = doc.styles[style_name]
+            except (KeyError, Exception):
+                continue
+            r_fonts_el = None
+            r_pr = style.element.find(qn("w:rPr")) if style.element is not None else None
+            if r_pr is not None:
+                r_fonts_el = r_pr.find(qn("w:rFonts"))
+            rfonts = {
+                "ascii": r_fonts_el.get(qn("w:ascii")) if r_fonts_el is not None else None,
+                "hAnsi": r_fonts_el.get(qn("w:hAnsi")) if r_fonts_el is not None else None,
+                "eastAsia": r_fonts_el.get(qn("w:eastAsia")) if r_fonts_el is not None else None,
+                "cs": r_fonts_el.get(qn("w:cs")) if r_fonts_el is not None else None,
+            }
+            try:
+                size_pt = float(style.font.size.pt) if style.font.size else None
+            except Exception:
+                size_pt = None
+            styles_meta[style_name] = {
+                "font_name": style.font.name,
+                "font_size_pt": size_pt,
+                "bold": bool(style.font.bold) if style.font.bold is not None else None,
+                "italic": bool(style.font.italic) if style.font.italic is not None else None,
+                "underline": bool(style.font.underline) if style.font.underline is not None else None,
+                "rfonts": rfonts,
+            }
+
+        return elements, sections, styles_meta
 
     @staticmethod
     def _parse_text(path: str) -> list:

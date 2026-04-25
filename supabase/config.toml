@@ -1,0 +1,8 @@
+[project]
+id = "nzujajuefdsheggulpze"
+
+[functions.qa-summary]
+verify_jwt = true
+
+[functions.ai-proxy]
+verify_jwt = true

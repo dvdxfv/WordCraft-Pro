@@ -22,6 +22,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app import Api
 
 
+pytestmark = [pytest.mark.integration, pytest.mark.external]
+
+
 def create_mock_window():
     """创建 Mock pywebview 窗口"""
     window = Mock()

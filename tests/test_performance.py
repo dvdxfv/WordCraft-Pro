@@ -9,11 +9,15 @@ WordCraft Pro 性能测试脚本
 import time
 import sys
 import os
+import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app import Api
 from unittest.mock import Mock
+
+
+pytestmark = [pytest.mark.slow]
 
 
 def test_initialization_speed():

@@ -19,10 +19,10 @@ import yaml
 @dataclass
 class LLMConfig:
     """LLM 配置"""
-    provider: str = "doubao"           # doubao / deepseek / openai / chatglm
+    provider: str = "deepseek"         # deepseek / doubao / openai / chatglm
     api_key: str = ""
-    base_url: str = "https://ark.cn-beijing.volces.com/api/v3"
-    model: str = "Doubao-Seed-1.6"
+    base_url: str = "https://api.deepseek.com"
+    model: str = "deepseek-v4-flash"
     temperature: float = 0.3
     max_tokens: int = 4096
 
@@ -36,18 +36,23 @@ class LLMConfig:
         llm_data = data.get("llm", {})
         api_data = llm_data.get("api", {})
         
-        # 优先使用豆包配置，如果额度用完则切换到 DeepSeek
-        provider = api_data.get("provider", "doubao")
-        api_key = api_data.get("api_key", "")
-        
-        # 检查是否应该使用 DeepSeek（豆包配置为空或显式指定）
+        provider = api_data.get("provider", "deepseek")
+        api_key = (
+            os.environ.get("DEEPSEEK_API_KEY")
+            or api_data.get("api_key", "")
+        )
+
         deepseek_data = llm_data.get("deepseek", {})
-        if deepseek_data.get("api_key") and (not api_key or provider == "deepseek"):
+        if provider == "deepseek":
             return cls(
                 provider="deepseek",
-                api_key=deepseek_data.get("api_key", ""),
-                base_url=deepseek_data.get("base_url", "https://api.deepseek.com/v1"),
-                model=deepseek_data.get("model", "deepseek-chat"),
+                api_key=(
+                    os.environ.get("DEEPSEEK_API_KEY")
+                    or deepseek_data.get("api_key", "")
+                    or api_key
+                ),
+                base_url=deepseek_data.get("base_url", "https://api.deepseek.com"),
+                model=deepseek_data.get("model", "deepseek-v4-flash"),
                 temperature=deepseek_data.get("temperature", 0.3),
                 max_tokens=deepseek_data.get("max_tokens", 4096),
             )
@@ -158,14 +163,14 @@ class DoubaoClient(LLMClient):
 
 
 class DeepSeekClient(LLMClient):
-    """DeepSeek V3 客户端（OpenAI 兼容协议）"""
+    """DeepSeek 客户端（OpenAI 兼容协议）"""
 
     def __init__(self, config: LLMConfig = None):
         self._config = config or LLMConfig(
             provider="deepseek",
             api_key="",
-            base_url="https://api.deepseek.com/v1",
-            model="deepseek-chat",
+            base_url="https://api.deepseek.com",
+            model="deepseek-v4-flash",
         )
         self._client = None
 
@@ -188,12 +193,17 @@ class DeepSeekClient(LLMClient):
         client = self._get_client()
         api_messages = [{"role": m.role, "content": m.content} for m in messages]
 
-        response = client.chat.completions.create(
-            model=self._config.model,
-            messages=api_messages,
-            temperature=temperature or self._config.temperature,
-            max_tokens=max_tokens or self._config.max_tokens,
-        )
+        request_kwargs = {
+            "model": self._config.model,
+            "messages": api_messages,
+            "temperature": temperature or self._config.temperature,
+            "max_tokens": max_tokens or self._config.max_tokens,
+        }
+        # DeepSeek V4 建议在需要更高推理强度时显式开启思考模式。
+        if self._config.model in ("deepseek-v4-flash", "deepseek-v4-pro"):
+            request_kwargs["reasoning_effort"] = "high"
+            request_kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
+        response = client.chat.completions.create(**request_kwargs)
         return response.choices[0].message.content.strip()
 
     def chat_json(self, messages: list[ChatMessage],
@@ -269,8 +279,8 @@ def create_llm_client(config: LLMConfig = None, config_path: str = None) -> LLMC
     """工厂方法：根据配置创建 LLM 客户端
     
     自动切换逻辑：
-    1. 优先使用豆包（如果配置了 API Key）
-    2. 豆包额度用完后，切换到 DeepSeek V3
+    1. 优先使用 DeepSeek（默认）
+    2. 显式 provider=doubao 时才使用豆包
     3. 都没有则使用 Mock 客户端（测试用）
     """
     if config is None:
@@ -281,7 +291,7 @@ def create_llm_client(config: LLMConfig = None, config_path: str = None) -> LLMC
 
     # 根据 provider 选择客户端
     if config.provider == "deepseek" and config.api_key:
-        print(f"[LLM] 使用 DeepSeek V3 模型：{config.model}")
+        print(f"[LLM] 使用 DeepSeek 模型：{config.model}")
         return DeepSeekClient(config)
     elif config.api_key:
         print(f"[LLM] 使用豆包模型：{config.model}")

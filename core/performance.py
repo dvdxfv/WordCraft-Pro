@@ -90,7 +90,7 @@ class DocumentChunker:
         
         for i in range(0, total, self.chunk_size):
             chunk_elements = elements[i:i + self.chunk_size]
-            chunk_content = "".join([elem.text or "" for elem in chunk_elements])
+            chunk_content = "".join([elem.content or "" for elem in chunk_elements])
             chunk_hash = hashlib.md5(chunk_content.encode()).hexdigest()
             
             chunk = Chunk(

@@ -11,8 +11,12 @@ import webbrowser
 import urllib.request
 from pathlib import Path
 
+# 绕过系统代理，直连后端（防止 Clash/VPN 等代理拦截本地请求）
+_NO_PROXY_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
 # 设置服务器端口
 PORT = 8081
+PROXY_TIMEOUT_SECONDS = 45
 
 # 设置 Web 目录路径
 WEB_DIR = Path(__file__).parent
@@ -27,6 +31,10 @@ class MyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         self.send_header('Access-Control-Allow-Origin', '*')
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        if not self.path.startswith('/api/'):
+            self.send_header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
+            self.send_header('Pragma', 'no-cache')
+            self.send_header('Expires', '0')
         super().end_headers()
     
     def do_GET(self):
@@ -57,11 +65,9 @@ class MyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
                 if key not in ['Host', 'Content-Length']:
                     headers[key] = value
             
-            # 创建请求
+            # 创建请求（使用无代理 opener，绕过 Clash/VPN 等系统代理）
             req = urllib.request.Request(backend_url, data=body, headers=headers, method=method)
-            
-            # 发送请求
-            with urllib.request.urlopen(req) as response:
+            with _NO_PROXY_OPENER.open(req, timeout=PROXY_TIMEOUT_SECONDS) as response:
                 # 发送响应头
                 self.send_response(response.status)
                 for key, value in response.getheaders():
@@ -74,6 +80,12 @@ class MyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
                 
         except Exception as e:
             self.send_error(500, f"Proxy error: {str(e)}")
+
+
+class ThreadingHTTPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
+    """多线程 HTTP 服务，避免单个慢请求阻塞整站。"""
+    daemon_threads = True
+    allow_reuse_address = True
 
 def main():
     # 切换到 Web 目录
@@ -88,7 +100,7 @@ def main():
     print("正在启动服务器...")
     
     # 启动服务器
-    with socketserver.TCPServer(("", PORT), MyHTTPRequestHandler) as httpd:
+    with ThreadingHTTPServer(("", PORT), MyHTTPRequestHandler) as httpd:
         print(f"服务器已启动！请在浏览器中访问: http://localhost:{PORT}")
         print("按 Ctrl+C 停止服务器")
         

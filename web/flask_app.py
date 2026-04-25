@@ -14,6 +14,23 @@ CORS(app)  # 启用CORS
 
 api = Api()
 
+
+@app.route("/")
+def root():
+    """5000 端口仅提供 /api/*；直接打开根路径会 404，这里给出说明。"""
+    html = (
+        "<!DOCTYPE html><html lang=zh-CN><head><meta charset=utf-8>"
+        "<title>WordCraft Pro API</title></head><body style="
+        "'font-family:system-ui,sans-serif;padding:24px;line-height:1.6'>"
+        "<h2>这是后端 API（端口 5000）</h2>"
+        "<p>本服务没有网页首页，只提供 <code>/api/...</code> 接口。</p>"
+        "<p>请在浏览器打开前端页面：<strong>"
+        "<a href=http://127.0.0.1:8081/>http://127.0.0.1:8081/</a></strong></p>"
+        "</body></html>"
+    )
+    return html, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+
 @app.route('/api/openFile', methods=['POST'])
 def open_file():
     data = request.json
@@ -42,6 +59,11 @@ def export_docx():
 @app.route('/api/getSystemInfo', methods=['GET'])
 def get_system_info():
     result = api.getSystemInfo()
+    return result
+
+@app.route('/api/qa/health', methods=['GET'])
+def qa_health():
+    result = api.getQAHealth()
     return result
 
 @app.route('/api/login', methods=['POST'])
@@ -139,10 +161,12 @@ def save_user_settings():
 
 @app.route('/api/runQA', methods=['POST'])
 def run_qa():
+    import json as _json
     data = request.json
     content = data.get('content')
     categories = data.get('categories')
-    result = api.runQA(content, categories)
+    cats_str = _json.dumps(categories) if isinstance(categories, list) else (categories or '["typo","consistency","logic","format","crossref"]')
+    result = api.runQA(content, cats_str)
     return result
 
 @app.route('/api/runXRef', methods=['POST'])
@@ -187,6 +211,13 @@ def call_ai():
     user_message = data.get('user_message')
     config = data.get('config')
     result = api.callAI(system_prompt, user_message, config)
+    return result
+
+@app.route('/api/refreshDocxFields', methods=['POST'])
+def refresh_docx_fields():
+    data = request.json
+    docx_b64 = data.get('docx_b64', '')
+    result = api.refreshDocxFields(docx_b64)
     return result
 
 @app.route('/api/updateDocument', methods=['POST'])

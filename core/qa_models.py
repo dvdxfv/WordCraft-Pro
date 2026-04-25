@@ -50,6 +50,8 @@ class QAIssue:
     title: str = ""                   # 问题标题（简短）
     description: str = ""             # 详细说明
     suggestion: str = ""              # 修改建议
+    rule_id: str = ""                 # 规则唯一标识（便于回归统计）
+    checker: str = ""                 # 产出该问题的检查器名
 
     # 位置信息
     element_index: int = -1           # 元素索引（在 DocumentModel.elements 中的位置）
@@ -74,6 +76,8 @@ class QAIssue:
             "title": self.title,
             "description": self.description,
             "suggestion": self.suggestion,
+            "rule_id": self.rule_id,
+            "checker": self.checker,
             "element_index": self.element_index,
             "element_type": self.element_type,
             "location_text": self.location_text,

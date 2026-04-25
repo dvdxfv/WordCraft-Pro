@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 import time
-from typing import Optional
+from typing import Callable, Optional
 
 from core.document_model import DocumentModel
 from core.qa_models import QAReport, QAIssue, IssueCategory
@@ -17,6 +17,8 @@ from core.typo_checker import TypoChecker
 from core.consistency_checker import ConsistencyChecker
 from core.logic_checker import LogicChecker
 from core.crossref_checker import CrossRefChecker
+from core.punctuation_checker import PunctuationChecker
+from core.autocorrect_checker import AutoCorrectChecker
 from core.performance import get_optimizer, get_async_checker
 
 
@@ -26,6 +28,8 @@ class QAEngine:
     def __init__(self, config: dict = None):
         config = config or {}
         qa_config = config.get("qa", {})
+        self._ignore_rule_ids = set(qa_config.get("ignore_rule_ids", []))
+        self._ignore_text_patterns = [p for p in qa_config.get("ignore_text_patterns", []) if p]
 
         # 性能优化配置
         perf_config = config.get("performance", {})
@@ -62,6 +66,15 @@ class QAEngine:
         self.crossref_checker = CrossRefChecker()
         self.crossref_checker.enabled = crossref_config.get("enabled", True)
 
+        punct_config = qa_config.get("punctuation_check", {})
+        self.punct_checker = PunctuationChecker()
+        self.punct_checker.enabled = punct_config.get("enabled", True)
+        ac_config = qa_config.get("autocorrect_check", {})
+        self.autocorrect_checker = AutoCorrectChecker()
+        self.autocorrect_checker.enabled = ac_config.get("enabled", True)
+        self.autocorrect_checker.min_confidence = ac_config.get("min_confidence", 0.7)
+        self.autocorrect_checker.command = ac_config.get("command", "autocorrect")
+
         # LLM 配置
         self.llm_config = qa_config.get("llm_check", {})
         self.llm_checker = None
@@ -94,27 +107,53 @@ class QAEngine:
                          start_time: float) -> QAReport:
         """顺序检查（短文档）"""
         report = QAReport()
+        seen_fingerprints: set[tuple[str, str, str, str]] = set()
 
         if categories is None:
-            categories = ["typo", "consistency", "logic", "crossref"]
+            categories = ["typo", "consistency", "logic", "crossref", "format"]
 
-        if "typo" in categories and self.typo_checker.enabled:
-            typo_report = self.typo_checker.check(doc)
-            for issue in typo_report.issues:
-                report.add_issue(issue)
-
-        if "consistency" in categories and self.consistency_checker.enabled:
-            consistency_report = self.consistency_checker.check(doc)
-            for issue in consistency_report.issues:
-                report.add_issue(issue)
-
-        if "logic" in categories and self.logic_checker.enabled:
-            logic_report = self.logic_checker.check(doc)
-            for issue in logic_report.issues:
-                report.add_issue(issue)
-
-        if "crossref" in categories and self.crossref_checker.enabled:
-            crossref_report = self.crossref_checker.check(doc, report)
+        self._run_checker(
+            enabled=("typo" in categories and self.typo_checker.enabled),
+            runner=self.typo_checker.check,
+            doc=doc,
+            report=report,
+            seen_fingerprints=seen_fingerprints,
+        )
+        self._run_checker(
+            enabled=("consistency" in categories and self.consistency_checker.enabled),
+            runner=self.consistency_checker.check,
+            doc=doc,
+            report=report,
+            seen_fingerprints=seen_fingerprints,
+        )
+        self._run_checker(
+            enabled=("logic" in categories and self.logic_checker.enabled),
+            runner=self.logic_checker.check,
+            doc=doc,
+            report=report,
+            seen_fingerprints=seen_fingerprints,
+        )
+        self._run_checker(
+            enabled=("format" in categories and self.punct_checker.enabled),
+            runner=self.punct_checker.check,
+            doc=doc,
+            report=report,
+            seen_fingerprints=seen_fingerprints,
+        )
+        self._run_checker(
+            enabled=("format" in categories and self.autocorrect_checker.enabled),
+            runner=self.autocorrect_checker.check,
+            doc=doc,
+            report=report,
+            seen_fingerprints=seen_fingerprints,
+        )
+        self._run_checker(
+            enabled=("crossref" in categories and self.crossref_checker.enabled),
+            runner=self.crossref_checker.check,
+            doc=doc,
+            report=report,
+            seen_fingerprints=seen_fingerprints,
+        )
 
         # LLM 增强检测（如果启用）
         if self.llm_config.get("enabled", False):
@@ -125,6 +164,48 @@ class QAEngine:
         report.metadata['chunking_enabled'] = False
 
         return report
+
+    def _run_checker(
+        self,
+        *,
+        enabled: bool,
+        runner: Callable[[DocumentModel], QAReport | None],
+        doc: DocumentModel,
+        report: QAReport,
+        seen_fingerprints: set[tuple[str, str, str, str]],
+    ) -> None:
+        """运行单个 checker，并按统一规则去重合并。"""
+        if not enabled:
+            return
+        checker_report = runner(doc)
+        if not checker_report:
+            return
+        for issue in checker_report.issues:
+            if self._should_ignore(issue):
+                continue
+            fp = self._issue_fingerprint(issue)
+            if fp in seen_fingerprints:
+                continue
+            seen_fingerprints.add(fp)
+            report.add_issue(issue)
+
+    @staticmethod
+    def _issue_fingerprint(issue: QAIssue) -> tuple[str, str, str, str]:
+        """用于跨 checker 去重的稳定指纹。"""
+        return (
+            issue.category.value if hasattr(issue.category, "value") else str(issue.category),
+            (issue.rule_id or "").strip(),
+            (issue.location_text or "").strip(),
+            (issue.suggestion or "").strip(),
+        )
+
+    def _should_ignore(self, issue: QAIssue) -> bool:
+        if issue.rule_id and issue.rule_id in self._ignore_rule_ids:
+            return True
+        if not self._ignore_text_patterns:
+            return False
+        haystack = ((issue.location_text or "") + " " + (issue.title or "")).strip()
+        return any(p in haystack for p in self._ignore_text_patterns)
     
     def _apply_llm_enhancement(self, doc: DocumentModel, report: QAReport, 
                                categories: list[str]) -> None:
@@ -137,20 +218,46 @@ class QAEngine:
             if not self.llm_checker.enabled:
                 return
 
-            # 如果有 grammar 类别，执行 LLM 语法检测
+            pipeline_cfg = self.llm_config.get("pipeline", {})
+            if pipeline_cfg.get("enabled", False):
+                # 二级：DeepSeek Flash 全量语义任务
+                flash_model = pipeline_cfg.get("flash_model", "deepseek-v4-flash")
+                flash_report, review_candidates = self.llm_checker.check_semantic_flash(
+                    doc, model=flash_model
+                )
+                for issue in flash_report.issues:
+                    if not self._is_duplicate(issue, report):
+                        report.add_issue(issue)
+
+                # 三级：DeepSeek Pro 疑难项 + 核心段落复核
+                pro_model = pipeline_cfg.get("pro_model", "deepseek-v4-pro")
+                pro_report = self.llm_checker.check_pro_review(
+                    doc,
+                    review_candidates=review_candidates,
+                    model=pro_model,
+                )
+                for issue in pro_report.issues:
+                    if not self._is_duplicate(issue, report):
+                        report.add_issue(issue)
+                report.metadata["llm_pipeline"] = {
+                    "enabled": True,
+                    "flash_model": flash_model,
+                    "pro_model": pro_model,
+                    "review_candidates": len(review_candidates),
+                }
+                return
+
+            # 兼容旧逻辑（未启用新 pipeline 时）
             if "grammar" in categories:
                 grammar_report = self.llm_checker.check_grammar(doc)
                 for issue in grammar_report.issues:
                     if not self._is_duplicate(issue, report):
                         report.add_issue(issue)
-            
-            # 对 typo 和 logic 执行 LLM 补充检测
             if "typo" in categories:
                 typo_llm_report = self.llm_checker.check_typo(doc)
                 for issue in typo_llm_report.issues:
                     if not self._is_duplicate(issue, report):
                         report.add_issue(issue)
-            
             if "logic" in categories:
                 logic_llm_report = self.llm_checker.check_logic(doc)
                 for issue in logic_llm_report.issues:

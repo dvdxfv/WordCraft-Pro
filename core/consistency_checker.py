@@ -89,6 +89,8 @@ class ConsistencyChecker:
                             title=f"数字格式不一致：{raw}",
                             description=f"数值 {normalized} 在文档中存在多种格式表示：{', '.join(raw_values)}",
                             suggestion=f"统一使用格式：{list(raw_values)[0]}",
+                            rule_id="consistency.number_format",
+                            checker="consistency_checker",
                             element_index=elem_idx,
                             element_type="paragraph",
                             location_text=raw,
@@ -132,6 +134,8 @@ class ConsistencyChecker:
                             title=f"日期格式不一致：{raw}",
                             description=f"日期 {normalized} 存在多种格式：{', '.join(raw_values)}",
                             suggestion=f"统一使用格式：{list(raw_values)[0]}",
+                            rule_id="consistency.date_format",
+                            checker="consistency_checker",
                             element_index=elem_idx,
                             element_type="paragraph",
                             location_text=raw,
@@ -142,12 +146,10 @@ class ConsistencyChecker:
     def _check_proper_nouns(self, doc: DocumentModel, report: QAReport):
         """检查专有名词一致性
 
-        两轮检查：
-        1. 提取所有机构名称（后缀匹配），比较名称间相似度
-        2. 对每个已提取名称，在全文中模糊搜索相似子串（捕获拼写错误）
+        提取所有机构名称（后缀正则），两两比对编辑距离。
+        每对相似名称只报告一张卡片（出现次数少的名称的首次出现），避免重复刷屏。
+        不做滑动窗口扫描——任意子串都可能与机构名编辑距离≤2，会产生大量误报。
         """
-        # 提取可能的专有名词（机构名称）
-        # 限制前缀 2-4 字符，避免贪婪匹配到前面的动词/介词
         org_pattern = re.compile(
             r"([\u4e00-\u9fff]{2,4}(?:公司|集团|大学|学院|研究院|研究所|医院|政府|部门|委员会|中心))"
         )
@@ -175,64 +177,26 @@ class ConsistencyChecker:
                     if pair in checked_pairs:
                         continue
                     checked_pairs.add(pair)
-                    for elem_idx, raw in found_names[name_b]:
-                        issue = QAIssue(
-                            category=IssueCategory.INCONSISTENCY,
-                            severity=IssueSeverity.WARNING,
-                            title='专有名词疑似不一致："' + raw + '"',
-                            description='文档中同时出现"' + name_a + '"和"' + name_b + '"，可能是笔误',
-                            suggestion='请确认是否应统一为"' + name_a + '"或"' + name_b + '"',
-                            element_index=elem_idx,
-                            element_type="paragraph",
-                            location_text=raw,
-                            related_text=name_a,
-                            confidence=0.6,
-                        )
-                        report.add_issue(issue)
+                    # 出现次数少的那个更可能是笔误，只报告它的第一次出现，避免同一对重复刷屏
+                    count_a, count_b = len(found_names[name_a]), len(found_names[name_b])
+                    suspect, reference = (name_a, name_b) if count_a <= count_b else (name_b, name_a)
+                    elem_idx, raw = found_names[suspect][0]
+                    issue = QAIssue(
+                        category=IssueCategory.INCONSISTENCY,
+                        severity=IssueSeverity.WARNING,
+                        title='专有名词疑似不一致："' + suspect + '"',
+                        description='文档中同时出现"' + reference + '"和"' + suspect + '"，可能是笔误',
+                        suggestion='请确认是否应统一为"' + reference + '"或"' + suspect + '"',
+                        rule_id="consistency.proper_noun",
+                        checker="consistency_checker",
+                        element_index=elem_idx,
+                        element_type="paragraph",
+                        location_text=raw,
+                        related_text=reference,
+                        confidence=0.6,
+                    )
+                    report.add_issue(issue)
 
-        # 第二轮：对每个已提取的名称，在文档中搜索相似字符串
-        # 用于捕获拼写错误的机构名称（错误名称可能不含标准后缀）
-        for name in names:
-            name_len = len(name)
-            for idx, elem in enumerate(doc.elements):
-                if not elem.content:
-                    continue
-                text = elem.content
-                # 滑动窗口：只检查长度相近的子串（±1字符）
-                for start in range(len(text)):
-                    for length in range(max(2, name_len - 1), name_len + 1):
-                        end = start + length
-                        if end > len(text):
-                            break
-                        candidate = text[start:end]
-                        # 跳过完全相同的名称
-                        if candidate == name:
-                            continue
-                        # 跳过子串关系（避免部分匹配误报）
-                        if candidate in name or name in candidate:
-                            continue
-                        # 快速预检：至少一半字符相同才计算编辑距离
-                        common = sum(1 for a, b in zip(name, candidate) if a == b)
-                        if common < max(2, len(name) * 0.5):
-                            continue
-                        if self._edit_distance(name, candidate) <= 2:
-                            pair = tuple(sorted([name, candidate]))
-                            if pair in checked_pairs:
-                                continue
-                            checked_pairs.add(pair)
-                            issue = QAIssue(
-                                category=IssueCategory.INCONSISTENCY,
-                                severity=IssueSeverity.WARNING,
-                                title='专有名词疑似不一致："' + candidate + '"',
-                                description='文档中同时出现"' + name + '"和"' + candidate + '"，可能是笔误',
-                                suggestion='请确认是否应统一为"' + name + '"或"' + candidate + '"',
-                                element_index=idx,
-                                element_type="paragraph",
-                                location_text=candidate,
-                                related_text=name,
-                                confidence=0.5,
-                            )
-                            report.add_issue(issue)
 
     @staticmethod
     def _edit_distance(s1: str, s2: str) -> int:
@@ -323,6 +287,8 @@ class ConsistencyChecker:
                                 title=f"术语不统一：{form}",
                                 description=f"术语'{standard_term}'在文档中有多种表达：{', '.join(used_forms)}",
                                 suggestion=f"建议统一使用标准术语：{standard_term}",
+                                rule_id="consistency.term_alias",
+                                checker="consistency_checker",
                                 element_index=elem_idx,
                                 element_type="paragraph",
                                 location_text=form,
@@ -412,6 +378,8 @@ class ConsistencyChecker:
                                 title=f"单位不统一：{form}",
                                 description=f"单位'{standard_unit}'在文档中有多种表达：{', '.join(used_forms)}",
                                 suggestion=f"建议统一使用标准单位：{standard_unit}",
+                                rule_id="consistency.unit_alias",
+                                checker="consistency_checker",
                                 element_index=elem_idx,
                                 element_type="paragraph",
                                 location_text=form,

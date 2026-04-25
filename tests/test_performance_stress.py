@@ -31,6 +31,9 @@ from core.qa_engine import QAEngine
 from core.exporter import Exporter
 
 
+pytestmark = [pytest.mark.slow]
+
+
 @contextmanager
 def memory_monitor():
     """内存使用监控上下文管理器"""

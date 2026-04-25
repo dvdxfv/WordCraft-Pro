@@ -15,6 +15,12 @@
     }
   } catch (e) { console.error('Supabase init failed:', e); }
 
+  const _SB_DEFAULT_SETTINGS = {
+    theme: 'light',
+    ai_model: 'deepseek-v4-flash',
+    default_format: { paper:'A4', mt:2.5, mb:2.5, ml:3.0, mr:2.5, h1:'黑体', h1s:16, h2:'黑体', h2s:14, h3:'黑体', h3s:12, bf:'宋体', bs:12, indent:2, lh:1.5 }
+  };
+
   window.WC_API = {
     _isPywebview: false,
     init() {
@@ -35,6 +41,11 @@
         return response.json();
       }
     },
+    async _sbUserId() {
+      if (!window.supabaseClient) return null;
+      const { data } = await window.supabaseClient.auth.getSession();
+      return data?.session?.user?.id || null;
+    },
     async applyFormat(content, rules) { return this._request('applyFormat', { content, rules }); },
     async acceptSuggestion(content, issue_id, original_text, suggested_text) { return this._request('acceptSuggestion', { content, issue_id, original_text, suggested_text }); },
     async runXRef(content) { return this._request('runXRef', { content }); },
@@ -47,29 +58,104 @@
       if (this._isPywebview) { const r = await window.pywebview.api.getSystemInfo(); return JSON.parse(r); }
       const response = await fetch('/api/getSystemInfo'); return response.json();
     },
+    async getQAHealth() {
+      if (this._isPywebview) {
+        // 桌面模式未维护，回退为“默认可用”以避免阻断。
+        return { success: true, ready: true, missing: [], capabilities: {} };
+      }
+      const response = await fetch('/api/qa/health');
+      if (!response.ok) throw new Error('HTTP ' + response.status);
+      return response.json();
+    },
     async getTokenUsage() {
-      if (this._isPywebview) { const r = await window.pywebview.api.getTokenUsage(); return JSON.parse(r); }
-      const response = await fetch('/api/getTokenUsage'); return response.json();
+      const userId = await this._sbUserId();
+      if (!userId) return { success: false, token_quota: 100000, token_used: 0, today_usage: 0 };
+      const { data, error } = await window.supabaseClient
+        .from('profiles').select('token_quota,token_used').eq('id', userId).single();
+      if (error) return { success: false, token_quota: 100000, token_used: 0, today_usage: 0 };
+      const today = new Date().toISOString().slice(0, 10);
+      const { data: logs } = await window.supabaseClient
+        .from('token_logs').select('usage_amount')
+        .eq('user_id', userId).gte('created_at', today + 'T00:00:00Z');
+      const today_usage = (logs || []).reduce((s, r) => s + (r.usage_amount || 0), 0);
+      return { success: true, token_quota: data.token_quota || 100000, token_used: data.token_used || 0, today_usage };
     },
     async getUserTemplates() {
-      if (this._isPywebview) { const r = await window.pywebview.api.getUserTemplates(); return JSON.parse(r); }
-      const response = await fetch('/api/getUserTemplates'); return response.json();
+      const userId = await this._sbUserId();
+      if (!userId) return { success: false, templates: [] };
+      const { data, error } = await window.supabaseClient
+        .from('templates').select('*')
+        .or(`user_id.eq.${userId},is_system.eq.true`)
+        .order('created_at', { ascending: false });
+      if (error) return { success: false, templates: [] };
+      return { success: true, templates: data || [] };
     },
     async getUserSettings() {
-      if (this._isPywebview) { const r = await window.pywebview.api.getUserSettings(); return JSON.parse(r); }
-      const response = await fetch('/api/getUserSettings'); return response.json();
+      const userId = await this._sbUserId();
+      if (!userId) return { success: true, settings: { ..._SB_DEFAULT_SETTINGS } };
+      const { data, error } = await window.supabaseClient
+        .from('user_settings').select('settings_data').eq('user_id', userId).single();
+      if (error && error.code !== 'PGRST116') return { success: true, settings: { ..._SB_DEFAULT_SETTINGS } };
+      return { success: true, settings: data?.settings_data || { ..._SB_DEFAULT_SETTINGS } };
     },
-    async saveUserSettings(settings) { return this._request('saveUserSettings', { settings }); },
+    async saveUserSettings(settings) {
+      const userId = await this._sbUserId();
+      if (!userId) return this._request('saveUserSettings', { settings });
+      const { error } = await window.supabaseClient
+        .from('user_settings').upsert({ user_id: userId, settings_data: settings }, { onConflict: 'user_id' });
+      return { success: !error, error: error?.message };
+    },
+    async refreshDocxFields(docx_b64) { return this._request('refreshDocxFields', { docx_b64 }); },
     async uploadTemplate(file_content, name, file_name) { return this._request('uploadTemplate', { file_content, name, file_name }); },
-    async deleteTemplate(template_id) { return this._request('deleteTemplate', { template_id }); },
-    async saveTemplateSettings(name, template_data) { return this._request('saveTemplateSettings', { name, template_data }); },
-    async saveDocument(content, title) { return this._request('saveDocument', { content, title }); },
-    async loadDocument(doc_id) { return this._request('loadDocument', { doc_id }); },
-    async getDocumentList() {
-      if (this._isPywebview) { const r = await window.pywebview.api.getDocumentList(); return JSON.parse(r); }
-      const response = await fetch('/api/getDocumentList'); return response.json();
+    async deleteTemplate(template_id) {
+      const userId = await this._sbUserId();
+      if (!userId) return this._request('deleteTemplate', { template_id });
+      const { data: tmpl } = await window.supabaseClient
+        .from('templates').select('file_url').eq('id', template_id).eq('user_id', userId).single();
+      if (tmpl?.file_url) {
+        const path = tmpl.file_url.split('/templates/').pop();
+        if (path) await window.supabaseClient.storage.from('templates').remove([path]);
+      }
+      const { error } = await window.supabaseClient
+        .from('templates').delete().eq('id', template_id).eq('user_id', userId);
+      return { success: !error, error: error?.message };
     },
-    async updateDocument(doc_id, content, title) { return this._request('updateDocument', { doc_id, content, title }); }
+    async saveTemplateSettings(name, template_data) { return this._request('saveTemplateSettings', { name, template_data }); },
+    async saveDocument(content, title) {
+      const userId = await this._sbUserId();
+      if (!userId) return this._request('saveDocument', { content, title });
+      const { data, error } = await window.supabaseClient
+        .from('documents')
+        .insert({ user_id: userId, title: title || '未命名文档', content: { html_content: content } })
+        .select('id').single();
+      return { success: !error, doc_id: data?.id, error: error?.message };
+    },
+    async loadDocument(doc_id) {
+      const userId = await this._sbUserId();
+      if (!userId) return this._request('loadDocument', { doc_id });
+      const { data, error } = await window.supabaseClient
+        .from('documents').select('*').eq('id', doc_id).eq('user_id', userId).single();
+      if (error) return { success: false, error: error.message };
+      return { success: true, document: data };
+    },
+    async getDocumentList() {
+      const userId = await this._sbUserId();
+      if (!userId) return { success: false, documents: [] };
+      const { data, error } = await window.supabaseClient
+        .from('documents').select('id,title,updated_at,created_at')
+        .eq('user_id', userId).order('updated_at', { ascending: false });
+      if (error) return { success: false, documents: [] };
+      return { success: true, documents: data || [] };
+    },
+    async updateDocument(doc_id, content, title) {
+      const userId = await this._sbUserId();
+      if (!userId) return this._request('updateDocument', { doc_id, content, title });
+      const { error } = await window.supabaseClient
+        .from('documents')
+        .update({ content: { html_content: content }, title, updated_at: new Date().toISOString() })
+        .eq('id', doc_id).eq('user_id', userId);
+      return { success: !error, error: error?.message };
+    }
   };
   window.WC_API.init();
 
@@ -253,7 +339,7 @@ html,body{height:100%;font-family:-apple-system,'SF Pro Text','PingFang SC','Mic
 .dz-text{font-size:11px;color:var(--text3)}
 
 /* ── CENTER ── */
-.center{flex:1;display:flex;flex-direction:column;min-width:0;position:relative;background:var(--bg)}
+.center{flex:1;display:flex;flex-direction:column;min-width:0;position:relative;background:#fff !important}
 
 /* File Tabs */
 .file-tabs{
@@ -320,29 +406,50 @@ html,body{height:100%;font-family:-apple-system,'SF Pro Text','PingFang SC','Mic
   padding:0 4px;background:var(--bg2);color:var(--text);
   font-size:11px;outline:none;cursor:pointer;max-width:130px;
 }
+.sel-font-tag{
+  font-size:11px;padding:1px 8px;border-radius:10px;height:22px;
+  background:var(--bg3);color:var(--text2);white-space:nowrap;
+  max-width:150px;overflow:hidden;text-overflow:ellipsis;
+  line-height:20px;cursor:default;border:1px solid var(--border2);flex-shrink:0;
+}
+.sel-font-tag.mixed{color:var(--accent)}
+.sel-font-tag.uninstalled{color:var(--text3);font-style:italic}
 
 /* Document Viewport */
 .doc-viewport{
   flex:1;overflow:auto;
-  background:var(--bg);
-  background-image:
-    radial-gradient(circle at 1px 1px, rgba(0,0,0,.06) 1px, transparent 0);
-  background-size:24px 24px;
+  background:#ececec;
   display:flex;flex-direction:column;align-items:center;
   padding:28px 48px 80px;
 }
 [data-theme=dark] .doc-viewport{
-  background-color:#111113;
-  background-image:radial-gradient(circle at 1px 1px, rgba(255,255,255,.04) 1px, transparent 0);
+  background:#111113;
 }
 .doc-page{
   width:680px;min-height:800px;background:var(--bg2);color:var(--text);
-  box-shadow:0 2px 8px rgba(0,0,0,.06),0 8px 32px rgba(0,0,0,.08);
+  box-shadow:0 1px 3px rgba(0,0,0,.08),0 4px 16px rgba(0,0,0,.05);
   padding:72px 80px 80px;
   font-family:'SimSun','宋体',serif;font-size:14px;line-height:1.85;
   position:relative;flex-shrink:0;border-radius:2px;
-  border-top:3px solid var(--accent);
   overflow-wrap:break-word;word-break:normal;
+}
+.doc-page::before{
+  content:'';position:absolute;inset:32px 40px;pointer-events:none;
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20'%3E%3Cpath d='M0 18 L0 0 L18 0' fill='none' stroke='%23c0c0c0' stroke-width='1.5'/%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20'%3E%3Cpath d='M20 18 L20 0 L2 0' fill='none' stroke='%23c0c0c0' stroke-width='1.5'/%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20'%3E%3Cpath d='M0 2 L0 20 L18 20' fill='none' stroke='%23c0c0c0' stroke-width='1.5'/%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20'%3E%3Cpath d='M20 2 L20 20 L2 20' fill='none' stroke='%23c0c0c0' stroke-width='1.5'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;
+  background-position:top left,top right,bottom left,bottom right;
+  background-size:20px 20px;
+}
+[data-theme=dark] .doc-page::before{
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20'%3E%3Cpath d='M0 18 L0 0 L18 0' fill='none' stroke='%23555555' stroke-width='1.5'/%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20'%3E%3Cpath d='M20 18 L20 0 L2 0' fill='none' stroke='%23555555' stroke-width='1.5'/%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20'%3E%3Cpath d='M0 2 L0 20 L18 20' fill='none' stroke='%23555555' stroke-width='1.5'/%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20'%3E%3Cpath d='M20 2 L20 20 L2 20' fill='none' stroke='%23555555' stroke-width='1.5'/%3E%3C/svg%3E");
 }
 .doc-page img,.doc-page table{max-width:100%}
 .doc-page td,.doc-page th{word-break:break-word}
@@ -358,10 +465,15 @@ html,body{height:100%;font-family:-apple-system,'SF Pro Text','PingFang SC','Mic
 .doc-page th{background:var(--bg3);font-weight:600}
 .doc-page li{margin:4px 0 4px 2em;text-indent:0;list-style:disc}
 /* 当容器托管 docx-preview 原生页面时，清除自身内边距/宽度/背景，避免与 section.docx 的 A4 版心叠加导致溢出和双重 margin */
-.doc-page.is-docx{width:auto;min-height:0;padding:0;background:transparent;box-shadow:none;border-top:none;border-radius:0}
-.doc-page.is-docx .docx-wrapper{background:transparent;padding:0;display:flex;flex-direction:column;align-items:center;gap:16px}
-.doc-page.is-docx .docx-wrapper>section.docx{background:var(--bg2);box-shadow:0 2px 8px rgba(0,0,0,.06),0 8px 32px rgba(0,0,0,.08);border-radius:2px}
-[data-theme=dark] .doc-page.is-docx .docx-wrapper>section.docx{background:#2a2a2c;color:#f5f5f7;box-shadow:0 4px 24px rgba(0,0,0,.3)}
+.doc-page.is-docx{width:auto;min-height:0;padding:0;background:transparent !important;box-shadow:none;border-top:none;border-radius:0}
+.doc-page.is-docx .docx-wrapper,.doc-page.is-docx .docx-rendered-wrapper{background:transparent !important;padding:0;display:flex;flex-direction:column;align-items:center;gap:16px}
+/* 强制统一页面背景：部分 docx 文件内嵌主题背景色（例如深色填充）会被 docx-preview 渲染到 section 的 inline style，导致出现黑底白字。这里用 !important 覆盖，保持所有文档预览外观一致 */
+.doc-page.is-docx .docx-wrapper>section.docx,.doc-page.is-docx .docx-rendered-wrapper>section.docx-rendered{background:#fff !important;color:var(--text) !important;box-shadow:0 1px 3px rgba(0,0,0,.08),0 4px 16px rgba(0,0,0,.05);border-radius:2px}
+[data-theme=dark] .doc-page.is-docx .docx-wrapper>section.docx,[data-theme=dark] .doc-page.is-docx .docx-rendered-wrapper>section.docx-rendered{background:#2a2a2c !important;color:#f5f5f7 !important;box-shadow:0 4px 24px rgba(0,0,0,.3)}
+/* Force all text inside docx-preview sections to light color in dark mode (source docs typically use black text which becomes invisible on dark bg) */
+[data-theme=dark] .doc-page.is-docx .docx-wrapper>section.docx *,[data-theme=dark] .doc-page.is-docx .docx-rendered-wrapper>section.docx-rendered *{color:#f5f5f7 !important}
+/* 清除文档内所有带 inline 背景色的元素（保留文字颜色以尊重作者强调） */
+.doc-page.is-docx .docx-wrapper [style*="background"],.doc-page.is-docx .docx-rendered-wrapper [style*="background"]{background:transparent !important;background-color:transparent !important}
 
 /* Empty state */
 .empty-state{
@@ -388,6 +500,7 @@ html,body{height:100%;font-family:-apple-system,'SF Pro Text','PingFang SC','Mic
 .hl-error{background:rgba(255,59,48,.12);border-bottom:2px wavy #FF3B30;cursor:pointer;padding:1px 2px;border-radius:2px}
 .hl-warn{background:rgba(255,107,53,.12);border-bottom:2px wavy #FF6B35;cursor:pointer;padding:1px 2px;border-radius:2px}
 .hl-info{background:rgba(0,122,255,.1);border-bottom:2px wavy #007AFF;cursor:pointer;padding:1px 2px;border-radius:2px}
+.hl-accepted{background:rgba(52,199,89,.1);border-bottom:2px solid #34C759;cursor:pointer;padding:1px 2px;border-radius:2px}
 .hl-xref-ok{background:rgba(52,199,89,.1);border-bottom:2px solid #34C759;cursor:pointer;padding:1px 2px;border-radius:2px}
 .hl-xref-err{background:rgba(255,59,48,.12);border-bottom:2px wavy #FF3B30;cursor:pointer;padding:1px 2px;border-radius:2px}
 .hl-xref-unref{background:rgba(255,204,0,.14);border-bottom:2px wavy #FFCC00;cursor:pointer;padding:1px 2px;border-radius:2px}
@@ -582,6 +695,8 @@ html,body{height:100%;font-family:-apple-system,'SF Pro Text','PingFang SC','Mic
 .btn-accept-all:hover{background:var(--green);color:#fff}
 .btn-reject-all{background:var(--red-bg);color:var(--red)}
 .btn-reject-all:hover{background:var(--red);color:#fff}
+.btn-undo-all{background:var(--bg2);color:var(--text2);border:1px solid var(--border)!important}
+.btn-undo-all:hover{background:var(--bg3)}
 
 /* Issue cards */
 .issue-list{display:flex;flex-direction:column;gap:5px;margin-bottom:12px}
@@ -640,6 +755,19 @@ html,body{height:100%;font-family:-apple-system,'SF Pro Text','PingFang SC','Mic
 .qa-progress .pbar-label{font-size:11px;color:var(--text3);margin-bottom:4px;display:flex;justify-content:space-between}
 .qa-progress .pbar-track{height:5px;background:var(--bg3);border-radius:3px;overflow:hidden}
 .qa-progress .pbar-fill{height:100%;background:linear-gradient(90deg,var(--accent),#5856D6);border-radius:3px;transition:width .3s var(--ease);width:0%}
+.ai-thinking{
+  margin-top:8px;padding:8px 10px;border:1px solid var(--border);
+  border-radius:9px;background:var(--bg3);
+}
+.ai-thinking-hd{
+  display:flex;align-items:center;gap:6px;font-size:11px;
+  color:var(--text2);font-weight:600;margin-bottom:5px;
+}
+.ai-thinking-log{
+  max-height:78px;overflow:auto;font-size:11px;line-height:1.5;
+  color:var(--text3);
+}
+.ai-thinking-log div{padding:1px 0}
 
 /* ── XREF SECTION ── */
 .xref-stats{display:grid;grid-template-columns:repeat(5,1fr);gap:4px;margin-bottom:10px}
@@ -762,6 +890,16 @@ html,body{height:100%;font-family:-apple-system,'SF Pro Text','PingFang SC','Mic
 [data-theme=dark] .doc-page{background:#2a2a2c;color:#f5f5f7;box-shadow:0 4px 24px rgba(0,0,0,.3)}
 [data-theme=dark] .fr input,[data-theme=dark] .fr select,[data-theme=dark] .rule-row input,[data-theme=dark] .rule-row select{background:var(--bg);color:var(--text);border-color:var(--border)}
 [data-theme=dark] .rp-pill.active{box-shadow:0 1px 4px rgba(0,0,0,.3)}
+@media print{
+  body>*{display:none!important}
+  #printTarget{display:block!important;position:fixed;inset:0;background:#fff;overflow:visible;z-index:99999;padding:2cm 2.5cm;font-family:'宋体',serif;font-size:12pt;line-height:1.6;color:#000}
+  #printTarget h1{font-family:'黑体',sans-serif;font-size:16pt;font-weight:bold;margin:18pt 0 6pt;page-break-after:avoid}
+  #printTarget h2{font-family:'黑体',sans-serif;font-size:14pt;font-weight:bold;margin:14pt 0 6pt;page-break-after:avoid}
+  #printTarget h3{font-family:'黑体',sans-serif;font-size:12pt;font-weight:bold;margin:12pt 0 4pt;page-break-after:avoid}
+  #printTarget p{margin:0 0 6pt;text-indent:2em}
+  #printTarget img{max-width:100%;page-break-inside:avoid}
+  @page{size:A4;margin:2cm 2.5cm}
+}
 </style>
 </head>
 <body>
@@ -803,7 +941,7 @@ html,body{height:100%;font-family:-apple-system,'SF Pro Text','PingFang SC','Mic
 
   <div class="tb-sep"></div>
 
-  <button class="tbtn" onclick="exportDoc()">
+  <button class="tbtn" onclick="exportDoc()" title="PDF 文件导出为 PDF，Word 文件导出为 DOCX">
     <svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>导出
   </button>
 
@@ -869,6 +1007,8 @@ html,body{height:100%;font-family:-apple-system,'SF Pro Text','PingFang SC','Mic
       <button onclick="execCmd('underline')" title="下划线"><u>U</u></button>
       <button onclick="execCmd('strikeThrough')" title="删除线"><s>S</s></button>
       <div class="et-sep"></div>
+      <span id="selFontDisplay" class="sel-font-tag" style="display:none" title=""></span>
+      <span id="selSizeDisplay" class="sel-font-tag" style="display:none" title=""></span>
       <select id="editFontFamily" onchange="execCmdVal('fontName',this.value);updateFontFamilyDisplay(this)">
         <option value="SimSun">宋体</option><option value="SimHei">黑体</option>
         <option value="KaiTi">楷体</option><option value="FangSong">仿宋</option>
@@ -1045,6 +1185,7 @@ html,body{height:100%;font-family:-apple-system,'SF Pro Text','PingFang SC','Mic
         <div id="batchBar" class="batch-bar" style="display:none">
           <button class="btn-accept-all" onclick="acceptAllIssues()">✓ 全部接受</button>
           <button class="btn-reject-all" onclick="rejectAllIssues()">✗ 全部拒绝</button>
+          <button class="btn-undo-all" onclick="undoAllAcceptedIssues()">↩ 撤销采纳</button>
         </div>
 
         <div class="qa-filters">
@@ -1073,6 +1214,14 @@ html,body{height:100%;font-family:-apple-system,'SF Pro Text','PingFang SC','Mic
         <div style="display:flex;gap:6px;margin-bottom:6px">
           <button class="fbtn primary" style="flex:1" onclick="runQA()">规则检查</button>
           <button class="fbtn orange" style="flex:1" onclick="runAIQA()">🤖 AI 深度</button>
+        </div>
+
+        <div id="aiThinkingPanel" class="ai-thinking" style="display:none">
+          <div class="ai-thinking-hd">
+            <span class="spin">⚙</span>
+            <span id="aiThinkingTitle">AI 正在分析…</span>
+          </div>
+          <div id="aiThinkingLog" class="ai-thinking-log"></div>
         </div>
 
         <div id="qaProgress" style="display:none" class="qa-progress">
@@ -1140,10 +1289,8 @@ html,body{height:100%;font-family:-apple-system,'SF Pro Text','PingFang SC','Mic
       <div class="setting-group">
         <label class="setting-label">模型选择</label>
         <select id="aiModel">
-          <option value="doubao-seed-1-6-251015">Doubao-Seed-1.6（免费推荐）</option>
-          <option value="doubao-pro-32k">Doubao-Pro-32K</option>
-          <option value="doubao-pro-128k">Doubao-Pro-128K</option>
-          <option value="doubao-lite-32k">Doubao-Lite-32K</option>
+          <option value="deepseek-v4-flash">DeepSeek V4 Flash（默认推荐）</option>
+          <option value="deepseek-v4-pro">DeepSeek V4 Pro（疑难复核）</option>
         </select>
       </div>
       <div class="setting-group">
@@ -1185,7 +1332,7 @@ html,body{height:100%;font-family:-apple-system,'SF Pro Text','PingFang SC','Mic
           <div style="height:4px;background:var(--border);border-radius:2px"><div id="typoProgress" style="height:100%;background:var(--red);border-radius:2px;width:92%;transition:width .5s"></div></div>
         </div>
         <div style="background:var(--bg3);border-radius:10px;padding:14px;border-left:3px solid var(--orange)">
-          <div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:6px">数据一致性</div>
+          <div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:6px">规范/格式</div>
           <div style="font-size:24px;font-weight:700;color:var(--orange)" id="consistencyCount">23</div>
           <div style="font-size:10px;color:var(--text3);margin:4px 0">已修复 <span id="consistencyFixed">18</span> 个</div>
           <div style="height:4px;background:var(--border);border-radius:2px"><div id="consistencyProgress" style="height:100%;background:var(--orange);border-radius:2px;width:78%;transition:width .5s"></div></div>
@@ -1199,7 +1346,7 @@ html,body{height:100%;font-family:-apple-system,'SF Pro Text','PingFang SC','Mic
         <div style="background:var(--bg3);border-radius:10px;padding:14px;border-left:3px solid var(--green)">
           <div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:6px">交叉引用</div>
           <div style="font-size:24px;font-weight:700;color:var(--green)" id="crossrefCount">0</div>
-          <div style="font-size:10px;color:var(--text3);margin:4px 0">全部正常</div>
+          <div style="font-size:10px;color:var(--text3);margin:4px 0">已修复 <span id="crossrefFixed">0</span> 个</div>
           <div style="height:4px;background:var(--border);border-radius:2px"><div id="crossrefProgress" style="height:100%;background:var(--green);border-radius:2px;width:100%;transition:width .5s"></div></div>
         </div>
       </div>
@@ -1299,9 +1446,90 @@ const fmtTemplates={
 // ── STATE ──
 let openTabs=[],activeTabIdx=-1,activeTip=null,autoSaveTimer=null;
 window.currentQAData=[];
+window._qaHealth = { ready: true, missing: [], capabilities: {} };
+window._qaInstallHintShown = false;
+window._qaHealthPollTimer = null;
 let rawHtmlContents={};  // stores original mammoth HTML for rich preview
 const tabQAState={};   // per-tab live QA issue list (survives tab switches)
 const tabXrefState={}; // per-tab live xref result {targets, matches}
+const tabAcceptedEdits={}; // per-tab accepted edits [{original,suggestion,issueIdx}] for clone export
+
+function _setQAGateUI(ready){
+  const runBtn=document.querySelector('[onclick="runQA()"]');
+  const qaTabBtn=document.getElementById('btnQA');
+  [runBtn,qaTabBtn].forEach(btn=>{
+    if(!btn)return;
+    btn.disabled=!ready;
+    btn.style.opacity=ready?'':'0.45';
+    btn.style.cursor=ready?'':'not-allowed';
+  });
+}
+
+function _upsertQAInstallBanner(state){
+  const old=document.getElementById('qaInstallBanner');
+  if(!state||window._qaHealth.ready){
+    if(old)old.remove();
+    return;
+  }
+  if(old)old.remove();
+
+
+  const box=document.createElement('div');
+  box.id='qaInstallBanner';
+  box.style.cssText='position:fixed;right:16px;bottom:16px;z-index:9999;max-width:360px;background:#111827;color:#fff;padding:10px 12px;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.2);font-size:12px;line-height:1.5;';
+  const msg=state.message||'正在准备服务器 QA 能力…';
+  let action='';
+  if(state.completed){
+    action='<div style="margin-top:8px;"><button onclick="location.reload()" style="border:0;background:#22c55e;color:#06250f;padding:4px 8px;border-radius:6px;cursor:pointer;">刷新页面</button></div>';
+  }
+  box.innerHTML=`<div style="font-weight:600;margin-bottom:4px;">QA 服务准备进度</div><div>${msg}</div>${action}`;
+  document.body.appendChild(box);
+}
+
+function _syncQAGatePolling(){
+  const shouldPoll=!window._qaHealth.ready;
+  if(shouldPoll && !window._qaHealthPollTimer){
+    window._qaHealthPollTimer=setInterval(()=>_checkQAHealthGate(true),3000);
+  }else if(!shouldPoll && window._qaHealthPollTimer){
+    clearInterval(window._qaHealthPollTimer);
+    window._qaHealthPollTimer=null;
+  }
+}
+
+async function _checkQAHealthGate(silent=false){
+  try{
+    const resp=await window.WC_API.getQAHealth();
+    if(resp&&resp.success){
+      window._qaHealth={
+        ready:!!resp.ready,
+        missing:Array.isArray(resp.missing)?resp.missing:[],
+        capabilities:resp.capabilities||{},
+        install_state:resp.install_state||{}
+      };
+      _setQAGateUI(window._qaHealth.ready);
+      _upsertQAInstallBanner(window._qaHealth.install_state);
+      _syncQAGatePolling();
+      if(window._qaHealth.install_state?.completed && !window._qaInstallHintShown){
+        window._qaInstallHintShown=true;
+        showToast('QA 服务已就绪，请刷新页面后继续检查');
+      }
+      if(!window._qaHealth.ready){
+        const miss=window._qaHealth.missing.join('、')||'关键能力';
+        if(!silent) showToast('QA 未就绪：缺少 '+miss);
+      }
+      return;
+    }
+    window._qaHealth={ready:false,missing:['qa_health_api'],capabilities:{},install_state:{}};
+    _setQAGateUI(false);
+    _syncQAGatePolling();
+    if(!silent) showToast('QA 健康检查失败，请联系管理员');
+  }catch(e){
+    window._qaHealth={ready:false,missing:['qa_health_api'],capabilities:{},install_state:{}};
+    _setQAGateUI(false);
+    _syncQAGatePolling();
+    if(!silent) showToast('QA 服务未就绪，暂不可检查');
+  }
+}
 
 // ── INIT ──
 function init(){
@@ -1316,6 +1544,8 @@ function init(){
   checkOnlineStatus();
   setInterval(checkOnlineStatus,30000);
   _setupImgToolbarOnPage();
+  setupRealtimeDocSync();
+  _checkQAHealthGate();
 }
 let _vc=0,_vt=null;
 function handleVersionClick(){_vc++;clearTimeout(_vt);_vt=setTimeout(()=>_vc=0,2000);if(_vc>=5){_vc=0;openDashboard();}}
@@ -1351,7 +1581,7 @@ function restoreTabDashboardState(fn){
     window.currentQAData=qa;
     renderQAIssues(qa);
     const pending=qa.filter(q=>q.status==='pending');
-    if(pending.length)applyHighlights(pending);
+    applyHighlights(qa);
   }else{
     clearQAResults();
     window.currentQAData=[];
@@ -1425,6 +1655,12 @@ function renderDocument(){
     docxPreview.renderAsync(docxBuffers[tab.name],page,null,{
       className:'docx-rendered',inWrapper:true,ignoreWidth:false,
       ignoreHeight:false,breakPages:true,useBase64URL:true
+    }).then(()=>{
+      // docx-preview injects its own <style> tags into <head> AFTER our stylesheet,
+      // so they win !important ties. We re-inject our override last to beat them.
+      let fix=document.getElementById('docx-bg-fix');
+      if(!fix){fix=document.createElement('style');fix.id='docx-bg-fix';document.head.appendChild(fix);}
+      _refreshDocxBgFix();
     }).catch(e=>{page.classList.remove('is-docx');page.innerHTML='<p style="color:#d70015;padding:20px">docx 渲染失败：'+esc(e.message)+'</p>';});
     return;
   }
@@ -1491,23 +1727,52 @@ function clearQAResults(){
 }
 function applyHighlights(items){
   const page=document.getElementById('docPage');
+  if(!page)return;
   function textNodes(node){const r=[];if(node.nodeType===3)r.push(node);else node.childNodes.forEach(c=>r.push(...textNodes(c)));return r;}
+  function _mkSpan(item,issueIdx){
+    const s=document.createElement('span');
+    s.className=item.hlClass;s.textContent=item.hlText;
+    s.dataset.tip=JSON.stringify({title:item.title||item.desc,desc:item.desc||'',suggestion:item.suggestion||'',sev:item.sev||item.status});
+    s.dataset.issueId=issueIdx;
+    s.addEventListener('mouseenter',showAnnoTip);s.addEventListener('mouseleave',scheduleRemoveTip);
+    return s;
+  }
   items.forEach((item,idx)=>{
     if(!item.hlText)return;
+    if(item.status&&item.status!=='pending')return;
+    const issueIdx=item.id!==undefined?item.id:idx;
+    let n=0;
+    // Pass 1: single text node match (fast path)
     textNodes(page).forEach(node=>{
       if(!node.parentNode)return;
       const t=node.textContent;const i=t.indexOf(item.hlText);if(i<0)return;
       const f=document.createDocumentFragment();
       if(i)f.appendChild(document.createTextNode(t.substring(0,i)));
-      const span=document.createElement('span');
-      span.className=item.hlClass;span.textContent=item.hlText;
-      span.dataset.tip=JSON.stringify({title:item.title||item.desc,desc:item.desc||'',suggestion:item.suggestion||'',sev:item.sev||item.status});
-      span.dataset.issueId=idx;
-      span.addEventListener('mouseenter',showAnnoTip);span.addEventListener('mouseleave',scheduleRemoveTip);
-      f.appendChild(span);
+      f.appendChild(_mkSpan(item,issueIdx));
       if(t.substring(i+item.hlText.length))f.appendChild(document.createTextNode(t.substring(i+item.hlText.length)));
-      node.parentNode.replaceChild(f,node);
+      node.parentNode.replaceChild(f,node);n++;
     });
+    if(!n){
+      // Pass 2: cross-node match — docx-preview splits text across <span class="run"> elements.
+      // Find the smallest block element whose innerText contains hlText, then use Range API.
+      const candidates=Array.from(page.querySelectorAll('p,li,td,th')).filter(el=>(el.innerText||'').includes(item.hlText));
+      candidates.sort((a,b)=>(a.innerText||'').length-(b.innerText||'').length);
+      for(const c of candidates){
+        const tns=textNodes(c);
+        let full='';
+        const offs=tns.map(nd=>{const s=full.length;full+=nd.textContent;return{node:nd,start:s};});
+        const mi=full.indexOf(item.hlText);if(mi<0)continue;
+        const me=mi+item.hlText.length;
+        let sn,so,en,eo;
+        for(const{node,start}of offs){const end=start+node.textContent.length;if(!sn&&mi<end){sn=node;so=mi-start;}if(sn&&me<=end){en=node;eo=me-start;break;}}
+        if(!sn||!en)continue;
+        try{
+          const range=document.createRange();range.setStart(sn,so);range.setEnd(en,eo);
+          range.deleteContents();range.insertNode(_mkSpan(item,issueIdx));
+        }catch(e){}
+        break;
+      }
+    }
   });
 }
 
@@ -1537,14 +1802,46 @@ function removeTip(){if(activeTip){activeTip.remove();activeTip=null;}clearTimeo
 document.addEventListener('click',e=>{
   if(activeTip&&!activeTip.contains(e.target)&&!e.target.className?.includes?.('hl-'))removeTip();
 });
+function _markIssueAccepted(i){
+  const q=window.currentQAData[i];if(!q)return;
+  q.status='accepted';
+  const card=document.getElementById('issue-'+i);
+  if(card){
+    card.classList.add('accepted');
+    const actions=card.querySelector('.issue-actions');
+    if(actions&&!actions.querySelector('.undo-accept')){
+      const btn=document.createElement('button');
+      btn.className='issue-btn undo-accept';btn.textContent='↩ 撤销';
+      btn.onclick=e=>{e.stopPropagation();undoAcceptedIssue(i);};
+      actions.appendChild(btn);
+    }
+  }
+  // Track edit pair for clone export
+  const fn=activeTabIdx>=0?openTabs[activeTabIdx].name:null;
+  if(fn&&q.hlText&&q.suggestion&&q.hlText!==q.suggestion){
+    if(!tabAcceptedEdits[fn])tabAcceptedEdits[fn]=[];
+    if(!tabAcceptedEdits[fn].some(e=>e.issueIdx===i))
+      tabAcceptedEdits[fn].push({original:q.hlText,suggestion:q.suggestion,issueIdx:i});
+  }
+  showToast('已采纳建议');
+  checkAllDone();
+}
 function acceptSuggestion(btn,e){
   e.stopPropagation();
   const hl=window._lastHoveredHl;
   if(!hl?.dataset?.tip)return;
   const d=JSON.parse(hl.dataset.tip);
-  if(d.suggestion){hl.textContent=d.suggestion;hl.className='';hl.removeAttribute('data-tip');}
+  const issueId=hl.dataset.issueId!=null?parseInt(hl.dataset.issueId):-1;
+  if(d.suggestion){
+    hl.textContent=d.suggestion;
+    hl.className='hl-accepted';
+    hl.removeAttribute('data-tip');
+    if(issueId>=0)hl.dataset.acceptedId=issueId;
+    // Keep data-issue-id for undo
+  }
   const tip=btn.closest('.anno-tip');if(tip){tip.remove();activeTip=null;}
-  showToast('已采纳建议');
+  if(issueId>=0)_markIssueAccepted(issueId);
+  else showToast('已采纳建议');
 }
 function fixXrefDangling(btn,e){e.stopPropagation();const tip=btn.closest('.anno-tip');if(tip){tip.remove();activeTip=null;}showToast('已标记为待修复');}
 function fixXrefUnref(btn,e){e.stopPropagation();const tip=btn.closest('.anno-tip');if(tip){tip.remove();activeTip=null;}showToast('已添加引用标记');}
@@ -1754,7 +2051,6 @@ async function handleTemplateUpload(e){
   showToast('正在上传模板…');
   try{
     const buf=await f.arrayBuffer();
-    // chunked encoding avoids call-stack overflow on large files
     const bytes=new Uint8Array(buf);
     let binary='';
     const chunk=8192;
@@ -1764,10 +2060,23 @@ async function handleTemplateUpload(e){
     const name=f.name.replace(/\.[^.]+$/,'');
     const data=await window.WC_API.uploadTemplate(b64,name,f.name);
     if(data.success){
-      showToast('模板已上传：'+name);
       loadUserTemplates();
-      const ai=document.getElementById('aiInput');
-      if(!ai.value.trim())ai.value='已上传模板：'+f.name+'，请点击"AI 解析排版规则"自动提取格式';
+      const rules=data.format_rules;
+      if(rules&&Object.keys(rules).length>0){
+        window._aiParsedRules=rules;
+        const labelMap={h1Font:'一级标题字体',h1Size:'一级标题字号(pt)',h2Font:'二级标题字体',h2Size:'二级标题字号(pt)',
+          h3Font:'三级标题字体',h3Size:'三级标题字号(pt)',bodyFont:'正文字体',bodySize:'正文字号(pt)',
+          westFont:'西文字体',indent:'首行缩进(字符)',lineHeight:'行距(倍)',align:'对齐',
+          marginTop:'上边距(cm)',marginBottom:'下边距(cm)',marginLeft:'左边距(cm)',marginRight:'右边距(cm)'};
+        document.getElementById('aiRulesBody').innerHTML=Object.entries(rules)
+          .map(([k,v])=>`<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid #eee"><span style="color:#666">${labelMap[k]||k}</span><span style="font-weight:500">${v}</span></div>`).join('');
+        document.getElementById('aiRules').style.display='block';
+        showToast('模板已上传，排版规则已提取，点击"应用到文档"填入面板');
+      }else{
+        showToast('模板已上传：'+name);
+        const ai=document.getElementById('aiInput');
+        if(!ai.value.trim())ai.value='已上传模板：'+f.name+'，请输入排版要求后点击"AI 解析排版规则"';
+      }
     }else{showToast('上传失败：'+(data.error||'未知错误'));}
   }catch(err){showToast('上传失败：'+err.message);console.error(err);}
 }
@@ -1815,11 +2124,77 @@ function applyAIRules(){
 }
 
 // ── QA ──
-function runQA(){
+// 从 docContents 重建保留标题层级的 HTML，供 runQA 和 runXRef 使用
+function _buildQAHtml(fn){
+  const els=docContents[fn];
+  if(!els||!els.length)return null;
+  const hasText=els.some(e=>e&&e.text&&e.text.trim());
+  if(!hasText)return null;
+  return els.map(e=>{
+    const txt=(e.text||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    if(!txt.trim())return '';
+    const t=e.type||'p';
+    if(t==='h1')return `<h1>${txt}</h1>`;
+    if(t==='h2')return `<h2>${txt}</h2>`;
+    if(t==='h3')return `<h3>${txt}</h3>`;
+    return `<p>${txt}</p>`;
+  }).join('\n');
+}
+
+async function runQA(){
   clearHighlights();
-  const fn=activeTabIdx>=0?openTabs[activeTabIdx].name:'';
-  let qaData=[...(fileQaData[fn]||[])];
-  qaData.forEach((q,i)=>{q.id=i;q.status='pending';});
+  if(activeTabIdx<0){showToast('未打开文档');return;}
+  if(!window._qaHealth||!window._qaHealth.ready){
+    if(window._qaHealth?.install_state?.status==='installing'){
+      showToast('服务器正在准备 QA 能力，请稍候…');
+      return;
+    }
+    const miss=(window._qaHealth?.missing||[]).join('、')||'关键能力';
+    showToast('QA 未就绪：缺少 '+miss);
+    return;
+  }
+  const fn=openTabs[activeTabIdx].name;
+  const tab=openTabs[activeTabIdx];
+  const isDocx=(tab.type==='docx'||tab.type==='doc');
+  const structHtml=isDocx?_buildQAHtml(fn):null;
+  const page=document.getElementById('docPage');
+  const content=structHtml||(page?(page.innerHTML||''):'');
+  const btn=document.querySelector('[onclick="runQA()"]');
+  if(btn){btn.disabled=true;btn.style.opacity='0.6';}
+  setStatus('规则检查中…');
+  let qaData=[];
+  try{
+    const categories=['typo','consistency','logic','format','crossref'];
+    const resp=await window.WC_API.runQA(content,categories);
+    if(resp&&resp.success&&Array.isArray(resp.issues)){
+      const sevMap={error:'error',warning:'warn',info:'info'};
+      const catMap={typo:'错别字',inconsistency:'数据不一致',logic:'逻辑问题',
+                    format:'格式问题',grammar:'语法',reference:'引用',style:'表达风格'};
+      const clsMap={error:'hl-error',warn:'hl-warn',info:'hl-info'};
+      qaData=resp.issues.map((it,i)=>{
+        const sev=sevMap[it.severity]||'info';
+        return {
+          id:i, status:'pending',
+          sev, cat:catMap[it.category]||it.category||'其他',
+          title:it.title||'', desc:it.description||'',
+          suggestion:it.suggestion||'',
+          hlText:it.location_text||'',
+          hlClass:clsMap[sev]||'hl-info',
+        };
+      });
+    }else if(resp&&resp.error){
+      console.warn('runQA backend error:',resp.error);
+      showToast('后端检查失败，已回退到内置示例');
+      qaData=[...(fileQaData[fn]||[])].map((q,i)=>({...q,id:i,status:'pending'}));
+    }
+  }catch(e){
+    console.error('runQA error:',e);
+    showToast('后端不可用，使用本地示例数据');
+    qaData=[...(fileQaData[fn]||[])].map((q,i)=>({...q,id:i,status:'pending'}));
+  }finally{
+    if(btn){btn.disabled=false;btn.style.opacity='';}
+  }
+  qaData.forEach((q,i)=>{q.id=i;if(!q.status)q.status='pending';});
   window.currentQAData=qaData;
   renderQAIssues(qaData);
   applyHighlights(qaData);
@@ -1840,10 +2215,11 @@ function renderQAIssues(qaData){
   el.innerHTML='';
   qaData.forEach((q,i)=>{
     const div=document.createElement('div');
-    div.className='issue '+q.sev+' fade-in';
+    const isAccepted=q.status==='accepted',isRejected=q.status==='rejected';
+    div.className=`issue ${q.sev} fade-in${isAccepted?' accepted':''}${isRejected?' rejected':''}`;
     div.style.animationDelay=(i*40)+'ms';
     div.dataset.sev=q.sev;div.dataset.cat=q.cat;div.dataset.id=i;div.id='issue-'+i;
-    div.innerHTML=`<div class="issue-top"><span class="issue-badge">${badge[q.sev]}</span><span class="issue-title">[${esc(q.cat)}] ${esc(q.title)}</span></div><div class="issue-desc">${esc(q.desc)}</div>${q.suggestion?`<div class="issue-suggestion">${esc(q.suggestion)}</div>`:''}<div class="issue-actions"><button class="issue-btn locate" onclick="event.stopPropagation();locateIssue(${i})">📍 定位</button><button class="issue-btn accept" onclick="event.stopPropagation();acceptIssue(${i})">✓ 采纳</button><button class="issue-btn reject" onclick="event.stopPropagation();rejectIssue(${i})">✗ 忽略</button></div>`;
+    div.innerHTML=`<div class="issue-top"><span class="issue-badge">${badge[q.sev]}</span><span class="issue-title">[${esc(q.cat)}] ${esc(q.title)}</span></div><div class="issue-desc">${esc(q.desc)}</div>${q.suggestion?`<div class="issue-suggestion">${esc(q.suggestion)}</div>`:''}<div class="issue-actions"><button class="issue-btn locate" onclick="event.stopPropagation();locateIssue(${i})">📍 定位</button><button class="issue-btn accept" onclick="event.stopPropagation();acceptIssue(${i})">✓ 采纳</button><button class="issue-btn reject" onclick="event.stopPropagation();rejectIssue(${i})">✗ 忽略</button>${isAccepted?`<button class="issue-btn undo-accept" onclick="event.stopPropagation();undoAcceptedIssue(${i})">↩ 撤销</button>`:''}</div>`;
     div.onclick=()=>locateIssue(i);
     el.appendChild(div);
   });
@@ -1858,51 +2234,49 @@ function filterQA(){
 function locateIssue(i){
   const q=window.currentQAData[i];if(!q)return;
   const hl=document.querySelector(`[data-issue-id="${i}"]`);
-  if(hl){hl.scrollIntoView({behavior:'smooth',block:'center'});hl.style.outline='2px solid var(--accent)';setTimeout(()=>hl.style.outline='',2000);}
+  if(hl){
+    hl.scrollIntoView({behavior:'smooth',block:'center'});
+    hl.style.outline='2px solid var(--accent)';
+    setTimeout(()=>hl.style.outline='',2000);
+  } else if(q.hlText){
+    // Fallback: highlight span not in DOM (applyHighlights failed to insert span).
+    // Search by innerText across all block elements — no leaf-only restriction,
+    // because docx-preview paragraphs always have <span> children.
+    const page=document.getElementById('docPage');
+    if(page){
+      const vp=document.getElementById('docViewport')||page;
+      // Strip trailing "..." added by logic_checker (not present in rendered DOM)
+      const search=(q.hlText||'').trim().replace(/\.{3,}$|…$/, '').trim();
+      if(!search){showToast('未找到"'+q.hlText+'"的位置');return;}
+      let candidates=Array.from(page.querySelectorAll('p,li,td,th')).filter(el=>(el.innerText||'').includes(search));
+      if(!candidates.length)candidates=Array.from(page.querySelectorAll('div,span,section,article')).filter(el=>(el.innerText||'').includes(search));
+      // Pick the most specific element (smallest innerText = narrowest match)
+      candidates.sort((a,b)=>(a.innerText||'').length-(b.innerText||'').length);
+      const hit=candidates[0]||null;
+      if(hit){
+        const rect=hit.getBoundingClientRect(),vpRect=vp.getBoundingClientRect();
+        vp.scrollTop+=rect.top-vpRect.top-(vpRect.height/2)+(rect.height/2);
+        hit.style.boxShadow='inset 0 0 0 1000px rgba(255,220,0,0.5)';
+        setTimeout(()=>{hit.style.transition='box-shadow 1.2s';hit.style.boxShadow='';},1400);
+      }else{
+        showToast('未找到"'+search+'"的位置');
+      }
+    }
+  }
   const card=document.getElementById('issue-'+i);
   if(card){card.style.background='var(--accent-bg)';setTimeout(()=>card.style.background='',2000);}
 }
-async function acceptIssue(i){
+function acceptIssue(i){
   const q=window.currentQAData[i];if(!q||q.status!=='pending')return;
-
-  // 获取被标记的元素，从中提取原始文本
   const hl=document.querySelector(`[data-issue-id="${i}"]`);
-  const originalText=hl?hl.textContent:null;
-
-  if(!originalText || !q.suggestion){
-    // 如果无法获取原始文本或建议，降级处理
-    if(hl){hl.textContent=q.suggestion;hl.className='';hl.removeAttribute('data-issue-id');}
-    q.status='accepted';
-    const card=document.getElementById('issue-'+i);if(card)card.classList.add('accepted');
-    checkAllDone();
-    return;
+  if(hl){
+    if(q.suggestion)hl.textContent=q.suggestion;
+    hl.className='hl-accepted';
+    hl.removeAttribute('data-tip');
+    hl.dataset.acceptedId=i;
+    // Keep data-issue-id for undo
   }
-
-  // 获取当前的文档 HTML 内容
-  const page=document.getElementById('docPage');
-  const currentHtml=page.innerHTML;
-
-  // 调用后端的 acceptSuggestion 方法进行精确替换
-  try{
-    const data=await window.WC_API.acceptSuggestion(currentHtml,'issue-'+i,originalText,q.suggestion);
-    if(data.success){
-      // 用后端返回的修正内容更新前端
-      page.innerHTML=data.corrected_content;
-      q.status='accepted';
-      const card=document.getElementById('issue-'+i);if(card)card.classList.add('accepted');
-      showToast(data.message||'已采纳建议');
-    }else{
-      showToast('采纳失败：'+data.error);
-    }
-  }catch(e){
-    console.error('acceptSuggestion 失败:',e);
-    // 降级处理：本地修改
-    if(hl){hl.textContent=q.suggestion;hl.className='';hl.removeAttribute('data-issue-id');}
-    q.status='accepted';
-    const card=document.getElementById('issue-'+i);if(card)card.classList.add('accepted');
-    showToast('已采纳建议');
-  }
-  checkAllDone();
+  _markIssueAccepted(i);
 }
 function rejectIssue(i){
   const q=window.currentQAData[i];if(!q||q.status!=='pending')return;
@@ -1918,7 +2292,289 @@ function checkAllDone(){
 }
 function acceptAllIssues(){const c=window.currentQAData.filter(q=>q.status==='pending').length;window.currentQAData.forEach((_,i)=>acceptIssue(i));showToast('已接受 '+c+' 个修改');}
 function rejectAllIssues(){const c=window.currentQAData.filter(q=>q.status==='pending').length;window.currentQAData.forEach((_,i)=>rejectIssue(i));showToast('已忽略 '+c+' 个问题');}
-function runAIQA(){showToast('AI 深度分析中…（需配置 API Key）');}
+function undoAcceptedIssue(i){
+  const q=window.currentQAData[i];if(!q||q.status!=='accepted')return;
+  const hl=document.querySelector(`[data-accepted-id="${i}"]`)||document.querySelector(`[data-issue-id="${i}"]`);
+  if(hl){
+    hl.textContent=q.hlText||hl.textContent;
+    hl.className=q.hlClass||'hl-warn';
+    hl.removeAttribute('data-accepted-id');
+    hl.dataset.issueId=i;
+  }
+  q.status='pending';
+  const card=document.getElementById('issue-'+i);
+  if(card){
+    card.classList.remove('accepted');
+    const undoBtn=card.querySelector('.undo-accept');if(undoBtn)undoBtn.remove();
+  }
+  const fn=activeTabIdx>=0?openTabs[activeTabIdx].name:null;
+  if(fn&&tabAcceptedEdits[fn])tabAcceptedEdits[fn]=tabAcceptedEdits[fn].filter(e=>e.issueIdx!==i);
+  document.getElementById('batchBar').style.display='flex';
+  showToast('已撤销采纳');
+}
+function undoAllAcceptedIssues(){
+  const indices=window.currentQAData.map((q,i)=>q.status==='accepted'?i:-1).filter(i=>i>=0);
+  indices.forEach(i=>undoAcceptedIssue(i));
+  if(indices.length)showToast('已撤销 '+indices.length+' 个采纳');
+}
+async function runAIQA(){
+  if(activeTabIdx<0){showToast('未打开文档');return;}
+  const content=_collectDocPlainText();
+  if(!content.trim()){showToast('文档内容为空');return;}
+  const btn=document.querySelector('[onclick="runAIQA()"]');
+  if(btn){btn.disabled=true;btn.style.opacity='0.6';}
+  _setAIThinkingVisible(true,'AI 正在深度检查长文档…');
+  _appendAIThinkingLog('已读取文档文本，准备分块分析…');
+  _setQAProgress(0,'0%');
+  showToast('AI 深度分析中…');
+  try{
+    const model=_getPreferredAIModel();
+    const formatRules=_collectCurrentFormatRules();
+    const chunks=_splitForAI(content,4200);
+    const total=chunks.length;
+    _appendAIThinkingLog(`使用模型：${model}`);
+    _appendAIThinkingLog(`已拆分为 ${total} 段（并发 2 路）`);
+    if(total===0){showToast('文档内容为空');return;}
+
+    const rawIssues=[];
+    let nextIdx=0,done=0;
+    const workers=Math.min(2,total);
+    const worker=async()=>{
+      while(true){
+        const idx=nextIdx++;
+        if(idx>=total)break;
+        const chunk=chunks[idx];
+        const sys=_buildAIQASystemPrompt();
+        const user=_buildAIQAUserPrompt(chunk,idx,total,formatRules);
+        let parsed=[];
+        try{
+          const data=await window.WC_API.callAI(sys,user,{model,temperature:0.2});
+          if(data?.error)throw new Error(data.error);
+          parsed=_parseAIIssuesFromReply(data?.content||'');
+        }catch(err){
+          _appendAIThinkingLog(`第 ${idx+1} 段分析失败：${err.message||err}`);
+        }
+        rawIssues.push(...parsed);
+        done++;
+        const pct=Math.round(done/total*100);
+        _setQAProgress(pct,pct+'%');
+        _setAIThinkingVisible(true,`AI 正在深度检查（${done}/${total}）…`);
+        _appendAIThinkingLog(`第 ${idx+1} 段完成，发现 ${parsed.length} 条建议`);
+      }
+    };
+    await Promise.all(Array.from({length:workers},()=>worker()));
+
+    const issues=_normalizeAIIssues(rawIssues);
+    if(!window.currentQAData)window.currentQAData=[];
+    window.currentQAData=[...window.currentQAData.filter(q=>q.type!=='ai'),...issues]
+      .map((q,i)=>({...q,id:i,status:q.status||'pending'}));
+    const tab=openTabs[activeTabIdx];
+    if(tab)tabQAState[tab.name]=window.currentQAData;
+    renderQAIssues(window.currentQAData);
+    applyHighlights(window.currentQAData);
+    _appendAIThinkingLog(`已完成：总计 ${issues.length} 条（去重后）`);
+    showToast(`AI 深度分析完成，发现 ${issues.length} 条建议`);
+  }catch(e){
+    console.error('runAIQA error:',e);
+    showToast('AI 分析失败，请检查网络');
+  }finally{
+    _setAIThinkingVisible(false);
+    _setQAProgress(0,'0%');
+    if(btn){btn.disabled=false;btn.style.opacity='';}
+  }
+}
+
+function _collectDocPlainText(){
+  const page=document.getElementById('docPage');
+  if(!page)return '';
+  const blocks=Array.from(page.querySelectorAll('h1,h2,h3,p,li,caption,th,td'))
+    .map(el=>(el.innerText||'').trim())
+    .filter(Boolean);
+  const text=blocks.join('\n');
+  return text||page.innerText||'';
+}
+function _splitForAI(text,maxChars=4200){
+  const paras=text.split(/\n+/).map(s=>s.trim()).filter(Boolean);
+  const chunks=[];
+  let buf='';
+  for(const p of paras){
+    if((buf+'\n'+p).length>maxChars&&buf){
+      chunks.push(buf);
+      buf=p;
+      continue;
+    }
+    if(p.length>maxChars){
+      if(buf){chunks.push(buf);buf='';}
+      for(let i=0;i<p.length;i+=maxChars)chunks.push(p.slice(i,i+maxChars));
+      continue;
+    }
+    buf=buf?buf+'\n'+p:p;
+  }
+  if(buf)chunks.push(buf);
+  return chunks.slice(0,30); // 防止超长文档无限拉长等待时间
+}
+function _collectCurrentFormatRules(){
+  const g=(id,def='')=>document.getElementById(id)?.value||def;
+  return {
+    h1Font:g('fH1Font','黑体'), h1SizePt:+g('fH1Size',16),
+    h2Font:g('fH2Font','黑体'), h2SizePt:+g('fH2Size',14),
+    h3Font:g('fH3Font','黑体'), h3SizePt:+g('fH3Size',12),
+    bodyFont:g('fBFont','宋体'), bodySizePt:+g('fBSize',12),
+    westFont:g('fWFont','Times New Roman'),
+    indentChars:+g('fIndent',2),
+    lineHeight:g('fLH','1.5'),
+    align:g('fAlign','justify'),
+    marginTopCm:+g('fMT',2.5), marginBottomCm:+g('fMB',2.5),
+    marginLeftCm:+g('fML',3.0), marginRightCm:+g('fMR',2.5),
+  };
+}
+function _buildAIQASystemPrompt(){
+  return `你是中文长文档审校专家。请仅基于给定文本和排版指标输出 JSON，不要输出 markdown 代码块。
+返回格式必须是：
+{"issues":[{"severity":"error|warning|info","category":"logic|style|consistency|format|grammar","title":"<=24字","description":"<=80字","suggestion":"<=60字","location_text":"原文中的短语（尽量精确）"}]}
+要求：
+1) 重点检查：逻辑连贯、表达清晰、数据一致、语言规范。
+2) 必须检查排版是否违反给定指标（行距、标题字体、对齐、缩进、页边距等），并归类为 format。
+3) 若无问题，返回 {"issues":[]}。
+4) 不要编造位置，location_text 必须来自文本原句。`;
+}
+function _buildAIQAUserPrompt(chunk,idx,total,formatRules){
+  return `当前是第 ${idx+1}/${total} 段文本。\n\n【排版指标（必须检查）】\n${JSON.stringify(formatRules, null, 2)}\n\n【待检查文本】\n${chunk}`;
+}
+function _extractFirstJson(text){
+  if(!text)return '';
+  const t=text.trim();
+  if(t.startsWith('{')&&t.endsWith('}'))return t;
+  const m=t.match(/\{[\s\S]*\}/);
+  return m?m[0]:'';
+}
+function _parseAIIssuesFromReply(reply){
+  try{
+    const raw=_extractFirstJson(reply);
+    if(!raw)return [];
+    const obj=JSON.parse(raw);
+    if(Array.isArray(obj))return obj;
+    if(Array.isArray(obj.issues))return obj.issues;
+    return [];
+  }catch{
+    return [];
+  }
+}
+function _normalizeAIIssues(rawIssues){
+  const sevMap={error:'error',warning:'warn',warn:'warn',info:'info'};
+  const catMap={logic:'逻辑问题',style:'表达风格',consistency:'数据不一致',format:'格式问题',grammar:'语法'};
+  const out=[];
+  const seen=new Set();
+  for(const it of rawIssues||[]){
+    const sev=sevMap[(it.severity||'').toLowerCase()]||'info';
+    const cat=catMap[(it.category||'').toLowerCase()]||'AI建议';
+    const title=(it.title||'AI 建议').toString().trim().slice(0,60);
+    const desc=(it.description||'').toString().trim().slice(0,200);
+    const suggestionRaw=(it.suggestion||'').toString().trim().slice(0,120);
+    const hlText=(it.location_text||'').toString().trim().slice(0,80);
+    const suggestion=_normalizeAISuggestion(hlText,suggestionRaw);
+    const key=[cat,title,hlText,suggestion].join('||');
+    if(!title||seen.has(key))continue;
+    seen.add(key);
+    out.push({
+      id:0, type:'ai', status:'pending',
+      sev, cat,
+      title, desc,
+      suggestion,
+      hlText,
+      hlClass:sev==='error'?'hl-error':sev==='warn'?'hl-warn':'hl-info',
+    });
+  }
+  out.forEach((q,i)=>q.id=i);
+  return out;
+}
+function _normalizeAISuggestion(hlText,suggestion){
+  if(!suggestion)return '';
+  if(!hlText)return '';
+  // 原有 acceptIssue/acceptSuggestion 的语义是“文本替换”。
+  // AI 的建议常是解释句，不适合直接替换正文；这里做轻量约束，避免误替换。
+  if(suggestion.includes('建议')||suggestion.includes('应改为')||suggestion.includes('可改为')){
+    // 如果包含明显解释语气，且长度远大于命中片段，则只保留为描述，不作为替换值
+    if(suggestion.length>Math.max(hlText.length*3,24))return '';
+  }
+  if(suggestion.length>Math.max(hlText.length*4,40))return '';
+  return suggestion;
+}
+function _setQAProgress(percent,label){
+  const p=document.getElementById('qaProgress');
+  const bar=document.getElementById('qaProgressBar');
+  const txt=document.getElementById('qaProgressText');
+  if(!p||!bar||!txt)return;
+  const v=Math.max(0,Math.min(100,percent||0));
+  p.style.display=v>0&&v<100?'block':'none';
+  bar.style.width=v+'%';
+  txt.textContent=label||`${v}%`;
+}
+function _setAIThinkingVisible(show,title=''){
+  const panel=document.getElementById('aiThinkingPanel');
+  const t=document.getElementById('aiThinkingTitle');
+  if(!panel||!t)return;
+  panel.style.display=show?'block':'none';
+  if(title)t.textContent=title;
+  if(!show){
+    const log=document.getElementById('aiThinkingLog');
+    if(log)log.innerHTML='';
+  }
+}
+function _appendAIThinkingLog(text){
+  const log=document.getElementById('aiThinkingLog');
+  if(!log)return;
+  const row=document.createElement('div');
+  row.textContent=`${new Date().toLocaleTimeString()} · ${text}`;
+  log.appendChild(row);
+  log.scrollTop=log.scrollHeight;
+}
+function _getPreferredAIModel(){
+  const candidate = _cloudSettings.ai_model || document.getElementById('aiModel')?.value || 'deepseek-v4-flash';
+  return _normalizeAIModel(candidate);
+}
+
+function _normalizeAIModel(model){
+  const m = String(model || '').trim().toLowerCase();
+  if(!m) return 'deepseek-v4-flash';
+  if(m.startsWith('doubao')) return 'deepseek-v4-flash';
+  if(m === 'deepseek-v3') return 'deepseek-v4-flash';
+  if(m === 'deepseek-chat' || m === 'deepseek-reasoner') return 'deepseek-v4-flash';
+  return model;
+}
+
+// 跳转到文章中的交叉引用位置
+// occurrence: 该 refNum 在匹配列表中的出现次序（0-based），对应文中第几次出现
+function jumpToXRefInText(refNum, occurrence) {
+  const page = document.getElementById('docPage');
+  const viewport = document.getElementById('docViewport') || page;
+  if (!page) return;
+
+  const searchText = refNum.trim();
+  const occ = occurrence || 0;
+
+  // docx-preview 把 [1] 拆成多个文本节点，需用 innerText 在段落级匹配
+  // 收集所有包含该引用号的段落，按文档顺序，取第 occ 个
+  const allHits = Array.from(page.querySelectorAll('p, li, td'))
+    .filter(el => (el.innerText || '').includes(searchText));
+
+  const hit = allHits[occ] || allHits[0];
+
+  if (hit) {
+    const rect = hit.getBoundingClientRect();
+    const vpRect = viewport.getBoundingClientRect();
+    viewport.scrollTop += rect.top - vpRect.top - (vpRect.height / 2) + (rect.height / 2);
+    hit.style.boxShadow = 'inset 0 0 0 1000px rgba(255,220,0,0.55)';
+    hit.style.transition = 'box-shadow 0.15s';
+    setTimeout(() => {
+      hit.style.transition = 'box-shadow 1.2s';
+      hit.style.boxShadow = '';
+    }, 1400);
+    return;
+  }
+
+  showToast('未找到引用位置');
+}
 
 // ── XREF ──
 async function runXRef(){
@@ -1927,7 +2583,12 @@ async function runXRef(){
   // 首先尝试调用后端的 runXRef 方法获取实时结果
   try{
     const page=document.getElementById('docPage');
-    const data=await window.WC_API.runXRef(page.innerHTML);
+    const fn=activeTabIdx>=0?openTabs[activeTabIdx].name:null;
+    const tab=activeTabIdx>=0?openTabs[activeTabIdx]:null;
+    const isDocxTab=tab&&(tab.type==='docx'||tab.type==='doc');
+    const structHtml=isDocxTab&&fn?_buildQAHtml(fn):null;
+    const xrefContent=structHtml||(page?page.innerHTML:'');
+    const data=await window.WC_API.runXRef(xrefContent);
     if(data.success){
       // 处理后端返回的数据
       const targets=data.targets||[];
@@ -1940,15 +2601,30 @@ async function runXRef(){
       });
 
       const sl={valid:'ok',dangling:'err',unreferenced:'warn'};
-      const formattedMatches=matches.map(m=>({
-        status:sl[m.status]||'err',
-        ref:m.reference||m.ref||'—',
-        target:m.target?.label||m.target||'',
-        desc:m.message||''
-      }));
+      // 用 element_index 计算每个引用在文档中对应的段落出现次序
+      // element_index 是后端 DocElement 的序号，相同 element_index 的引用在同一段落
+      const _elemOcc={};  // ref -> {elemIdx -> paraOcc}
+      const _paraOccCount={};  // ref -> 已见到的不重复段落数
+      const formattedMatches=matches.map(m=>{
+        const ref=m.reference||m.ref||'—';
+        const ei=m.element_index;
+        let paraOcc=0;
+        if(ei!=null){
+          if(!_elemOcc[ref])_elemOcc[ref]={};
+          if(_elemOcc[ref][ei]==null){
+            const c=_paraOccCount[ref]||0;
+            _elemOcc[ref][ei]=c;
+            _paraOccCount[ref]=c+1;
+          }
+          paraOcc=_elemOcc[ref][ei];
+        }
+        return {status:sl[m.status]||'err',ref,target:m.target?.label||m.target||'',desc:m.message||'',paraOcc};
+      });
 
       document.getElementById('xrefTargetsBody').innerHTML=Object.values(targetMap).map(t=>`<tr><td>${t.type}</td><td>${t.num}</td><td>${t.label}</td><td>${esc(t.title)}</td></tr>`).join('');
-      document.getElementById('xrefMatchesBody').innerHTML=formattedMatches.map(m=>`<tr><td><span class="sdot ${m.status}"></span>${{'ok':'有效','err':'悬空','warn':'未引用'}[m.status]}</td><td>${esc(m.ref)}</td><td>${esc(m.target)}</td><td>${esc(m.desc)}</td></tr>`).join('');
+      document.getElementById('xrefMatchesBody').innerHTML=formattedMatches.map(m=>{
+        return `<tr style="cursor:pointer" onclick="jumpToXRefInText('${m.ref}',${m.paraOcc})"><td><span class="sdot ${m.status}"></span>${{'ok':'有效','err':'悬空','warn':'未引用'}[m.status]}</td><td>${esc(m.ref)}</td><td>${esc(m.target)}</td><td>${esc(m.desc)}</td></tr>`;
+      }).join('');
       document.getElementById('xrefTargets').textContent=targets.length;
       document.getElementById('xrefRefs').textContent=formattedMatches.filter(m=>m.ref!=='—').length;
       document.getElementById('xrefValid').textContent=formattedMatches.filter(m=>m.status==='ok').length;
@@ -1972,7 +2648,11 @@ async function runXRef(){
   const matches=fileXrefMatches[fn]||[];
   document.getElementById('xrefTargetsBody').innerHTML=targets.map(t=>`<tr><td>${t.type}</td><td>${t.num}</td><td>${t.label}</td><td>${esc(t.title)}</td></tr>`).join('');
   const sl={ok:'有效',err:'悬空',warn:'未引用'};
-  document.getElementById('xrefMatchesBody').innerHTML=matches.map(m=>`<tr><td><span class="sdot ${m.status}"></span>${sl[m.status]}</td><td>${esc(m.ref)}</td><td>${esc(m.target)}</td><td>${esc(m.desc)}</td></tr>`).join('');
+  const _occCount2={};
+  document.getElementById('xrefMatchesBody').innerHTML=matches.map(m=>{
+    const occ=(_occCount2[m.ref]||0);_occCount2[m.ref]=(occ+1);
+    return `<tr style="cursor:pointer" onclick="jumpToXRefInText('${m.ref}',${occ})"><td><span class="sdot ${m.status}"></span>${sl[m.status]}</td><td>${esc(m.ref)}</td><td>${esc(m.target)}</td><td>${esc(m.desc)}</td></tr>`;
+  }).join('');
   document.getElementById('xrefTargets').textContent=targets.length;
   document.getElementById('xrefRefs').textContent=matches.filter(m=>m.ref!=='—').length;
   document.getElementById('xrefValid').textContent=matches.filter(m=>m.status==='ok').length;
@@ -1995,6 +2675,27 @@ _fi.addEventListener('change',_handleFileSelect);document.body.appendChild(_fi);
 function openFile(){_fi.click();}
 // High-fidelity renderer buffers (keyed by file name)
 let docxBuffers={},pdfBuffers={},xlsxBuffers={};
+// Section / paragraph / style round-trip metadata extracted on docx upload (keyed by file name)
+let docSections={};
+let docStyles={};
+let docRoundTripReady={};
+function _arrayBufferToBase64(ab){
+  const bytes=new Uint8Array(ab);
+  let bin='';const chunk=8192;
+  for(let i=0;i<bytes.length;i+=chunk)bin+=String.fromCharCode(...bytes.subarray(i,Math.min(i+chunk,bytes.length)));
+  return btoa(bin);
+}
+async function _fetchRoundTripDocMeta(fileKey,ab,backendFileName){
+  const j=await window.WC_API.openFile(_arrayBufferToBase64(ab),backendFileName||fileKey);
+  if(j&&j.success&&Array.isArray(j.elements)){
+    docRoundTripReady[fileKey]=true;
+    if(Array.isArray(j.sections))docSections[fileKey]=j.sections;
+    if(j.styles&&typeof j.styles==='object')docStyles[fileKey]=j.styles;
+    return j.elements;
+  }
+  docRoundTripReady[fileKey]=false;
+  return null;
+}
 async function _handleFileSelect(e){
   const f=e.target.files[0];if(!f)return;_fi.value='';
   const ext=f.name.split('.').pop().toLowerCase();
@@ -2011,20 +2712,26 @@ async function _handleFileSelect(e){
 async function _loadDocxFile(file){
   const ab=await file.arrayBuffer();
   docxBuffers[file.name]=ab;
-  // mammoth extraction for QA / export 元素链路兼容
-  let els=[];
+  // Try backend openFile for rich fmt + runs + section metadata (round-trip export fidelity).
+  let els=null;
   try{
-    const res=await mammoth.convertToHtml({arrayBuffer:ab.slice(0)},{styleMap:[
-      "p[style-name='Heading 1'] => h1:fresh",
-      "p[style-name='标题 1'] => h1:fresh",
-      "p[style-name='Heading 2'] => h2:fresh",
-      "p[style-name='标题 2'] => h2:fresh",
-      "p[style-name='Heading 3'] => h3:fresh",
-      "p[style-name='标题 3'] => h3:fresh",
-      "p => p:fresh"
-    ]});
-    els=_htmlToElements(res.value);
-  }catch(err){els=[{type:'p',text:'(mammoth 元素提取失败，但高保真预览可用)'}];}
+    els=await _fetchRoundTripDocMeta(file.name,ab,file.name);
+  }catch(err){docRoundTripReady[file.name]=false;/* fall through to mammoth */}
+  if(!els){
+    try{
+      const res=await mammoth.convertToHtml({arrayBuffer:ab.slice(0)},{styleMap:[
+        "p[style-name='Heading 1'] => h1:fresh",
+        "p[style-name='标题 1'] => h1:fresh",
+        "p[style-name='Heading 2'] => h2:fresh",
+        "p[style-name='标题 2'] => h2:fresh",
+        "p[style-name='Heading 3'] => h3:fresh",
+        "p[style-name='标题 3'] => h3:fresh",
+        "p => p:fresh"
+      ]});
+      els=_htmlToElements(res.value);
+    }catch(err){els=[{type:'p',text:'(mammoth 元素提取失败，但高保真预览可用)'}];}
+    showToast('提示：未获取到原文格式元数据，本次导出可能失真');
+  }
   _addFile(file.name,file.size,'docx',els);
 }
 async function _loadPdfFile(file){
@@ -2058,13 +2765,7 @@ async function _loadXlsxFile(file){
 async function _loadDocFile(file){
   showToast('.doc 转换中，请稍候…');
   const ab=await file.arrayBuffer();
-  const bytes=new Uint8Array(ab);
-  // chunked encoding: avoids both stack overflow and O(n²) string concat
-  let bin='';
-  const chunk=8192;
-  for(let i=0;i<bytes.length;i+=chunk)
-    bin+=String.fromCharCode(...bytes.subarray(i,Math.min(i+chunk,bytes.length)));
-  const b64=btoa(bin);
+  const b64=_arrayBufferToBase64(ab);
   const resp=await fetch('/api/convertDoc',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({file_content:b64,file_name:file.name})});
   const j=await resp.json();
@@ -2074,10 +2775,18 @@ async function _loadDocFile(file){
   const view=new Uint8Array(docxAb);
   for(let i=0;i<docxBin.length;i++)view[i]=docxBin.charCodeAt(i);
   docxBuffers[file.name]=docxAb;
-  let els=[];
+  let els=null;
   try{
-    const res=await mammoth.convertToHtml({arrayBuffer:docxAb.slice(0)});
-    els=_htmlToElements(res.value);
+    const backendName=file.name.replace(/\.doc$/i,'.docx');
+    els=await _fetchRoundTripDocMeta(file.name,docxAb,backendName);
+  }catch(err){docRoundTripReady[file.name]=false;/* fall through */}
+  if(!els)els=[];
+  try{
+    if(!els.length){
+      const res=await mammoth.convertToHtml({arrayBuffer:docxAb.slice(0)});
+      els=_htmlToElements(res.value);
+      showToast('提示：.doc 转换后未获取到原文格式元数据，本次导出可能失真');
+    }
   }catch(err){els=[{type:'p',text:'(.doc 已转为 .docx 并渲染)'}];}
   _addFile(file.name,file.size,'doc',els);
 }
@@ -2162,8 +2871,158 @@ function deleteSelectedFile(){
 
 async function exportDoc(){
   if(activeTabIdx<0){showToast('没有打开的文件');return;}
-  const tab=openTabs[activeTabIdx];const content=docContents[tab.name]||[];
+  const tab=openTabs[activeTabIdx];
+  if(tab.type==='pdf'){exportDocAsPdf(tab);return;}
+  await exportDocAsDocx(tab);
+}
+
+function exportDocAsPdf(tab){
+  const docPage=document.getElementById('docPage');
+  if(!docPage||!docPage.innerHTML.trim()){showToast('文档内容为空');return;}
+  let el=document.getElementById('printTarget');
+  if(!el){el=document.createElement('div');el.id='printTarget';el.style.display='none';document.body.appendChild(el);}
+  el.innerHTML=docPage.innerHTML;
+  // Apply format panel font settings inline so print inherits them
+  const h1Font=document.getElementById('fH1Font')?.value||'黑体';
+  const bFont=document.getElementById('fBFont')?.value||'宋体';
+  const bSize=parseFloat(document.getElementById('fBSize')?.value)||12;
+  const lh=parseFloat(document.getElementById('fLH')?.value)||1.5;
+  el.style.cssText=`font-family:'${bFont}',serif;font-size:${bSize}pt;line-height:${lh}`;
+  el.querySelectorAll('h1,h2,h3').forEach(h=>h.style.fontFamily=`'${h1Font}',sans-serif`);
+  showToast('正在打开打印对话框，请选择"另存为 PDF"');
+  window.addEventListener('afterprint',()=>{ el.innerHTML=''; },{once:true});
+  window.print();
+}
+
+// Apply accepted edits to word/document.xml string. Returns {xml, applied, skipped}.
+function _applyAcceptedEditsToDocXml(xmlStr,edits){
+  if(!edits||!edits.length)return{xml:xmlStr,applied:0,skipped:0};
+  const parser=new DOMParser();
+  const doc=parser.parseFromString(xmlStr,'application/xml');
+  const W='http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+  const body=doc.getElementsByTagNameNS(W,'body')[0];
+  if(!body)return{xml:xmlStr,applied:0,skipped:edits.length};
+  let applied=0,skipped=0;
+  for(const edit of edits){
+    const{original,suggestion}=edit;
+    if(!original||!suggestion||original===suggestion){skipped++;continue;}
+    const paras=Array.from(body.getElementsByTagNameNS(W,'p'));
+    let found=false;
+    for(const para of paras){
+      const rEls=Array.from(para.getElementsByTagNameNS(W,'r'));
+      const tPairs=[];
+      for(const r of rEls){
+        if(r.getElementsByTagNameNS(W,'instrText').length>0)continue;
+        for(const t of r.getElementsByTagNameNS(W,'t'))tPairs.push({r,t});
+      }
+      if(!tPairs.length)continue;
+      const fullText=tPairs.map(p=>p.t.textContent).join('');
+      const idx=fullText.indexOf(original);
+      if(idx<0)continue;
+      const matchEnd=idx+original.length;
+      let offset=0,replacementInserted=false;
+      for(const{t}of tPairs){
+        const nodeStart=offset,nodeEnd=offset+t.textContent.length;
+        offset=nodeEnd;
+        if(nodeEnd<=idx||nodeStart>=matchEnd)continue;
+        const before=t.textContent.slice(0,Math.max(0,idx-nodeStart));
+        const afterStart=Math.max(nodeStart,matchEnd);
+        const after=afterStart<nodeEnd?t.textContent.slice(afterStart-nodeStart):'';
+        if(!replacementInserted){
+          t.textContent=before+suggestion+after;
+          replacementInserted=true;
+        }else{
+          t.textContent=after;
+        }
+        if(t.textContent.startsWith(' ')||t.textContent.endsWith(' '))
+          t.setAttributeNS('http://www.w3.org/XML/1998/namespace','xml:space','preserve');
+      }
+      found=true;applied++;break;
+    }
+    if(!found)skipped++;
+  }
+  return{xml:new XMLSerializer().serializeToString(doc),applied,skipped};
+}
+
+// A-③ 将 blob 发给后端刷新域/目录编号。成功返回新 Blob，失败返回 null（前端静默降级）。
+async function _tryServerRefreshFields(blob){
+  try{
+    const arrayBuf=await blob.arrayBuffer();
+    const bytes=new Uint8Array(arrayBuf);
+    let b64='';
+    const chunk=8192;
+    for(let i=0;i<bytes.length;i+=chunk)
+      b64+=String.fromCharCode(...bytes.subarray(i,i+chunk));
+    b64=btoa(b64);
+    const data=await WC_API.refreshDocxFields(b64);
+    if(data&&data.success&&data.content){
+      const bin=atob(data.content);
+      const out=new Uint8Array(bin.length);
+      for(let i=0;i<bin.length;i++)out[i]=bin.charCodeAt(i);
+      return new Blob([out],{type:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'});
+    }
+    if(data&&data.error_code==='NO_OFFICE_ENGINE')
+      console.info('[WC] refreshDocxFields: no office engine, using client blob');
+    return null;
+  }catch(e){
+    console.warn('[WC] refreshDocxFields failed, using client blob:',e);
+    return null;
+  }
+}
+
+// Clone-first export: copy source docx bytes, apply accepted edits in-place.
+async function exportDocAsDocxClone(tab){
+  const buf=docxBuffers[tab.name];
+  if(!buf||typeof JSZip==='undefined')throw new Error('no source buffer or JSZip missing');
+  const zip=await JSZip.loadAsync(buf);
+  const xmlFile=zip.file('word/document.xml');
+  if(!xmlFile)throw new Error('document.xml missing in source');
+  let xmlStr=await xmlFile.async('string');
+  const edits=tabAcceptedEdits[tab.name]||[];
+  const{xml,applied,skipped}=_applyAcceptedEditsToDocXml(xmlStr,edits);
+  zip.file('word/document.xml',xml);
+  let blob=await zip.generateAsync({type:'blob',mimeType:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'});
+  // A-③ 尝试服务端刷新域（best-effort，失败静默降级）
+  const refreshed=await _tryServerRefreshFields(blob);
+  if(refreshed)blob=refreshed;
+  saveAs(blob,tab.name.replace(/\.\w+$/,'')+'_导出.docx');
+  if(skipped>0)showToast(`已导出：应用 ${applied} 处，${skipped} 处未匹配`);
+  else showToast('已导出 Word 文档');
+}
+
+async function exportDocAsDocx(tab){
+  const isWordLike=tab&&(tab.type==='docx'||tab.type==='doc');
+  if(isWordLike&&docxBuffers[tab.name]&&typeof JSZip!=='undefined'){
+    try{return await exportDocAsDocxClone(tab);}
+    catch(cloneErr){console.warn('[WC] clone export failed, falling back to rebuild',cloneErr);}
+  }
+  return exportDocAsDocxRebuild(tab);
+}
+
+async function exportDocAsDocxRebuild(tab){
+  // Strip HTML tags, keep plain text only
+  const _strip=s=>{if(!s)return'';const d=document.createElement('div');d.innerHTML=s;return d.textContent||'';};
+  let content=docContents[tab.name]||[];
+  // Fallback: parse rawHtmlContents if docContents is empty
+  if(!content.length&&rawHtmlContents[tab.name]){content=_htmlToElements(rawHtmlContents[tab.name]);}
+  const isWordLike=tab&&((tab.type==='docx')||(tab.type==='doc'));
+  const hasFmt=Array.isArray(content)&&content.some(it=>it&&it.fmt);
+  const hasSections=Array.isArray(docSections[tab.name])&&docSections[tab.name].length>0;
+  if(isWordLike&&(!hasFmt||!hasSections)&&docxBuffers[tab.name]){
+    try{
+      const backendName=tab.type==='doc'?tab.name.replace(/\.doc$/i,'.docx'):tab.name;
+      const metaEls=await _fetchRoundTripDocMeta(tab.name,docxBuffers[tab.name],backendName);
+      if(Array.isArray(metaEls)&&metaEls.length){
+        content=metaEls;
+        docContents[tab.name]=metaEls;
+      }
+    }catch(err){/* keep fallback path below */}
+  }
   if(!content.length){showToast('文档内容为空');return;}
+  if(isWordLike&&!content.some(it=>it&&it.fmt)){
+    showToast('导出失败：未获取到原文格式元数据，请确认后端服务正常后重新打开文档');
+    return;
+  }
   const h1Font=document.getElementById('fH1Font').value||'黑体';
   const h1Size=parseFloat(document.getElementById('fH1Size').value)||16;
   const h2Font=document.getElementById('fH2Font').value||'黑体';
@@ -2177,19 +3036,303 @@ async function exportDoc(){
   const lh=parseFloat(document.getElementById('fLH').value)||1.5;
   const hp=pt=>Math.round(pt*2);
   try{
-    const{Document,Packer,Paragraph,TextRun,HeadingLevel,AlignmentType}=docx;
-    const children=content.map(it=>{
-      if(it.type==='h1')return new Paragraph({children:[new TextRun({text:it.text,font:{name:wFont,eastAsia:h1Font},size:hp(h1Size),bold:true})],heading:HeadingLevel.HEADING_1});
-      if(it.type==='h2')return new Paragraph({children:[new TextRun({text:it.text,font:{name:wFont,eastAsia:h2Font},size:hp(h2Size),bold:true})],heading:HeadingLevel.HEADING_2});
-      if(it.type==='h3')return new Paragraph({children:[new TextRun({text:it.text,font:{name:wFont,eastAsia:h3Font},size:hp(h3Size),bold:true})],heading:HeadingLevel.HEADING_3});
-      if(it.type==='ref'||it.type==='caption')return new Paragraph({children:[new TextRun({text:it.text,font:{name:wFont,eastAsia:bFont},size:hp(10.5)})]});
-      return new Paragraph({children:[new TextRun({text:it.text,font:{name:wFont,eastAsia:bFont},size:hp(bSize)})],indent:{firstLine:Math.round(indent*bSize*0.35/2.54*1440)},spacing:{line:Math.round(lh*240)}});
+    const{Document,Packer,Paragraph,TextRun,HeadingLevel,AlignmentType,LineRuleType}=docx;
+    const firstLineTwips=Math.round(indent*bSize*0.035/2.54*1440);
+    const defaultLineSpacing=Math.round(lh*240);
+    const _safeTwips=(v,fallback=0)=>{
+      const n=Number(v);
+      if(!Number.isFinite(n))return fallback;
+      return Math.round(n);
+    };
+    const _safePositiveTwips=(v,fallback)=>{
+      const n=_safeTwips(v,fallback);
+      return n>0?n:fallback;
+    };
+    // Map python-docx alignment enum name to docx.js AlignmentType
+    const _algn=n=>({LEFT:AlignmentType.LEFT,CENTER:AlignmentType.CENTER,RIGHT:AlignmentType.RIGHT,JUSTIFY:AlignmentType.JUSTIFIED}[(n||'').toUpperCase()]);
+    // Map python-docx WD_LINE_SPACING rule name to docx.js LineRuleType / twips conversion
+    const _lineRule=(rule,spacing,spacingTwips)=>{
+      const r=(rule||'').toUpperCase();
+      if(r==='EXACTLY'){
+        const line=spacingTwips!=null?_safeTwips(spacingTwips,0):Math.round((spacing||0)*20);
+        if(line>0)return{line,lineRule:LineRuleType?LineRuleType.EXACT:'exact'};
+        return null;
+      }
+      if(r==='AT_LEAST'){
+        const line=spacingTwips!=null?_safeTwips(spacingTwips,0):Math.round((spacing||0)*20);
+        if(line>0)return{line,lineRule:LineRuleType?LineRuleType.AT_LEAST:'atLeast'};
+        return null;
+      }
+      if(spacing==null)return null;
+      return{line:Math.round(spacing*240)};
+    };
+    const _runFont=(r)=>{
+      // Forward only the explicit rFonts channels present on the source run. Do NOT fall back to
+      // `font.name`, because docx.js expands `font.name` into all four rFonts attributes
+      // (ascii/hAnsi/eastAsia/cs), which overwrites the channels Word had left intentionally blank
+      // (e.g., a run whose source only sets eastAsia=宋体 ends up with ascii/hAnsi/cs=Times New
+      // Roman in the export). If the source run has no rFonts at all, fall back to font_name as a
+      // last-resort shorthand, but only for ascii/hAnsi — never eastAsia/cs — so Chinese/CS
+      // channels remain inherited from the paragraph style.
+      const f={};
+      if(r.font_ascii)f.ascii=r.font_ascii;
+      if(r.font_hansi)f.hAnsi=r.font_hansi;
+      if(r.font_eastAsia)f.eastAsia=r.font_eastAsia;
+      if(r.font_cs)f.cs=r.font_cs;
+      if(!Object.keys(f).length&&r.font_name){
+        f.ascii=r.font_name;
+        f.hAnsi=r.font_name;
+      }
+      return f;
+    };
+    const _buildRun=(r)=>{
+      const opts={text:r.text||''};
+      const f=_runFont(r);
+      if(Object.keys(f).length)opts.font=f;
+      if(r.font_size_pt!=null)opts.size=Math.round(r.font_size_pt*2);
+      // Forward tri-state booleans faithfully (true / false / missing). Passing bold=false makes
+      // docx.js emit `<w:b w:val="false"/>`, which is what Word stores when the source explicitly
+      // disables bold within a paragraph whose style would otherwise apply it.
+      if(r.bold!=null)opts.bold=!!r.bold;
+      if(r.italic!=null)opts.italics=!!r.italic;
+      if(r.underline!=null){
+        if(r.underline)opts.underline={};
+        // docx.js ignores `underline: false`; explicit disable (rare) is handled in post-process.
+      }
+      return new TextRun(opts);
+    };
+    const _defaultChildren=(t,type)=>{
+      if(type==='h1')return[new TextRun({text:t,font:{name:wFont,eastAsia:h1Font},size:hp(h1Size),bold:true})];
+      if(type==='h2')return[new TextRun({text:t,font:{name:wFont,eastAsia:h2Font},size:hp(h2Size),bold:true})];
+      if(type==='h3')return[new TextRun({text:t,font:{name:wFont,eastAsia:h3Font},size:hp(h3Size),bold:true})];
+      if(type==='ref'||type==='caption')return[new TextRun({text:t,font:{name:wFont,eastAsia:bFont},size:hp(10.5)})];
+      if(type==='li')return[new TextRun({text:'• '+t,font:{name:wFont,eastAsia:bFont},size:hp(bSize)})];
+      return[new TextRun({text:t,font:{name:wFont,eastAsia:bFont},size:hp(bSize)})];
+    };
+    const _headingByStyle=name=>{
+      const s=(name||'').toLowerCase();
+      if(s==='heading 1'||s==='标题 1'||s==='title')return HeadingLevel.HEADING_1;
+      if(s==='heading 2'||s==='标题 2')return HeadingLevel.HEADING_2;
+      if(s==='heading 3'||s==='标题 3')return HeadingLevel.HEADING_3;
+      return null;
+    };
+    const paraItems=content.map(it=>{
+      const fmt=it.fmt;const runs=Array.isArray(it.runs)?it.runs:null;
+      const rawText=typeof it.text==='string'?it.text:'';
+      const t=fmt?rawText:_strip(rawText);
+      if(!fmt&&!t)return null;
+      // Round-trip path: use per-paragraph metadata when we have it.
+      if(fmt){
+        // Pick eastAsia fallback from paragraph type (headings use heading fonts).
+        const ea=it.type==='h1'?h1Font:it.type==='h2'?h2Font:it.type==='h3'?h3Font:bFont;
+        let kids;
+        if(runs&&runs.length)kids=runs.map(r=>_buildRun(r));
+        else if(t)kids=_defaultChildren(t,it.type);
+        else kids=[];
+        const opts={children:kids};
+        const heading=_headingByStyle(fmt.style);
+        if(heading)opts.heading=heading;
+        else if(fmt.style&&fmt.style!=='Normal')opts.style=fmt.style;
+        const alg=_algn(fmt.alignment);if(alg)opts.alignment=alg;
+        const ind={};
+        // Word may store hanging indent as negative first_line_indent_twips.
+        // docx.js expects positive integers, so map negative first-line to hanging.
+        if(fmt.first_line_indent_twips!=null){
+          const first=_safeTwips(fmt.first_line_indent_twips,0);
+          if(first<0)ind.hanging=Math.abs(first);
+          else ind.firstLine=first;
+        }
+        if(fmt.left_indent_twips!=null){
+          ind.left=_safeTwips(fmt.left_indent_twips,0);
+        }
+        if(fmt.right_indent_twips!=null){
+          ind.right=_safeTwips(fmt.right_indent_twips,0);
+        }
+        if(Object.keys(ind).length)opts.indent=ind;
+        const sp={};
+        if(fmt.space_before_twips!=null){
+          const before=_safeTwips(fmt.space_before_twips,0);
+          if(before>=0)sp.before=before;
+        }
+        if(fmt.space_after_twips!=null){
+          const after=_safeTwips(fmt.space_after_twips,0);
+          if(after>=0)sp.after=after;
+        }
+        const lr=_lineRule(fmt.line_spacing_rule,fmt.line_spacing,fmt.line_spacing_twips);if(lr)Object.assign(sp,lr);
+        if(Object.keys(sp).length)opts.spacing=sp;
+        return new Paragraph(opts);
+      }
+      // Fallback (no fmt): use form-panel defaults (legacy behavior).
+      if(it.type==='h1')return new Paragraph({children:_defaultChildren(t,'h1'),heading:HeadingLevel.HEADING_1,spacing:{before:240,after:120}});
+      if(it.type==='h2')return new Paragraph({children:_defaultChildren(t,'h2'),heading:HeadingLevel.HEADING_2,spacing:{before:200,after:100}});
+      if(it.type==='h3')return new Paragraph({children:_defaultChildren(t,'h3'),heading:HeadingLevel.HEADING_3,spacing:{before:160,after:80}});
+      if(it.type==='li')return new Paragraph({children:_defaultChildren(t,'li'),indent:{left:480},spacing:{line:defaultLineSpacing,after:0}});
+      if(it.type==='ref'||it.type==='caption')return new Paragraph({children:_defaultChildren(t,it.type)});
+      return new Paragraph({children:_defaultChildren(t,'p'),indent:{firstLine:firstLineTwips},spacing:{line:defaultLineSpacing,after:0}});
     });
-    const docObj=new Document({sections:[{children}]});
-    const blob=await Packer.toBlob(docObj);
+    // Section properties: prefer uploaded-doc values when available.
+    const srcSections=Array.isArray(docSections[tab.name])?docSections[tab.name]:[];
+    const _sectionProps=src=>({page:{
+      size:{
+        width:_safePositiveTwips(src&&src.page_width_twips!=null?src.page_width_twips:11906,11906),
+        height:_safePositiveTwips(src&&src.page_height_twips!=null?src.page_height_twips:16838,16838)
+      },
+      margin:{
+        top:_safePositiveTwips(src&&src.top_margin_twips!=null?src.top_margin_twips:1440,1440),
+        right:_safePositiveTwips(src&&src.right_margin_twips!=null?src.right_margin_twips:1440,1440),
+        bottom:_safePositiveTwips(src&&src.bottom_margin_twips!=null?src.bottom_margin_twips:1440,1440),
+        left:_safePositiveTwips(src&&src.left_margin_twips!=null?src.left_margin_twips:1440,1440),
+      }
+    }});
+    // Split children into sections by paragraph-level section_break markers.
+    const docSectionList=[];
+    let currentChildren=[];
+    let sectionIdx=0;
+    for(let i=0;i<content.length;i++){
+      const it=content[i];
+      const para=paraItems[i];
+      if(!para)continue;
+      currentChildren.push(para);
+      const brk=it&&it.section_break;
+      if(brk){
+        docSectionList.push({properties:_sectionProps(srcSections[sectionIdx]),children:currentChildren});
+        currentChildren=[];
+        sectionIdx++;
+      }
+    }
+    // Final section uses the body-level sectPr (last entry in srcSections).
+    const lastSrc=srcSections[sectionIdx] || srcSections[srcSections.length-1];
+    docSectionList.push({properties:_sectionProps(lastSrc),children:currentChildren});
+    const docObj=new Document({sections:docSectionList});
+    let blob=await Packer.toBlob(docObj);
+    // Post-process the packaged zip for round-trip fidelity:
+    //   1) docx.js inserts an extra empty paragraph carrying sectPr at the end of each non-final
+    //      section. Merge that sectPr into the previous paragraph's pPr and drop the synthetic
+    //      empty paragraph so the output matches Word's original section layout.
+    //   2) docx.js's default style table lacks a `Normal` entry and ships Heading 1/2/3 with its
+    //      own defaults (font null / size 26/24). Overwrite word/styles.xml with the source-doc
+    //      style metadata captured by the backend, so python-docx round-trip reads the same
+    //      styleId / rFonts / size as the source.
+    try{
+      if(typeof JSZip!=='undefined'){
+        const zip=await JSZip.loadAsync(blob);
+        const parser=new DOMParser();
+        const W='http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+        const serializer=new XMLSerializer();
+
+        const docXmlStr=await zip.file('word/document.xml').async('string');
+        const doc=parser.parseFromString(docXmlStr,'application/xml');
+        const body=doc.getElementsByTagNameNS(W,'body')[0];
+        if(body){
+          const paras=Array.from(body.getElementsByTagNameNS(W,'p'));
+          for(const p of paras){
+            const pPr=p.getElementsByTagNameNS(W,'pPr')[0];
+            if(!pPr)continue;
+            const sectPr=pPr.getElementsByTagNameNS(W,'sectPr')[0];
+            if(!sectPr)continue;
+            const hasText=p.getElementsByTagNameNS(W,'r').length>0;
+            if(hasText)continue;
+            let prev=p.previousSibling;
+            while(prev&&prev.nodeType!==1)prev=prev.previousSibling;
+            if(!prev||prev.localName!=='p'||prev.namespaceURI!==W)continue;
+            let prevPPr=prev.getElementsByTagNameNS(W,'pPr')[0];
+            if(!prevPPr){
+              prevPPr=doc.createElementNS(W,'w:pPr');
+              prev.insertBefore(prevPPr,prev.firstChild);
+            }
+            const existing=prevPPr.getElementsByTagNameNS(W,'sectPr')[0];
+            if(existing)prevPPr.removeChild(existing);
+            prevPPr.appendChild(sectPr);
+            p.parentNode.removeChild(p);
+          }
+          zip.file('word/document.xml',serializer.serializeToString(doc));
+        }
+
+        const srcStyles=docStyles[tab.name];
+        const stylesFile=zip.file('word/styles.xml');
+        if(srcStyles&&Object.keys(srcStyles).length&&stylesFile){
+          const stylesXml=await stylesFile.async('string');
+          const stylesDoc=parser.parseFromString(stylesXml,'application/xml');
+          const stylesRoot=stylesDoc.getElementsByTagNameNS(W,'styles')[0];
+          if(stylesRoot){
+            const _findStyleByName=(name)=>{
+              const list=stylesRoot.getElementsByTagNameNS(W,'style');
+              for(const s of list){
+                const nameEl=s.getElementsByTagNameNS(W,'name')[0];
+                if(nameEl&&nameEl.getAttributeNS(W,'val')===name)return s;
+              }
+              return null;
+            };
+            const _buildRpr=(meta)=>{
+              const rPr=stylesDoc.createElementNS(W,'w:rPr');
+              const rf=meta.rfonts||{};
+              if(rf.ascii||rf.hAnsi||rf.eastAsia||rf.cs){
+                const rFonts=stylesDoc.createElementNS(W,'w:rFonts');
+                if(rf.ascii)rFonts.setAttributeNS(W,'w:ascii',rf.ascii);
+                if(rf.hAnsi)rFonts.setAttributeNS(W,'w:hAnsi',rf.hAnsi);
+                if(rf.eastAsia)rFonts.setAttributeNS(W,'w:eastAsia',rf.eastAsia);
+                if(rf.cs)rFonts.setAttributeNS(W,'w:cs',rf.cs);
+                rPr.appendChild(rFonts);
+              }
+              if(meta.bold===true){
+                rPr.appendChild(stylesDoc.createElementNS(W,'w:b'));
+                rPr.appendChild(stylesDoc.createElementNS(W,'w:bCs'));
+              }
+              if(meta.italic===true){
+                rPr.appendChild(stylesDoc.createElementNS(W,'w:i'));
+                rPr.appendChild(stylesDoc.createElementNS(W,'w:iCs'));
+              }
+              if(meta.font_size_pt!=null){
+                const halfPt=String(Math.round(meta.font_size_pt*2));
+                const sz=stylesDoc.createElementNS(W,'w:sz');
+                sz.setAttributeNS(W,'w:val',halfPt);
+                rPr.appendChild(sz);
+                const szCs=stylesDoc.createElementNS(W,'w:szCs');
+                szCs.setAttributeNS(W,'w:val',halfPt);
+                rPr.appendChild(szCs);
+              }
+              return rPr;
+            };
+            const _replaceRpr=(styleEl,meta)=>{
+              const existingRpr=Array.from(styleEl.childNodes).find(n=>n.nodeType===1&&n.localName==='rPr'&&n.namespaceURI===W);
+              if(existingRpr)styleEl.removeChild(existingRpr);
+              styleEl.appendChild(_buildRpr(meta));
+            };
+            const _createStyle=(name,styleId,meta,isDefault)=>{
+              const el=stylesDoc.createElementNS(W,'w:style');
+              el.setAttributeNS(W,'w:type','paragraph');
+              el.setAttributeNS(W,'w:styleId',styleId);
+              if(isDefault)el.setAttributeNS(W,'w:default','1');
+              const nameEl=stylesDoc.createElementNS(W,'w:name');
+              nameEl.setAttributeNS(W,'w:val',name);
+              el.appendChild(nameEl);
+              el.appendChild(_buildRpr(meta));
+              return el;
+            };
+            const styleIdMap={'Normal':'Normal','Heading 1':'Heading1','Heading 2':'Heading2','Heading 3':'Heading3'};
+            for(const name of ['Normal','Heading 1','Heading 2','Heading 3']){
+              const meta=srcStyles[name];
+              if(!meta)continue;
+              const existing=_findStyleByName(name);
+              if(existing){
+                _replaceRpr(existing,meta);
+              }else{
+                const newStyle=_createStyle(name,styleIdMap[name]||name,meta,name==='Normal');
+                stylesRoot.insertBefore(newStyle,stylesRoot.firstChild);
+              }
+            }
+            zip.file('word/styles.xml',serializer.serializeToString(stylesDoc));
+          }
+        }
+
+        blob=await zip.generateAsync({type:'blob',mimeType:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'});
+      }
+    }catch(postErr){console.warn('[WC] export post-process failed',postErr);}
     saveAs(blob,tab.name.replace(/\.\w+$/,'')+'_导出.docx');
     showToast('已导出 Word 文档');
-  }catch(err){showToast('导出失败：'+err.message);}
+  }catch(err){
+    showToast('导出失败：'+err.message);
+  }
 }
 
 function execCmd(cmd){document.execCommand(cmd,false,null);document.getElementById('docPage').focus();}
@@ -2266,10 +3409,35 @@ function setTheme(t){
   localStorage.setItem(THEME_KEY,t);
   document.documentElement.setAttribute('data-theme',t==='system'?(window.matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light'):t);
 }
+// Re-inject the docx background/color override after theme changes or initial render.
+// In dark mode: dark section bg + forced white text (source docs use black text which is invisible on dark bg).
+function _refreshDocxBgFix(){
+  const fix=document.getElementById('docx-bg-fix');
+  if(!fix)return;
+  const isDark=document.documentElement.dataset.theme==='dark';
+  const pageBg=isDark?'#2a2a2c':'#fff';
+  const vp=isDark?'#111113':'transparent';
+  const textColor=isDark?'color:#f5f5f7!important;':'';
+  // Force all descendant text to light in dark mode — beats docx-preview inline style="color:#000"
+  const childColorRule=isDark
+    ?`#docPage.is-docx .docx-wrapper>section.docx *,#docPage.is-docx .docx-rendered-wrapper>section.docx-rendered *{color:#f5f5f7!important}`
+    :'';
+  fix.textContent=
+    `#docPage.is-docx,#docPage.is-docx .docx-wrapper,#docPage.is-docx .docx-rendered-wrapper{background:${vp}!important;background-color:${vp}!important}`+
+    `#docPage.is-docx .docx-wrapper>section.docx,#docPage.is-docx .docx-rendered-wrapper>section.docx-rendered{background:${pageBg}!important;background-color:${pageBg}!important;${textColor}}`+
+    childColorRule+
+    `#docPage.is-docx .docx-wrapper>section.docx>header,`+
+    `#docPage.is-docx .docx-wrapper>section.docx>footer,`+
+    `#docPage.is-docx .docx-wrapper>section.docx>article,`+
+    `#docPage.is-docx .docx-rendered-wrapper>section.docx-rendered>header,`+
+    `#docPage.is-docx .docx-rendered-wrapper>section.docx-rendered>footer,`+
+    `#docPage.is-docx .docx-rendered-wrapper>section.docx-rendered>article{background:transparent!important;background-color:transparent!important}`;
+}
 function toggleTheme(){
   const c=getTheme();const n=c==='light'?'dark':c==='dark'?'system':'light';
   setTheme(n);showToast('主题：'+{light:'亮色',dark:'暗色',system:'跟随系统'}[n]);
   saveUserSettingsToCloud({theme:n});
+  _refreshDocxBgFix();
 }
 
 // ── 用户设置云端同步 ──
@@ -2287,7 +3455,9 @@ async function loadCloudUserSettings(){
     // 应用 AI 模型
     if(_cloudSettings.ai_model){
       const sel=document.getElementById('aiModel');
-      if(sel)sel.value=_cloudSettings.ai_model;
+      const normalized = _normalizeAIModel(_cloudSettings.ai_model);
+      _cloudSettings.ai_model = normalized;
+      if(sel)sel.value=normalized;
     }
   }catch(e){console.error('加载云端设置失败:',e);}
 }
@@ -2365,7 +3535,10 @@ async function saveDocumentToCloud(){
 function getAIConfig(){try{return JSON.parse(localStorage.getItem('wc_ai'))||{};}catch{return{};}}
 function openSettings(){
   document.getElementById('settingsModal').classList.add('show');
-  if(_cloudSettings.ai_model){const sel=document.getElementById('aiModel');if(sel)sel.value=_cloudSettings.ai_model;}
+  if(_cloudSettings.ai_model){
+    const sel=document.getElementById('aiModel');
+    if(sel)sel.value=_normalizeAIModel(_cloudSettings.ai_model);
+  }
   // 检测后端连接状态
   const backendEl=document.getElementById('aiBackendStatus');
   if(backendEl){
@@ -2383,11 +3556,11 @@ function closeSettings(){document.getElementById('settingsModal').classList.remo
 async function testAIConnection(){
   const btn=document.getElementById('btnTestAI');
   const statusEl=document.getElementById('aiStatus');
-  const model=document.getElementById('aiModel')?.value||'doubao-seed-1-6-251015';
+  const model=_normalizeAIModel(document.getElementById('aiModel')?.value||'deepseek-v4-flash');
   btn.disabled=true;
   if(statusEl){statusEl.textContent='测试中…';statusEl.style.color='var(--text2)';}
   try{
-    const res=await WC.callAI('你是助手，请只回复"ok"。','ok',{model});
+    const res=await window.WC_API.callAI('你是助手，请只回复"ok"。','ok',{model});
     const data=typeof res==='string'?JSON.parse(res):res;
     if(data.error)throw new Error(data.error);
     if(statusEl){statusEl.textContent=`✅ 连接正常 · 模型: ${model}`;statusEl.style.color='#34c759';}
@@ -2465,6 +3638,19 @@ function _setupImgToolbarOnPage(){
   });
 }
 
+// ── SUPABASE REALTIME ──
+async function setupRealtimeDocSync(){
+  if(!window.supabaseClient)return;
+  const userId=await window.WC_API._sbUserId();
+  if(!userId)return;
+  window.supabaseClient
+    .channel('wc-documents')
+    .on('postgres_changes',{event:'*',schema:'public',table:'documents',filter:`user_id=eq.${userId}`},()=>{
+      loadCloudDocuments();
+    })
+    .subscribe();
+}
+
 // ── NAVIGATION ──
 function goHome(){window.location.href='wordcraft_landing.html';}
 async function checkOnlineStatus(){
@@ -2479,11 +3665,41 @@ async function checkOnlineStatus(){
 }
 
 // ── QUALITY DASHBOARD ──
-function openQualityDashboard(){document.getElementById('qualityDashboardModal').classList.add('show');}
+function _updateQualityDashboard(){
+  const qa=window.currentQAData||[];
+  const bycat=(cats)=>qa.filter(q=>cats.includes(q.cat)||cats.includes(q.type));
+  const typo=bycat(['错别字','typo']);
+  // 格式问题 (AutoCorrect/PunctuationChecker) 归入规范/格式一列
+  const consist=bycat(['数据不一致','consistency','格式问题','格式']);
+  const logic=bycat(['逻辑问题','逻辑','logic','ai','表述']);
+  const xref=bycat(['交叉引用','xref','引用']);
+  const pct=(arr)=>arr.length?Math.round(arr.filter(q=>q.status==='accepted').length/arr.length*100):100;
+  // 评分：仅 error/warn 级别问题扣分，info 级提示不计入
+  const errors=qa.filter(q=>q.status!=='accepted'&&q.sev==='error').length;
+  const warns=qa.filter(q=>q.status!=='accepted'&&q.sev==='warn').length;
+  const score=qa.length===0?100:Math.max(0,Math.round(100-errors*4-warns*2));
+  document.getElementById('qualityScore').textContent=score;
+  document.getElementById('qualityGaugeText').textContent=score;
+  document.getElementById('qualityGauge').style.strokeDashoffset=Math.round(283*(1-score/100));
+  document.getElementById('qualityImprovement').textContent=(score>=70?'+':'')+Math.round(score-70);
+  document.getElementById('typoCount').textContent=typo.length;
+  document.getElementById('typoFixed').textContent=typo.filter(q=>q.status==='accepted').length;
+  document.getElementById('typoProgress').style.width=pct(typo)+'%';
+  document.getElementById('consistencyCount').textContent=consist.length;
+  document.getElementById('consistencyFixed').textContent=consist.filter(q=>q.status==='accepted').length;
+  document.getElementById('consistencyProgress').style.width=pct(consist)+'%';
+  document.getElementById('logicCount').textContent=logic.length;
+  document.getElementById('logicFixed').textContent=logic.filter(q=>q.status==='accepted').length;
+  document.getElementById('logicProgress').style.width=pct(logic)+'%';
+  document.getElementById('crossrefCount').textContent=xref.length;
+  document.getElementById('crossrefFixed').textContent=xref.filter(q=>q.status==='accepted').length;
+  document.getElementById('crossrefProgress').style.width=pct(xref)+'%';
+}
+function openQualityDashboard(){_updateQualityDashboard();document.getElementById('qualityDashboardModal').classList.add('show');}
 function openBackendDashboard(){window.open('dashboard.html', '_blank');}
 function closeQualityDashboard(){document.getElementById('qualityDashboardModal').classList.remove('show');}
-function refreshQualityData(){showToast('数据已刷新');}
-function fixAllIssues(){showToast('正在修复所有问题…');}
+function refreshQualityData(){_updateQualityDashboard();showToast('数据已刷新');}
+function fixAllIssues(){if(window.currentQAData){window.currentQAData.forEach((_,i)=>acceptIssue(i));_updateQualityDashboard();showToast('已接受所有建议');}}
 
 // ── ADMIN DASHBOARD (stub) ──
 function openDashboard(){showToast('管理仪表板需配置 API Key 后使用');}
@@ -2511,6 +3727,132 @@ function updateFontFamilyDisplay(selectElement) {
 }
 
 // 初始化字体选择框的显示
+// ── P4: 选区字体 & 字号检测 ──
+const _FONT_NAME_MAP = {
+  'simsun':'宋体','simsun-extb':'宋体','nsimsun':'新宋体',
+  'simhei':'黑体',
+  'kaiti':'楷体','kaiti_gb2312':'楷体',
+  'fangsong':'仿宋','fangsong_gb2312':'仿宋',
+  'microsoft yahei':'微软雅黑','microsoft yahei ui':'微软雅黑',
+  'dengxian':'等线','youyuan':'幼圆','lishu':'隶书',
+  'stxihei':'华文细黑','stkaiti':'华文楷体','stsong':'华文宋体',
+  'stfangsong':'华文仿宋','stzhongsong':'华文中宋','sthupo':'华文琥珀',
+  'stxingkai':'华文行楷','stliti':'华文隶书',
+  'fzshuti':'方正舒体','fzyaniti':'方正姚体',
+};
+function _toDisplayFont(raw) { return _FONT_NAME_MAP[raw.toLowerCase()] || raw; }
+
+// pt → Chinese size name (tolerance ±0.4pt for rounding)
+const _FONT_SIZE_MAP = [
+  [42,'初号'],[36,'小初'],[26,'一号'],[24,'小一'],
+  [22,'二号'],[18,'小二'],[16,'三号'],[15,'小三'],
+  [14,'四号'],[12,'小四'],[10.5,'五号'],[9,'小五'],
+  [7.5,'六号'],[6.5,'小六'],[5.5,'七号'],[5,'八号'],
+];
+function _toChineseSize(pt) {
+  let best = null, bestDist = Infinity;
+  for (const [std, name] of _FONT_SIZE_MAP) {
+    const d = Math.abs(pt - std);
+    if (d < bestDist) { bestDist = d; best = name; }
+  }
+  // Accept if within 6% of the standard size (covers rounding from px→pt conversion)
+  return bestDist <= Math.max(0.3, pt * 0.06) ? best : pt + 'pt';
+}
+
+function _getFirstFontFromEl(el) {
+  let node = el;
+  while (node && node.nodeType === Node.ELEMENT_NODE && node !== document.body) {
+    if (node.style && node.style.fontFamily)
+      return node.style.fontFamily.split(',')[0].trim().replace(/['"]/g, '');
+    node = node.parentElement;
+  }
+  if (el && el.nodeType === Node.ELEMENT_NODE)
+    return getComputedStyle(el).fontFamily.split(',')[0].trim().replace(/['"]/g, '');
+  return null;
+}
+
+// Returns {fonts: Set, sizes: Set<pt>} for the current selection within #docPage, or null
+function _getSelectionInfo() {
+  const sel = window.getSelection();
+  if (!sel || sel.isCollapsed || sel.rangeCount === 0) return null;
+  const range = sel.getRangeAt(0);
+  const page = document.getElementById('docPage');
+  if (!page || !page.contains(range.commonAncestorContainer)) return null;
+
+  const fonts = new Set(), sizes = new Set();
+  function collect(el) {
+    const f = _getFirstFontFromEl(el);
+    if (f) fonts.add(f);
+    const px = parseFloat(getComputedStyle(el).fontSize);
+    if (!isNaN(px)) sizes.add(Math.round(px * 0.75 * 10) / 10); // px→pt, 1dp
+  }
+  const root = range.commonAncestorContainer;
+  if (root.nodeType === Node.TEXT_NODE) {
+    collect(root.parentElement);
+  } else {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+    let node;
+    while ((node = walker.nextNode())) {
+      if (range.intersectsNode(node)) collect(node.parentElement);
+    }
+  }
+  return (fonts.size || sizes.size) ? {fonts, sizes} : null;
+}
+
+function _updateSelDisplays() {
+  const info = _getSelectionInfo();
+  const fEl = document.getElementById('selFontDisplay');
+  const sEl = document.getElementById('selSizeDisplay');
+
+  if (!info) {
+    if (fEl) fEl.style.display = 'none';
+    if (sEl) sEl.style.display = 'none';
+    return;
+  }
+
+  // Font display
+  if (fEl) {
+    fEl.style.display = '';
+    const {fonts} = info;
+    if (fonts.size > 1) {
+      fEl.textContent = '混合字体';
+      fEl.title = '选区包含多种字体：' + [...fonts].map(_toDisplayFont).join('、');
+      fEl.className = 'sel-font-tag mixed';
+    } else if (fonts.size === 1) {
+      const raw = [...fonts][0], name = _toDisplayFont(raw);
+      let installed = true;
+      try { installed = document.fonts.check(`12px "${raw}"`); } catch(_) {}
+      fEl.textContent = installed ? name : name + ' (未安装)';
+      fEl.title = installed ? `选中文本字体：${name}` : `字体"${name}"未在本机安装`;
+      fEl.className = 'sel-font-tag' + (installed ? '' : ' uninstalled');
+    } else { fEl.style.display = 'none'; }
+  }
+
+  // Size display
+  if (sEl) {
+    sEl.style.display = '';
+    const {sizes} = info;
+    if (sizes.size > 1) {
+      sEl.textContent = '混合字号';
+      sEl.title = '选区包含多种字号：' + [...sizes].map(_toChineseSize).join('、');
+      sEl.className = 'sel-font-tag mixed';
+    } else if (sizes.size === 1) {
+      const pt = [...sizes][0], name = _toChineseSize(pt);
+      sEl.textContent = name;
+      sEl.title = `选中文本字号：${name}（${pt}pt）`;
+      sEl.className = 'sel-font-tag';
+    } else { sEl.style.display = 'none'; }
+  }
+}
+
+let _selFontTimer = null;
+function _initSelFontDetection() {
+  const schedule = () => { clearTimeout(_selFontTimer); _selFontTimer = setTimeout(_updateSelDisplays, 100); };
+  document.addEventListener('selectionchange', schedule);
+  const page = document.getElementById('docPage');
+  if (page) page.addEventListener('mouseup', schedule);
+}
+
 window.onload = function() {
   const fontSelect = document.getElementById('editFontFamily');
   if (fontSelect) {
@@ -2555,6 +3897,7 @@ window.onload = function() {
       backendBtn.style.display = 'none';
     }
   }
+  _initSelFontDetection();
 };
 
 init();

@@ -27,6 +27,11 @@ from core.formatting_rules import CrossRefRules
 class TargetScanner:
     """目标扫描器 — 从文档中提取可被引用的实体"""
 
+    # 参考文献节标题检测（匹配常见中英文写法）
+    REF_SECTION_PATTERN = re.compile(
+        r"参考文献|references?\b|bibliography", re.IGNORECASE
+    )
+
     # 图题模式：图X-Y 标题文字 / 图X.Y 标题文字
     FIGURE_PATTERNS = [
         re.compile(r"图\s*(\d+)[\-\.](\d+)\s*(.*)"),
@@ -57,39 +62,70 @@ class TargetScanner:
     def scan(self, doc: DocumentModel) -> list[RefTarget]:
         """扫描文档，提取所有引用目标"""
         targets: list[RefTarget] = []
-
         current_chapter = 0
+        in_ref_section = False
+        ref_seq = 0  # sequential counter for un-numbered bibliography entries
 
         for idx, elem in enumerate(doc.elements):
             if not elem.content:
                 continue
 
-            # 检测章节标题
-            chapter = self._try_match_chapter(elem)
-            if chapter:
-                current_chapter = chapter.chapter_num
-                targets.append(chapter)
+            text = elem.content.strip()
+
+            # ── 标题：判断是否进入/退出参考文献节 ──
+            if elem.element_type == ElementType.HEADING:
+                if self.REF_SECTION_PATTERN.search(text):
+                    in_ref_section = True
+                    ref_seq = 0
+                else:
+                    in_ref_section = False
+                    chapter = self._try_match_chapter(elem)
+                    if chapter:
+                        current_chapter = chapter.chapter_num
+                        targets.append(chapter)
                 continue
 
-            # 检测图题
+            # ── 参考文献节内部：按位置顺序编号 ──
+            if in_ref_section:
+                if elem.element_type in (ElementType.PARAGRAPH, ElementType.REFERENCE) and text:
+                    m = self.REFERENCE_PATTERN.match(text)
+                    if m:
+                        # 显式 [N] 前缀（如 Word 导出时有编号）
+                        seq_num = int(m.group(1))
+                        title = m.group(2).strip()
+                    else:
+                        # 无显式编号：按出现顺序分配
+                        ref_seq += 1
+                        seq_num = ref_seq
+                        title = text
+                    targets.append(RefTarget(
+                        target_type=RefTargetType.REFERENCE,
+                        number=str(seq_num),
+                        label=f"[{seq_num}]",
+                        title=title[:120],
+                        element_index=idx,
+                        seq_num=seq_num,
+                        bookmark_name=f"_ref_{seq_num}",
+                    ))
+                continue
+
+            # ── 参考文献节之外：现有检测逻辑 ──
             fig = self._try_match_figure(elem, idx, current_chapter)
             if fig:
                 targets.append(fig)
                 continue
 
-            # 检测表题
             tbl = self._try_match_table(elem, idx, current_chapter)
             if tbl:
                 targets.append(tbl)
                 continue
 
-            # 检测公式编号（在段落末尾）
             eq = self._try_match_equation(elem, idx, current_chapter)
             if eq:
                 targets.append(eq)
                 continue
 
-            # 检测参考文献
+            # ElementType.REFERENCE 带显式 [N] 前缀（非参考文献节场景兜底）
             ref = self._try_match_reference(elem, idx)
             if ref:
                 targets.append(ref)
