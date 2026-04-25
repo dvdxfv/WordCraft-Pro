@@ -145,15 +145,25 @@ class AutoCorrectChecker:
             or ""
         )
 
+        # 过滤：跳过"数字+空格+中文"的建议（标题中本不需要）
+        import re
+        if old_text and new_text and re.match(r'[\d.]+\s+[一-鿿]', new_text):
+            if re.match(r'[\d.]+[一-鿿]', old_text):
+                return None  # 跳过这个建议
+
         element_index = max(0, min(len(lines) - 1, line - 1))
         line_text = lines[element_index] if lines else ""
         snippet = old_text.strip() or line_text[max(0, col - 1): max(0, col + 9)].strip() or line_text[:20].strip()
 
         severity = IssueSeverity.WARNING if sev in ("error", "warning") else IssueSeverity.INFO
+
+        # 根据具体内容识别问题分类
+        problem_type = self._classify_problem(old_text, new_text, message)
+
         if old_text and new_text:
-            title = f'建议规范化："{old_text[:16]}"'
+            title = f'建议规范化（{problem_type}）："{old_text[:16]}"'
         else:
-            title = "文案格式规范"
+            title = f"文案{problem_type}"
 
         return QAIssue(
             category=IssueCategory.FORMAT,
@@ -170,3 +180,28 @@ class AutoCorrectChecker:
             end_pos=max(0, col),
             confidence=0.82,
         )
+
+    def _classify_problem(self, old_text: str, new_text: str, message: str) -> str:
+        """识别具体的规范问题类型"""
+        import re
+
+        # 中英文间空格问题
+        if re.search(r'[a-zA-Z\d]\s+[一-鿿]|[一-鿿]\s+[a-zA-Z\d]', new_text):
+            return "中英文空格规范"
+
+        # 标点混用：英文标点 vs 中文标点
+        en_punct = set(',.!?;:\'"')
+        cn_punct = set('，。！？；：''""')
+        if any(p in new_text for p in en_punct) or any(p in new_text for p in cn_punct):
+            return "标点规范"
+
+        # 重复空格
+        if '  ' in new_text or '   ' in old_text:
+            return "空格规范"
+
+        # 大小写规范
+        if old_text.lower() != new_text.lower():
+            return "大小写规范"
+
+        # 默认
+        return "文案规范"
