@@ -1,9 +1,9 @@
 """
 质量检查引擎 (QA Engine)
 
-统一调度错别字检查、数据一致性检查、逻辑检查、交叉引用检查。
+规则层（Rule-based）检查：错别字、数据一致性、标点/格式、交叉引用。
+AI 深度检查（LLM）：逻辑问题、语法优化、高阶语义问题。
 支持长文分块处理和性能优化。
-支持 LLM 辅助检测（深度语义分析）。
 """
 
 from __future__ import annotations
@@ -15,7 +15,6 @@ from core.document_model import DocumentModel
 from core.qa_models import QAReport, QAIssue, IssueCategory
 from core.typo_checker import TypoChecker
 from core.consistency_checker import ConsistencyChecker
-from core.logic_checker import LogicChecker
 from core.crossref_checker import CrossRefChecker
 from core.punctuation_checker import PunctuationChecker
 from core.autocorrect_checker import AutoCorrectChecker
@@ -57,10 +56,6 @@ class QAEngine:
         self.consistency_checker.check_numbers = consistency_config.get("check_numbers", True)
         self.consistency_checker.check_dates = consistency_config.get("check_dates", True)
         self.consistency_checker.check_names = consistency_config.get("check_names", True)
-
-        logic_config = qa_config.get("logic_check", {})
-        self.logic_checker = LogicChecker()
-        self.logic_checker.enabled = logic_config.get("enabled", True)
 
         crossref_config = qa_config.get("crossref_check", {})
         self.crossref_checker = CrossRefChecker()
@@ -110,7 +105,7 @@ class QAEngine:
         seen_fingerprints: set[tuple[str, str, str, str]] = set()
 
         if categories is None:
-            categories = ["typo", "consistency", "logic", "crossref", "format"]
+            categories = ["typo", "consistency", "crossref", "format"]
 
         self._run_checker(
             enabled=("typo" in categories and self.typo_checker.enabled),
@@ -122,13 +117,6 @@ class QAEngine:
         self._run_checker(
             enabled=("consistency" in categories and self.consistency_checker.enabled),
             runner=self.consistency_checker.check,
-            doc=doc,
-            report=report,
-            seen_fingerprints=seen_fingerprints,
-        )
-        self._run_checker(
-            enabled=("logic" in categories and self.logic_checker.enabled),
-            runner=self.logic_checker.check,
             doc=doc,
             report=report,
             seen_fingerprints=seen_fingerprints,
@@ -332,9 +320,6 @@ class QAEngine:
         """仅执行一致性检查"""
         return self.check(doc, ["consistency"])
 
-    def check_logic_only(self, doc: DocumentModel) -> QAReport:
-        """仅执行逻辑检查"""
-        return self.check(doc, ["logic"])
 
     def check_crossref_only(self, doc: DocumentModel) -> QAReport:
         """仅执行交叉引用检查"""
