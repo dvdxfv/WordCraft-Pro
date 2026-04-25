@@ -10,11 +10,12 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import tempfile
 from typing import Any
 
-from core.document_model import DocumentModel
+from core.document_model import DocumentModel, ElementType
 from core.qa_models import QAIssue, QAReport, IssueCategory, IssueSeverity
 
 
@@ -38,6 +39,9 @@ class AutoCorrectChecker:
         if not any(line.strip() for line in lines):
             return report
 
+        # 识别参考文献节的起始位置
+        ref_section_start = self._find_reference_section_start(doc.elements)
+
         diagnostics = self._run_lint(lines)
         for d in diagnostics:
             issue = self._diag_to_issue(d, lines)
@@ -45,9 +49,30 @@ class AutoCorrectChecker:
                 continue
             if issue.confidence < self.min_confidence:
                 continue
+
+            # 过滤：参考文献节中的标点规范问题不标注
+            if (
+                ref_section_start >= 0
+                and issue.element_index >= ref_section_start
+                and "标点规范" in issue.title
+            ):
+                continue
+
             report.add_issue(issue)
 
         return report
+
+    def _find_reference_section_start(self, elements: list) -> int:
+        """识别参考文献节的起始位置，返回元素索引；未找到返回-1"""
+        ref_pattern = re.compile(
+            r"^\s*(参考文献|References?|Bibliography|文献|引用文献)\s*$",
+            re.IGNORECASE,
+        )
+        for idx, elem in enumerate(elements):
+            if elem.element_type == ElementType.HEADING and elem.content:
+                if ref_pattern.match(elem.content):
+                    return idx + 1  # 参考文献节从下一个元素开始
+        return -1
 
     def _ensure_available(self) -> bool:
         if self._available is not None:
