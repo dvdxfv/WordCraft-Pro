@@ -8,6 +8,63 @@ All tracked work items completed as of 2026-04-25 (第十二批 + P3/P4修复）
 
 ---
 
+## Next batch（第十三批）：交叉引用采纳式设计
+
+**目标**：用户文档中常出现"图1-1"、"[1]"等手写引用文字，但这些只是普通文本而非 Word REF 字段。新设计让用户像处理 QA 问题一样采纳这些文字，点击采纳时自动创建交叉引用。
+
+**核心需求**：
+1. 识别正文中未被字段化的引用（"图N"、"[N]"等）
+2. 像 QA 问题一样展示，支持采纳/忽略/撤销
+3. 采纳时在预览区标记，导出时创建 Word REF 字段
+
+**交付内容**：
+
+### 1. 后端（app.py:runXRef）
+- 返回 `xref_issues` 数组，包含：
+  - `type`: "unreferenced" | "dangling" （未被引用的目标 | 悬空引用）
+  - `target_label`: 目标标签（"图1-1", "[1]"等）
+  - `element_index`: 目标在 doc.elements 中的索引
+  - `title`: 问题标题（用于 UI 显示）
+  - `description`: 详细说明
+  - `suggestion`: 建议的引用文字
+
+### 2. 前端 UI（web/index.html）
+- 交叉引用面板改为 QA 风格卡片：
+  - 每张卡片显示一个"可采纳的交叉引用"
+  - 按钮：定位（跳转到文档）、采纳、忽略、撤销
+  - 使用现有的 QAIssue 卡片样式和逻辑
+- 新增状态变量：`tabXrefAcceptedEdits[tab.name]`，记录已采纳的交叉引用
+
+### 3. 采纳行为
+- 采纳时：
+  - 在预览区将目标文字标记为 `hl-xref-accepted`（绿色下划线，与 QA 的 `hl-accepted` 风格一致）
+  - 保留 `data-xref-id="${targetId}"` 便于撤销定位
+  - 推入 `tabXrefAcceptedEdits` 记录 `{target_label, target_type, element_index}`
+- 撤销时：
+  - 删除 `hl-xref-accepted` 标记，恢复原样式
+  - 从 `tabXrefAcceptedEdits` 移除
+
+### 4. 导出时生效
+- `exportDocAsDocxClone` 在 XML 替换阶段，对 `xrefAcceptedEdits` 中的每条：
+  - 在 `<w:t>` 中找到 `target_label` 文字
+  - 替换为 Word REF 字段代码：
+    ```xml
+    <w:fldChar w:fldCharType="begin"/>
+    <w:instrText xml:space="preserve"> REF target_bookmark \h </w:instrText>
+    <w:fldChar w:fldCharType="end"/>
+    ```
+  - `target_bookmark` 来自 RefTarget 的 `bookmark_name`（已在 TargetScanner 中生成）
+
+### 5. 测试验证
+- 后端：新 runXRef 返回结构、xref_issues 字段正确
+- 前端：采纳/撤销 UI 行为正确、tabXrefAcceptedEdits 状态同步
+- 导出：
+  - 采纳的引用生成 REF 字段
+  - 在 Word 中更新域，编号自动链接到目标
+  - 导出前后对比：手写"[1]" vs 字段"[1]"，导出行为不同
+
+---
+
 ## 回归测试覆盖（防止重复返工）
 
 `tests/test_batch_regression.py` — 22 个测试，覆盖第一至第十批所有已修复问题。
