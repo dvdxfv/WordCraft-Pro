@@ -106,6 +106,8 @@
       return { success: !error, error: error?.message };
     },
     async refreshDocxFields(docx_b64) { return this._request('refreshDocxFields', { docx_b64 }); },
+    async saveFormatRequirements(rules) { return this._request('saveFormatRequirements', { rules }); },
+    async loadFormatRequirements() { return this._request('loadFormatRequirements', {}); },
     async uploadTemplate(file_content, name, file_name) { return this._request('uploadTemplate', { file_content, name, file_name }); },
     async deleteTemplate(template_id) {
       const userId = await this._sbUserId();
@@ -504,6 +506,7 @@ html,body{height:100%;font-family:-apple-system,'SF Pro Text','PingFang SC','Mic
 .hl-xref-ok{background:rgba(52,199,89,.1);border-bottom:2px solid #34C759;cursor:pointer;padding:1px 2px;border-radius:2px}
 .hl-xref-err{background:rgba(255,59,48,.12);border-bottom:2px wavy #FF3B30;cursor:pointer;padding:1px 2px;border-radius:2px}
 .hl-xref-unref{background:rgba(255,204,0,.14);border-bottom:2px wavy #FFCC00;cursor:pointer;padding:1px 2px;border-radius:2px}
+.hl-xref-accepted{background:rgba(52,199,89,.1);border-bottom:2px solid #34C759;cursor:pointer;padding:1px 2px;border-radius:2px}
 
 /* Annotation tooltip */
 .anno-tip{
@@ -1137,14 +1140,11 @@ html,body{height:100%;font-family:-apple-system,'SF Pro Text','PingFang SC','Mic
             <div class="fr"><label>对齐</label><select id="fAlign"><option value="justify">两端对齐</option><option value="left">左对齐</option><option value="center">居中</option><option value="right">右对齐</option></select></div>
           </div>
 
-          <button class="fbtn primary" onclick="applyFormat()">
+          <button class="fbtn" id="btnSaveFormatRules" onclick="saveFormatRequirements()" style="margin-top:4px;background:var(--accent-green,#22a665);color:#fff">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg>
-            应用排版规则
+            保存为检查规范
           </button>
-          <button class="fbtn secondary" onclick="saveDefaultFormat()" style="margin-top:4px">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M17 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V7l-4-4zm-5 16a3 3 0 110-6 3 3 0 010 6zm3-10H5V5h10v4z"/></svg>
-            设为默认格式
-          </button>
+          <div id="formatRulesSavedHint" style="display:none;font-size:11px;color:#22a665;margin-top:4px">✓ 已保存规范，QA 检查时自动校验</div>
         </div>
 
         <div class="format-panel" id="fp-ai">
@@ -1242,12 +1242,16 @@ html,body{height:100%;font-family:-apple-system,'SF Pro Text','PingFang SC','Mic
         <div class="xref-sub-tabs">
           <div class="xst active" onclick="switchXRefSub('targets',this)">引用目标</div>
           <div class="xst" onclick="switchXRefSub('matches',this)">匹配结果</div>
+          <div class="xst" onclick="switchXRefSub('issues',this)">可采纳引用</div>
         </div>
         <div class="xref-panel active" id="xp-targets">
           <table class="xtable"><thead><tr><th>类型</th><th>编号</th><th>标签</th><th>标题</th></tr></thead><tbody id="xrefTargetsBody"></tbody></table>
         </div>
         <div class="xref-panel" id="xp-matches">
           <table class="xtable"><thead><tr><th>状态</th><th>引用</th><th>目标</th><th>说明</th></tr></thead><tbody id="xrefMatchesBody"></tbody></table>
+        </div>
+        <div class="xref-panel" id="xp-issues">
+          <div id="xrefIssuesList"><div class="issue-empty"><div class="ie-icon">🔗</div><p>运行交叉引用检查后显示可采纳的引用</p></div></div>
         </div>
         <button class="fbtn primary" style="background:var(--purple)" onclick="runXRef()">运行交叉引用检查</button>
       </div>
@@ -1453,6 +1457,11 @@ let rawHtmlContents={};  // stores original mammoth HTML for rich preview
 const tabQAState={};   // per-tab live QA issue list (survives tab switches)
 const tabXrefState={}; // per-tab live xref result {targets, matches}
 const tabAcceptedEdits={}; // per-tab accepted edits [{original,suggestion,issueIdx}] for clone export
+const tabXrefAcceptedEdits={}; // per-tab xref adopted refs [{target_label,bookmark_name,element_index}] for REF field export
+let _currentXrefIssues=[]; // active tab's xref adoption issues
+let _savedFormatRules=null; // user-saved format requirements for QA compliance checking
+try{const _sfr=localStorage.getItem('wc_format_rules');if(_sfr){_savedFormatRules=JSON.parse(_sfr);}}catch(e){}
+(function(){const h=document.getElementById('formatRulesSavedHint');if(h&&_savedFormatRules)h.style.display='block';})();
 
 function _setQAGateUI(ready){
   const runBtn=document.querySelector('[onclick="runQA()"]');
@@ -1588,7 +1597,7 @@ function restoreTabDashboardState(fn){
   }
   const xr=tabXrefState[fn];
   if(xr){
-    const {targets,matches,tableHtml,matchHtml}=xr;
+    const {targets,tableHtml,matchHtml}=xr;
     document.getElementById('xrefTargets').textContent=targets;
     document.getElementById('xrefRefs').textContent=xr.refs;
     document.getElementById('xrefValid').textContent=xr.valid;
@@ -1596,6 +1605,7 @@ function restoreTabDashboardState(fn){
     document.getElementById('xrefUnref').textContent=xr.unref;
     document.getElementById('xrefTargetsBody').innerHTML=tableHtml;
     document.getElementById('xrefMatchesBody').innerHTML=matchHtml;
+    _renderXrefIssueCards(xr.xrefIssues||[],fn);
   }
 }
 function switchTab(idx){
@@ -1950,6 +1960,116 @@ async function saveDefaultFormat(){
   showToast('已设为默认格式');
 }
 
+function saveFormatRequirements(){
+  const rules=_collectFormatRules();
+  _savedFormatRules=rules;
+  try{localStorage.setItem('wc_format_rules',JSON.stringify(rules));}catch(e){}
+  const h=document.getElementById('formatRulesSavedHint');
+  if(h)h.style.display='block';
+  showToast('格式规范已保存，QA 检查时自动校验');
+}
+
+function _collectFormatRules(){
+  const g=id=>document.getElementById(id);
+  return {
+    h1Font:g('fH1Font')?.value||'黑体', h1Size:parseFloat(g('fH1Size')?.value)||16,
+    h2Font:g('fH2Font')?.value||'黑体', h2Size:parseFloat(g('fH2Size')?.value)||14,
+    h3Font:g('fH3Font')?.value||'黑体', h3Size:parseFloat(g('fH3Size')?.value)||12,
+    bFont:g('fBFont')?.value||'宋体',   bSize:parseFloat(g('fBSize')?.value)||12,
+    lineSpacing:parseFloat(g('fLH')?.value)||1.5,
+    savedAt:new Date().toISOString(),
+  };
+}
+
+function _getDominantEastAsiaFont(runs){
+  if(!runs||!runs.length)return null;
+  const counts={};
+  for(const r of runs){
+    const t=(r.text||'').trim();if(!t)continue;
+    const f=r.font_eastAsia||r.font_name;
+    if(f)counts[f]=(counts[f]||0)+t.length;
+  }
+  const ent=Object.entries(counts);
+  return ent.length?ent.sort((a,b)=>b[1]-a[1])[0][0]:null;
+}
+
+function _getDominantFontSize(runs){
+  if(!runs||!runs.length)return null;
+  const counts={};
+  for(const r of runs){
+    const t=(r.text||'').trim();if(!t)continue;
+    const sz=r.font_size_pt;
+    if(sz!=null)counts[sz]=(counts[sz]||0)+t.length;
+  }
+  const ent=Object.entries(counts);
+  return ent.length?parseFloat(ent.sort((a,b)=>b[1]-a[1])[0][0]):null;
+}
+
+function _checkFormatCompliance(fn){
+  const rules=_savedFormatRules;
+  if(!rules)return [];
+  const elements=docContents[fn];
+  if(!elements||!elements.length)return [];
+  const hasRuns=elements.some(el=>el&&el.runs&&el.runs.length);
+  if(!hasRuns)return [];
+
+  const typeRules={
+    h1:{font:rules.h1Font,size:rules.h1Size,label:'一级标题'},
+    h2:{font:rules.h2Font,size:rules.h2Size,label:'二级标题'},
+    h3:{font:rules.h3Font,size:rules.h3Size,label:'三级标题'},
+    p: {font:rules.bFont, size:rules.bSize, label:'正文段落'},
+  };
+  const issues=[];
+  const fontCounts={},sizeCounts={},totalFontMismatch={};
+  const MAX=2;
+
+  elements.forEach(el=>{
+    const t=el.type||'p';
+    if(!typeRules[t])return;
+    const rule=typeRules[t];
+    const txt=(el.text||'').slice(0,40).trim();
+    if(!txt)return;
+    const runs=el.runs||[];
+    const aFont=_getDominantEastAsiaFont(runs);
+    const aSize=_getDominantFontSize(runs);
+
+    if(aFont&&rule.font&&aFont!==rule.font){
+      totalFontMismatch[t]=(totalFontMismatch[t]||0)+1;
+      fontCounts[t]=(fontCounts[t]||0);
+      if(fontCounts[t]<MAX){
+        fontCounts[t]++;
+        issues.push({status:'pending',sev:'warn',cat:'格式问题',
+          title:`${rule.label}字体不符规范`,
+          desc:`规范要求 ${rule.font}，实际为 ${aFont}`,
+          suggestion:`将"${txt}"的字体改为 ${rule.font}`,
+          hlText:txt,hlClass:'hl-warn'});
+      }
+    }
+    if(aSize&&rule.size&&Math.abs(aSize-rule.size)>0.5){
+      sizeCounts[t]=(sizeCounts[t]||0);
+      if(sizeCounts[t]<MAX){
+        sizeCounts[t]++;
+        issues.push({status:'pending',sev:'warn',cat:'格式问题',
+          title:`${rule.label}字号不符规范`,
+          desc:`规范要求 ${rule.size}pt，实际为 ${aSize}pt`,
+          suggestion:`将"${txt}"的字号改为 ${rule.size}pt`,
+          hlText:txt,hlClass:'hl-warn'});
+      }
+    }
+  });
+
+  const totalMm=Object.values(totalFontMismatch).reduce((a,b)=>a+b,0);
+  const shown=Object.values(fontCounts).reduce((a,b)=>a+b,0);
+  if(totalMm>shown){
+    issues.push({status:'pending',sev:'info',cat:'格式问题',
+      title:'文档字体与规范存在大范围差异',
+      desc:`共检测到约 ${totalMm} 处字体不符合已保存的格式规范`,
+      suggestion:'可使用"应用排版规则"按钮一键统一全文格式',
+      hlText:'',hlClass:'hl-info'});
+  }
+  return issues;
+}
+
 async function showSaveTemplateDialog(){
   const name=prompt('请输入模板名称：','我的模板');
   if(!name?.trim())return;
@@ -2194,14 +2314,19 @@ async function runQA(){
   }finally{
     if(btn){btn.disabled=false;btn.style.opacity='';}
   }
+  // Client-side format compliance check (uses saved format rules + element run data)
+  const fmtIssues=_checkFormatCompliance(fn);
+  if(fmtIssues.length){qaData=qaData.concat(fmtIssues);}
+
   qaData.forEach((q,i)=>{q.id=i;if(!q.status)q.status='pending';});
   window.currentQAData=qaData;
   renderQAIssues(qaData);
   applyHighlights(qaData);
   tabQAState[fn]=qaData;
   switchRightTab('qa');
-  setStatus('QA 检查完成：发现 '+qaData.length+' 个问题');
-  showToast('已标注 '+qaData.length+' 个问题');
+  const fmtNote=fmtIssues.length?`（含 ${fmtIssues.length} 个格式规范问题）`:'';
+  setStatus('QA 检查完成：发现 '+qaData.length+' 个问题'+fmtNote);
+  showToast('已标注 '+qaData.length+' 个问题'+fmtNote);
 }
 function renderQAIssues(qaData){
   document.getElementById('qaTotal').textContent=qaData.length;
@@ -2553,14 +2678,38 @@ function jumpToXRefInText(refNum, occurrence) {
   const searchText = refNum.trim();
   const occ = occurrence || 0;
 
-  // docx-preview 把 [1] 拆成多个文本节点，需用 innerText 在段落级匹配
-  // 收集所有包含该引用号的段落，按文档顺序，取第 occ 个
+  // 收集所有包含该引用号的段落
   const allHits = Array.from(page.querySelectorAll('p, li, td'))
     .filter(el => (el.innerText || '').includes(searchText));
 
   const hit = allHits[occ] || allHits[0];
+  if (!hit) {
+    showToast('未找到引用位置');
+    return;
+  }
 
-  if (hit) {
+  // 精确定位：在段落内找到具体的【N】位置并高亮
+  const walker = document.createTreeWalker(hit, NodeFilter.SHOW_TEXT, null);
+  let textNode;
+  let occCount = 0;
+  let targetNode = null;
+  let startOffset = 0;
+
+  while (textNode = walker.nextNode()) {
+    const text = textNode.nodeValue || '';
+    const idx = text.indexOf(searchText);
+    if (idx >= 0) {
+      if (occCount === 0) {
+        targetNode = textNode;
+        startOffset = idx;
+        break;
+      }
+      occCount--;
+    }
+  }
+
+  // 若未能在节点树中找到，回退到整段高亮
+  if (!targetNode) {
     const rect = hit.getBoundingClientRect();
     const vpRect = viewport.getBoundingClientRect();
     viewport.scrollTop += rect.top - vpRect.top - (vpRect.height / 2) + (rect.height / 2);
@@ -2573,7 +2722,29 @@ function jumpToXRefInText(refNum, occurrence) {
     return;
   }
 
-  showToast('未找到引用位置');
+  // 高亮具体的【N】数字
+  const range = document.createRange();
+  range.setStart(targetNode, startOffset);
+  range.setEnd(targetNode, startOffset + searchText.length);
+  const span = document.createElement('span');
+  span.style.backgroundColor = 'rgba(255, 220, 0, 0.7)';
+  span.style.padding = '0 2px';
+  span.style.borderRadius = '2px';
+  range.surroundContents(span);
+
+  // 滚动使高亮部分在视口中央
+  const rect = span.getBoundingClientRect();
+  const vpRect = viewport.getBoundingClientRect();
+  viewport.scrollTop += rect.top - vpRect.top - (vpRect.height / 2) + (rect.height / 2);
+
+  // 2秒后移除高亮
+  setTimeout(() => {
+    if (span.parentNode) {
+      const parent = span.parentNode;
+      while (span.firstChild) parent.insertBefore(span.firstChild, span);
+      parent.removeChild(span);
+    }
+  }, 2000);
 }
 
 // ── XREF ──
@@ -2632,9 +2803,12 @@ async function runXRef(){
       document.getElementById('xrefUnref').textContent=formattedMatches.filter(m=>m.status==='warn').length;
       applyHighlights(formattedMatches);
       const _fn2=activeTabIdx>=0?openTabs[activeTabIdx].name:'';
-      tabXrefState[_fn2]={targets:targets.length,refs:formattedMatches.filter(m=>m.ref!=='—').length,valid:formattedMatches.filter(m=>m.status==='ok').length,dangling:formattedMatches.filter(m=>m.status==='err').length,unref:formattedMatches.filter(m=>m.status==='warn').length,tableHtml:document.getElementById('xrefTargetsBody').innerHTML,matchHtml:document.getElementById('xrefMatchesBody').innerHTML};
+      const _xrefIssues=data.xref_issues||[];
+      tabXrefState[_fn2]={targets:targets.length,refs:formattedMatches.filter(m=>m.ref!=='—').length,valid:formattedMatches.filter(m=>m.status==='ok').length,dangling:formattedMatches.filter(m=>m.status==='err').length,unref:formattedMatches.filter(m=>m.status==='warn').length,tableHtml:document.getElementById('xrefTargetsBody').innerHTML,matchHtml:document.getElementById('xrefMatchesBody').innerHTML,xrefIssues:_xrefIssues};
+      _renderXrefIssueCards(_xrefIssues,_fn2);
       switchRightTab('xref');
-      showToast('已标注引用关系（从后端获取）');
+      const issNote=_xrefIssues.length?`，发现 ${_xrefIssues.length} 个可采纳引用`:'';
+      showToast('已标注引用关系'+issNote);
       setStatus('交叉引用检查完成');
       return;
     }
@@ -2658,7 +2832,8 @@ async function runXRef(){
   document.getElementById('xrefValid').textContent=matches.filter(m=>m.status==='ok').length;
   document.getElementById('xrefDangling').textContent=matches.filter(m=>m.status==='err').length;
   document.getElementById('xrefUnref').textContent=matches.filter(m=>m.status==='warn').length;
-  tabXrefState[fn]={targets:targets.length,refs:matches.filter(m=>m.ref!=='—').length,valid:matches.filter(m=>m.status==='ok').length,dangling:matches.filter(m=>m.status==='err').length,unref:matches.filter(m=>m.status==='warn').length,tableHtml:document.getElementById('xrefTargetsBody').innerHTML,matchHtml:document.getElementById('xrefMatchesBody').innerHTML};
+  tabXrefState[fn]={targets:targets.length,refs:matches.filter(m=>m.ref!=='—').length,valid:matches.filter(m=>m.status==='ok').length,dangling:matches.filter(m=>m.status==='err').length,unref:matches.filter(m=>m.status==='warn').length,tableHtml:document.getElementById('xrefTargetsBody').innerHTML,matchHtml:document.getElementById('xrefMatchesBody').innerHTML,xrefIssues:[]};
+  _renderXrefIssueCards([],fn);
   applyHighlights(matches);switchRightTab('xref');
   showToast('已标注引用关系（本地缓存）');setStatus('交叉引用检查完成');
 }
@@ -2666,6 +2841,99 @@ function switchXRefSub(sub,el){
   document.querySelectorAll('.xst').forEach(t=>t.classList.remove('active'));el.classList.add('active');
   document.querySelectorAll('.xref-panel').forEach(p=>p.classList.remove('active'));
   document.getElementById('xp-'+sub).classList.add('active');
+}
+
+// ── XREF ADOPTION ISSUES (第十三批) ──
+function _renderXrefIssueCards(issues,fn){
+  _currentXrefIssues=issues;
+  const container=document.getElementById('xrefIssuesList');
+  if(!container)return;
+  const accepted=tabXrefAcceptedEdits[fn]||[];
+  if(!issues.length){
+    container.innerHTML='<div class="issue-empty"><div class="ie-icon">✅</div><p>未发现可采纳的交叉引用</p></div>';
+    return;
+  }
+  container.innerHTML='';
+  issues.forEach((iss,i)=>{
+    const isAccepted=accepted.some(e=>e.target_label===iss.target_label);
+    const isIgnored=iss.status==='rejected';
+    const canAdopt=iss.type==='unreferenced';
+    const div=document.createElement('div');
+    div.className=`issue ${iss.type==='dangling'?'warn':'info'} fade-in${isAccepted?' accepted':''}${isIgnored?' rejected':''}`;
+    div.id='xref-issue-'+i;
+    div.innerHTML=`<div class="issue-top"><span class="issue-badge">${iss.type==='dangling'?'悬空':'可采纳'}</span><span class="issue-title">${esc(iss.title)}</span></div><div class="issue-desc">${esc(iss.description)}</div><div class="issue-actions"><button class="issue-btn locate" onclick="event.stopPropagation();jumpToXRefIssue(${i})">📍 定位</button>${canAdopt&&!isAccepted?`<button class="issue-btn accept" onclick="event.stopPropagation();acceptXrefIssue(${i})">✓ 采纳</button>`:''}${!isIgnored&&!isAccepted?`<button class="issue-btn reject" onclick="event.stopPropagation();ignoreXrefIssue(${i})">✗ 忽略</button>`:''}${isAccepted?`<button class="issue-btn undo-accept" onclick="event.stopPropagation();undoXrefIssue(${i})">↩ 撤销</button>`:''}</div>`;
+    container.appendChild(div);
+  });
+}
+function jumpToXRefIssue(i){
+  const iss=_currentXrefIssues[i];if(!iss)return;
+  jumpToXRefInText(iss.target_label,0);
+}
+function acceptXrefIssue(i){
+  const iss=_currentXrefIssues[i];if(!iss||iss.type!=='unreferenced')return;
+  const fn=activeTabIdx>=0?openTabs[activeTabIdx].name:null;if(!fn)return;
+  if(!tabXrefAcceptedEdits[fn])tabXrefAcceptedEdits[fn]=[];
+  if(!tabXrefAcceptedEdits[fn].some(e=>e.target_label===iss.target_label))
+    tabXrefAcceptedEdits[fn].push({target_label:iss.target_label,bookmark_name:iss.bookmark_name,element_index:iss.element_index});
+  // Highlight occurrences in preview
+  _applyXrefAcceptedHighlight(iss.target_label,true,i);
+  // Update card
+  const card=document.getElementById('xref-issue-'+i);
+  if(card){
+    card.classList.add('accepted');
+    const actions=card.querySelector('.issue-actions');
+    if(actions){
+      const ab=actions.querySelector('.accept'),rb=actions.querySelector('.reject');
+      if(ab)ab.remove();if(rb)rb.remove();
+      if(!actions.querySelector('.undo-accept')){
+        const btn=document.createElement('button');btn.className='issue-btn undo-accept';btn.textContent='↩ 撤销';
+        btn.onclick=e=>{e.stopPropagation();undoXrefIssue(i);};
+        actions.appendChild(btn);
+      }
+    }
+  }
+  showToast('已采纳：'+iss.target_label+'，导出时自动转为 REF 字段');
+}
+function ignoreXrefIssue(i){
+  const iss=_currentXrefIssues[i];if(!iss)return;
+  iss.status='rejected';
+  const card=document.getElementById('xref-issue-'+i);
+  if(card){
+    card.classList.add('rejected');
+    const actions=card.querySelector('.issue-actions');
+    if(actions){const ab=actions.querySelector('.accept'),rb=actions.querySelector('.reject');if(ab)ab.remove();if(rb)rb.remove();}
+  }
+}
+function undoXrefIssue(i){
+  const iss=_currentXrefIssues[i];if(!iss)return;
+  const fn=activeTabIdx>=0?openTabs[activeTabIdx].name:null;
+  if(fn&&tabXrefAcceptedEdits[fn])
+    tabXrefAcceptedEdits[fn]=tabXrefAcceptedEdits[fn].filter(e=>e.target_label!==iss.target_label);
+  _applyXrefAcceptedHighlight(iss.target_label,false,i);
+  const card=document.getElementById('xref-issue-'+i);
+  if(card){
+    card.classList.remove('accepted');
+    const actions=card.querySelector('.issue-actions');
+    if(actions){
+      const ub=actions.querySelector('.undo-accept');if(ub)ub.remove();
+      const locBtn=actions.querySelector('.locate');
+      if(locBtn&&iss.type==='unreferenced'){
+        locBtn.insertAdjacentHTML('afterend',`<button class="issue-btn accept" onclick="event.stopPropagation();acceptXrefIssue(${i})">✓ 采纳</button><button class="issue-btn reject" onclick="event.stopPropagation();ignoreXrefIssue(${i})">✗ 忽略</button>`);
+      }
+    }
+  }
+  showToast('已撤销：'+iss.target_label);
+}
+function _applyXrefAcceptedHighlight(targetLabel,accept,issueIdx){
+  // Remove existing hl-xref-accepted spans for this label
+  const page=document.getElementById('docPage');if(!page)return;
+  page.querySelectorAll('.hl-xref-accepted').forEach(s=>{
+    if(s.textContent===targetLabel){const t=document.createTextNode(s.textContent);s.replaceWith(t);}
+  });
+  if(!accept)return;
+  // Insert highlight spans using applyHighlights mechanism
+  applyHighlights([{hlText:targetLabel,hlClass:'hl-xref-accepted',status:'pending',id:issueIdx,
+    title:'已采纳交叉引用',desc:'导出时将自动转为 Word REF 字段',suggestion:null}]);
 }
 
 // ── TOOLBAR ACTIONS ──
@@ -2894,6 +3162,97 @@ function exportDocAsPdf(tab){
   window.print();
 }
 
+// Convert adopted xref plain-text refs to Word REF fields in document.xml. Returns {xml, applied}.
+function _applyXrefEditsToDocXml(xmlStr,xrefEdits){
+  if(!xrefEdits||!xrefEdits.length)return{xml:xmlStr,applied:0};
+  const W='http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+  const parser=new DOMParser();
+  const doc=parser.parseFromString(xmlStr,'application/xml');
+  const body=doc.getElementsByTagNameNS(W,'body')[0];
+  if(!body)return{xml:xmlStr,applied:0};
+  let applied=0;
+  for(const edit of xrefEdits){
+    const{target_label,bookmark_name}=edit;
+    if(!target_label||!bookmark_name)continue;
+    const paras=Array.from(body.getElementsByTagNameNS(W,'p'));
+    for(const para of paras){
+      const runs=Array.from(para.getElementsByTagNameNS(W,'r'));
+      // Collect (run, t) pairs, skip instrText runs
+      const tPairs=[];
+      for(const r of runs){
+        if(r.getElementsByTagNameNS(W,'instrText').length>0)continue;
+        for(const t of r.getElementsByTagNameNS(W,'t'))tPairs.push({r,t});
+      }
+      if(!tPairs.length)continue;
+      const fullText=tPairs.map(p=>p.t.textContent).join('');
+      let matchIdx=fullText.indexOf(target_label);
+      if(matchIdx<0)continue;
+      const matchEnd=matchIdx+target_label.length;
+      // Find which pairs overlap the match range
+      let offset=0,startPair=null,startNodeOff=0;
+      for(const pair of tPairs){
+        const len=pair.t.textContent.length;
+        if(!startPair&&matchIdx<offset+len){startPair=pair;startNodeOff=matchIdx-offset;}
+        offset+=len;
+      }
+      if(!startPair)continue;
+      // Build REF field runs
+      function mkR(child){const r=doc.createElementNS(W,'w:r');r.appendChild(child);return r;}
+      function mkFld(typ){const f=doc.createElementNS(W,'w:fldChar');f.setAttributeNS(W,'w:fldCharType',typ);return f;}
+      const instrEl=doc.createElementNS(W,'w:instrText');
+      instrEl.setAttributeNS('http://www.w3.org/XML/1998/namespace','xml:space','preserve');
+      instrEl.textContent=` REF ${bookmark_name} \\h `;
+      const displayT=doc.createElementNS(W,'w:t');displayT.textContent=target_label;
+      const refRuns=[mkR(mkFld('begin')),mkR(instrEl),mkR(mkFld('separate')),mkR(displayT),mkR(mkFld('end'))];
+      // Split startPair.t: before-text stays in startPair.r, after-text goes to a new run after REF
+      const origRun=startPair.r;
+      const beforeText=startPair.t.textContent.slice(0,startNodeOff);
+      // Collect all tPairs from startPair onwards and clear their w:t content
+      let inMatch=false,afterText='';
+      let afterOffset=0;
+      offset=0;
+      for(const pair of tPairs){
+        const len=pair.t.textContent.length;
+        if(pair===startPair){
+          inMatch=true;
+          pair.t.textContent=beforeText;
+          if(beforeText.startsWith(' ')||beforeText.endsWith(' '))
+            pair.t.setAttributeNS('http://www.w3.org/XML/1998/namespace','xml:space','preserve');
+        } else if(inMatch){
+          const pStart=offset;const pEnd=offset+len;
+          if(pStart>=matchEnd){
+            // Entirely after match — keep
+            afterText=tPairs.slice(tPairs.indexOf(pair)).map(p=>p.t.textContent).join('');
+            // Clear this and all subsequent tPairs in match range
+          } else if(pEnd>matchEnd){
+            // Partially overlaps end of match
+            afterText=pair.t.textContent.slice(matchEnd-pStart);
+            pair.t.textContent='';
+          } else {
+            pair.t.textContent='';
+          }
+        }
+        offset+=len;
+      }
+      // Insert REF field runs after origRun
+      let insertRef=origRun.nextSibling;
+      refRuns.forEach(r=>{para.insertBefore(r,insertRef);});
+      // If there's text after the match in the same paragraph, insert it as a new run
+      if(afterText){
+        const afterRun=doc.createElementNS(W,'w:r');
+        const afterT=doc.createElementNS(W,'w:t');
+        if(afterText.startsWith(' ')||afterText.endsWith(' '))
+          afterT.setAttributeNS('http://www.w3.org/XML/1998/namespace','xml:space','preserve');
+        afterT.textContent=afterText;
+        afterRun.appendChild(afterT);
+        para.insertBefore(afterRun,insertRef);
+      }
+      applied++;break; // replace first occurrence per edit per paragraph; move to next edit
+    }
+  }
+  return{xml:new XMLSerializer().serializeToString(doc),applied};
+}
+
 // Apply accepted edits to word/document.xml string. Returns {xml, applied, skipped}.
 function _applyAcceptedEditsToDocXml(xmlStr,edits){
   if(!edits||!edits.length)return{xml:xmlStr,applied:0,skipped:0};
@@ -2978,16 +3337,23 @@ async function exportDocAsDocxClone(tab){
   const xmlFile=zip.file('word/document.xml');
   if(!xmlFile)throw new Error('document.xml missing in source');
   let xmlStr=await xmlFile.async('string');
+  // Apply QA accepted edits (text substitution)
   const edits=tabAcceptedEdits[tab.name]||[];
-  const{xml,applied,skipped}=_applyAcceptedEditsToDocXml(xmlStr,edits);
-  zip.file('word/document.xml',xml);
+  const{xml:xml1,applied,skipped}=_applyAcceptedEditsToDocXml(xmlStr,edits);
+  // Apply XRef adopted refs (plain text → REF field)
+  const xrefEdits=tabXrefAcceptedEdits[tab.name]||[];
+  const{xml:xml2,applied:xrefApplied}=_applyXrefEditsToDocXml(xml1,xrefEdits);
+  zip.file('word/document.xml',xml2);
   let blob=await zip.generateAsync({type:'blob',mimeType:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'});
   // A-③ 尝试服务端刷新域（best-effort，失败静默降级）
   const refreshed=await _tryServerRefreshFields(blob);
   if(refreshed)blob=refreshed;
   saveAs(blob,tab.name.replace(/\.\w+$/,'')+'_导出.docx');
-  if(skipped>0)showToast(`已导出：应用 ${applied} 处，${skipped} 处未匹配`);
-  else showToast('已导出 Word 文档');
+  const parts=[];
+  if(applied>0)parts.push(`应用 ${applied} 处文本修改`);
+  if(xrefApplied>0)parts.push(`转换 ${xrefApplied} 个 REF 字段`);
+  if(skipped>0)parts.push(`${skipped} 处未匹配`);
+  showToast('已导出 Word 文档'+(parts.length?`（${parts.join('，')}）`:''));
 }
 
 async function exportDocAsDocx(tab){

@@ -72,17 +72,13 @@ class TargetScanner:
 
             text = elem.content.strip()
 
-            # ── 标题：判断是否进入/退出参考文献节 ──
+            # ── 标题：判断是否进入/退出参考文献节（标题本身不作为交叉引用目标）──
             if elem.element_type == ElementType.HEADING:
                 if self.REF_SECTION_PATTERN.search(text):
                     in_ref_section = True
                     ref_seq = 0
                 else:
                     in_ref_section = False
-                    chapter = self._try_match_chapter(elem)
-                    if chapter:
-                        current_chapter = chapter.chapter_num
-                        targets.append(chapter)
                 continue
 
             # ── 参考文献节内部：按位置顺序编号 ──

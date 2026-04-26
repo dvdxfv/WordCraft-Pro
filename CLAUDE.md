@@ -4,11 +4,26 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current status
 
-All tracked work items completed as of 2026-04-25 (第十二批 + P3/P4修复）. 单位不统一误报消除（ML/L/t在缩写中）+ 采纳后字体保护（无损accept）+ AutoCorrect高亮精确定位 + P3暗色主题修复 + P4选区字体显示 + P5问题记录。QA问题数从38→17（-55%）。
+P6（第十四批）+ 第十三批 已完成并修复（2026-04-26）。
+
+**第十四批（P6）完成内容**：排版规范与 QA 联动。"保存为检查规范"按钮 + `_savedFormatRules` localStorage 持久化 + `_checkFormatCompliance()` run 级字体/字号校验 + `runQA()` 合并格式问题。Backend: `saveFormatRequirements` / `loadFormatRequirements` API。
+
+**第十三批完成内容**：交叉引用采纳式设计。
+- 后端 `runXRef` 新增 `xref_issues` 字段：有效文内引用 → `type="unreferenced"` + `bookmark_name`；悬空引用 → `type="dangling"`；按 `target_label` 去重。
+- 前端新增"可采纳引用"子标签页（QA 风格卡片），支持采纳/忽略/撤销。
+- 采纳时：`hl-xref-accepted` 绿色下划线高亮 + 写入 `tabXrefAcceptedEdits`。
+- 导出时：`_applyXrefEditsToDocXml` 将 `target_label` 替换为 Word REF 字段 XML。
+- 回归测试：27/27 通过（新增 5 个 TestBatch13XRefAdoption 测试）。
+
+**用户反馈问题修复（2026-04-26）**：
+1. ✅ **精确定位** - `jumpToXRefInText()` 改进：使用 TreeWalker 精确定位【1】等数字，而非整段高亮
+2. ✅ **标题排除** - `TargetScanner.scan()` 删除 `_try_match_chapter()` 调用，只有图表/公式/参考文献参与交叉引用
+3. ✅ **UI 清洁** - 排版面板删除"应用排版规则"和"设为默认格式"按钮，只保留"保存为检查规范"
+4. ⚠️ **已字段化检测** - `_parse_docx:_runs()` 新增 `is_in_field` 标记；需进一步集成到 `runXRef` 过滤逻辑
 
 ---
 
-## Next batch（第十三批）：交叉引用采纳式设计
+## Next batch（第十四批 P6 之后）
 
 **目标**：用户文档中常出现"图1-1"、"[1]"等手写引用文字，但这些只是普通文本而非 Word REF 字段。新设计让用户像处理 QA 问题一样采纳这些文字，点击采纳时自动创建交叉引用。
 
@@ -65,26 +80,6 @@ All tracked work items completed as of 2026-04-25 (第十二批 + P3/P4修复）
 
 ---
 
-## 回归测试覆盖（防止重复返工）
-
-`tests/test_batch_regression.py` — 22 个测试，覆盖第一至第十批所有已修复问题。
-**每次修改代码后必须运行此文件**，任何已修复问题回退都会在此处失败。
-
-```bash
-python -m pytest tests/test_batch_regression.py -v
-```
-
-| Class | 批次 | 覆盖内容 |
-|-------|------|---------|
-| `TestBatch1RunQAChain` | 第一批 | runQA 返回 location_text/rule_id/checker；HTML 内容被真正解析 |
-| `TestBatch3PunctuationChecker` | 第三批 | 句间空格/ug-L/摄氏度/中英文空格默认关闭/typo_lib 他门立生 |
-| `TestBatch8CrossRefReferenceScan` | 第八批 | TargetScanner 识别参考文献节 [1]-[N]；RefPointScanner 文内引用；CrossRefMatcher 有效匹配 |
-| `TestBatch9QAXrefChainFix` | 第九批 | DocElement.content 字段名；runQA 含 crossref；runXRef 返回 element_index；DocumentChunker.content |
-| `TestBatch10FalsePositiveReduction` | 第十批 | 南海海表/生物物理不误报；真实重复字仍检出；AutoCorrect 标题；CJK空格关闭无噪音 |
-| `TestCrossRefNoDuplicateMatches` | 第九/十批 | matches 含 element_index；app.runXRef 序列化完整 |
-
----
-
 ## Known issues / 待修问题
 
 ### P2：顿号缺失检测（并列词组）
@@ -107,6 +102,17 @@ python -m pytest tests/test_batch_regression.py -v
 **修复方向**：
 - **短期（Quick fix）**：在 consistency_checker.py 中增加启发式检查——当一个标题被解析成多个微小的 DocElement 时（如 docx-preview 的 span 拆分），比较相邻元素的字体大小，如果在视觉上属于同一标题但字号不同则报错
 - **长期（正确方案）**：重构数据模型，引入 `DocRun` 类来记录 run 级别的样式（类似 Word 的内部结构），修改 docx_parser.py 从源文件提取 run 级别的字体大小信息。后者工作量较大，但能准确处理各种混合格式文本
+
+### P6：排版规范与 QA 联动（第十四批）
+
+**现象**：用户手工设置排版规范后无法复用；排版检查结果与 QA 问题无关联。
+
+**解决方案**：保存用户的排版规范 → 自动检查 → QA 同步显示。详见 [docs/PLANS/batch14_format_qa.md](docs/PLANS/batch14_format_qa.md)。
+
+**核心改动**：
+- 新增 `FormatRules` 数据模型 + `FormatChecker` 检查器
+- `saveFormatRequirements()` API 保存规范至 Supabase
+- `runQA` 自动加载规范，排版问题归入 format 类别
 
 ---
 
@@ -259,90 +265,46 @@ The "AI" tab in the format panel:
 
 ---
 
-## 商业化策略 / Monetization Plan (2026-04-25)
+See [BUSINESS.md](docs/BUSINESS.md) for monetization strategy and pricing details.
 
-> **现状**：功能开发基本完成，积累了实际用户样本（南海鸢乌贼论文等）。下一步考虑产品分层与变现。
+## Recent fixes (2026-04-26) — 第十三批+第十四批（P6）：交叉引用采纳式设计 + 排版规范与 QA 联动
 
-### 分层方案
+### 第十四批（P6）排版规范与 QA 联动
 
-**免费版（Free Tier）**
-- 文档上传/预览（.docx/.doc/.pdf/.xlsx/.txt/.md）
-- 基础规则检查（本地执行，无 API 调用）
-  - 标点符号规范（中英文混用、重复标点、句间空格）
-  - 错别字检查（内置词库 ~580 条 + 用户自定义）
-  - 交叉引用基础扫描（标题识别）
-- 导出 .docx（保留源排版）
-- 质量仪表盘（基础统计）
+| 改动 | 位置 | 说明 |
+| ---- | ---- | ---- |
+| "保存为检查规范"按钮 | `web/index.html` 排版面板 | 绿色按钮保存当前面板规范；`formatRulesSavedHint` 显示保存状态 |
+| `_savedFormatRules` + localStorage 持久化 | `web/index.html` | 跨会话保留格式规范；init 时自动读取并显示 saved hint |
+| `_collectFormatRules()` | `web/index.html` | 从面板字段收集 h1/h2/h3/正文 的字体+字号+行距 |
+| `_getDominantEastAsiaFont` / `_getDominantFontSize` | `web/index.html` | 按字符数加权统计 run 级主导字体/字号 |
+| `_checkFormatCompliance(fn)` | `web/index.html` | 对比 `docContents[fn]` 各元素 runs 与保存规范，生成格式问题（最多每类2条 + 汇总）|
+| `runQA()` 合并格式问题 | `web/index.html` | 追加 `_checkFormatCompliance` 结果到 qaData，toast 注明格式问题数 |
+| `saveFormatRequirements` / `loadFormatRequirements` | `app.py` | 写/读 `web/format_rules.json`；Supabase 兜底 |
+| Flask 路由 | `web/flask_app.py` | `/api/saveFormatRequirements` POST + `/api/loadFormatRequirements` POST |
+| WC_API 方法 | `web/index.html` | `saveFormatRequirements` / `loadFormatRequirements` 封装 |
 
-**付费版（Premium Tier）— ¥9.9/月 or ¥79/年**
-- 所有免费功能
-- **AI QA 智能检查**（调用 DeepSeek V4）
-  - 错别字/数据一致性/逻辑检查（AI 增强）
-  - 智能排版规则解析（从模板自动提取）
-  - 语法/表述优化建议
-- **交叉引用深度检查**（参考文献编号、图表链接验证）
-- 优先技术支持
+### 第十三批 交叉引用采纳式设计
 
-### API 成本分析
+| 改动 | 位置 | 说明 |
+| ---- | ---- | ---- |
+| `xref_issues` 字段 | `app.py:runXRef` | 有效引用 → `type="unreferenced"` + `bookmark_name`；悬空 → `type="dangling"`；按 `target_label` 去重 |
+| "可采纳引用"子标签 + `xp-issues` 面板 | `web/index.html` HTML | XRef 面板第三个子标签，内含 `xrefIssuesList` 容器 |
+| `tabXrefAcceptedEdits` / `_currentXrefIssues` | `web/index.html` JS | per-tab 状态变量，持有采纳列表和当前 issue 列表 |
+| `_renderXrefIssueCards(issues, fn)` | `web/index.html` | QA 风格卡片：可采纳/悬空徽章 + 定位/采纳/忽略/撤销按钮 |
+| `acceptXrefIssue` / `ignoreXrefIssue` / `undoXrefIssue` | `web/index.html` | 采纳写入 `tabXrefAcceptedEdits`；`_applyXrefAcceptedHighlight` 更新高亮；撤销还原 |
+| `_applyXrefAcceptedHighlight` | `web/index.html` | 复用 `applyHighlights` 机制插入 `hl-xref-accepted` span（Pass 1 + Pass 2 fallback）|
+| `.hl-xref-accepted` CSS | `web/index.html` | 绿色下划线，与 `.hl-accepted` 一致 |
+| `_applyXrefEditsToDocXml` | `web/index.html` | DOM 解析 document.xml，将 `target_label` run 替换为 5 段 REF 字段 XML |
+| `exportDocAsDocxClone` 调用 xref 转换 | `web/index.html` | QA edits 之后再调用 `_applyXrefEditsToDocXml`；toast 分别显示 text/REF/skipped 数量 |
+| `restoreTabDashboardState` | `web/index.html` | 切标签时恢复 `xrefIssues` 卡片列表 |
+| `runXRef()` 处理 `data.xref_issues` | `web/index.html` | 调用 `_renderXrefIssueCards`；toast 注明可采纳数量 |
 
-**使用模型**：DeepSeek V4
-- 输入价格：¥0.14 / 百万 tokens
-- 输出价格：¥0.42 / 百万 tokens
+### 关键设计点（第十三批）
 
-**单次 QA 检查成本估算**：
-```
-平均输入：3000 tokens（文档片段 + system prompt）
-平均输出：2000 tokens（检查结果 + 建议）
-单次成本 = (3000 × 0.14 + 2000 × 0.42) / 1,000,000
-         = ¥0.0013 ≈ 0.13 分钱
-```
-
-**月度成本预测**：
-| 付费用户数 | 每用户月调用数 | 月成本 | 备注 |
-|-----------|------------|--------|------|
-| 5         | 20         | ¥13    | 个人用户 |
-| 50        | 20         | ¥130   | 小团队 |
-| 500       | 20         | ¥1300  | 快速增长期 |
-| 5000      | 20         | ¥13000 | 成熟产品 |
-
-**关键观察**：
-- API 成本极低（月成本与付费用户数呈线性关系，且系数很小）
-- 即使 1000 用户，月成本也仅 ¥1300，远低于预期收入
-- 变现线：付费用户 > 100 人时已覆盖 API 成本
-
-### 上线时机与策略
-
-**阶段 1（待定）：直接分层上线**
-- 不做免费期，直接上线两个版本
-- 理由：API 成本可控，无需前期大量烧钱验证
-- 风险：新产品可能流失用户（但可用免费版降低门槛）
-
-**阶段 2（可选）：免费期验证**
-- 如果用户反馈平平，先免费运营 1-2 月
-- 收集使用数据后再上线付费版
-- 优势：积累初期用户基数 + 口碑
-
-### 定价对标
-
-| 竞品 | 价格 | 核心功能 |
-|------|------|---------|
-| 本产品 Premium | ¥9.9/月 | AI QA + 交叉引用 + 导出 |
-| 稿定设计 | ¥19.9/月 | 模板库 + 素材库（不同赛道） |
-| 云梦笔记 | ¥6.99/月 | 笔记 + AI 总结 |
-| Grammarly Premium | $12/月 ≈ ¥85/月 | 英文语法检查 + AI 写作 |
-
-**定价合理性**：
-- ¥9.9/月 = ¥119/年，属中等消费
-- 若用户月使用 > 10 次 AI 检查，ROI > 10:1（¥9.9 vs ¥0.13×100）
-- 对标 Grammarly，我们的价格低 8 倍，但功能针对中文学术文档
-
-### 后续步骤
-
-1. **确认上线时机**（立即 vs. 等待更多反馈）
-2. **搭建付费体系**（支付接口、订阅管理、试用逻辑）
-3. **前端 UI 改造**（版本指示、升级提示、功能限制）
-4. **后端 API 改造**（用户订阅检验、使用量计费记录）
-5. **运营策略**（首月免费试用 vs. 直接付费 vs. 按次付费）
+- **"unreferenced" 含义重解**：在 `xref_issues` 语境中，`type="unreferenced"` 表示"有效的文内引用（已匹配目标），但尚未被 Word 字段化"——即"未被字段引用"，可采纳转换。与 CrossRef 报告中的 `UNREFERENCED`（目标无引用点）含义不同。
+- **按 `target_label` 去重**：同一引用标签（如 `[1]`）可能出现 N 次，但只展示一张卡片。导出时替换该标签的第一个 XML 出现（后续实例由 Word F9 域刷新同步）。
+- **REF 字段 5 段结构**：`fldChar begin` + `instrText REF bookmark \h` + `fldChar separate` + `w:t display` + `fldChar end`；严格按 OOXML 规范，Word 可直接识别并在 F9 时更新编号。
+- **高亮复用 `applyHighlights`**：避免重复实现 Pass 1/Pass 2 跨节点逻辑；用 pseudo-issue 对象触发，`status:'pending'` 绕过状态过滤。
 
 ---
 
@@ -759,99 +721,23 @@ The "AI" tab in the format panel:
 
 ---
 
-## Recent fixes (2026-04-21) — 第一批
+See [CHANGELOG.md](docs/CHANGELOG.md) for detailed fix history（第一至十一批修复记录）and [DEPLOYMENT.md](DEPLOYMENT.md) for deployment notes.
 
-| Issue | Fix location | Detail |
-| ----- | ------------ | ------ |
-| 导出格式混乱（`<a>` 标签残留） | `web/index.html:exportDocAsDocx` | 新增 `_strip()` 用 DOMParser 剥离 innerHTML HTML 标签，TextRun 只传纯文本；空节点过滤（`.filter(Boolean)`）；rawHtmlContents 兜底 |
-| 质量仪表板硬编码假数据 | `web/index.html:openQualityDashboard` | 新增 `_updateQualityDashboard()`，打开弹窗前从 `window.currentQAData` 实时计算各分类问题数、修复数、进度条、质量评分；`refreshQualityData` / `fixAllIssues` 同步对接 |
-| AI 测试按钮报 `WC is not defined` | `web/index.html:testAIConnection` | `WC.callAI` → `window.WC_API.callAI` |
-| 前端代理转发走系统代理（502/500） | `web/run_web.py` | 新增 `_NO_PROXY_OPENER = ProxyHandler({})` 绕过 Clash/VPN 系统代理，所有 `/api/*` 代理改用该 opener |
-| `runQA` categories 序列化错误 | `web/flask_app.py:run_qa` | `categories` list 未 JSON 序列化即传入，改为 `json.dumps(categories)` |
-| `runQA` 检查空文档（始终返回 0 issues） | `app.py:runQA` | 解析 HTML/纯文本 content，用 `re.finditer` 逐块提取 h1-h6 / p / li，构建 DocElement 列表填入 DocumentModel |
-| `runQA` 序列化字段名错误 | `app.py:runQA` | `i.id` → `i.issue_id`；补充 `location_text` 字段输出 |
+## Test Coverage（回归测试）
 
-### 本轮修复的关键设计点（第一批）
+`tests/test_batch_regression.py` — 27 个测试，覆盖第一至第十三批所有已修复问题。
+**每次修改代码后必须运行此文件**，任何已修复问题回退都会在此处失败。
 
-- `_strip(html)` 辅助函数（`index.html`）：`createElement('div').innerHTML = s; return textContent` — 唯一可靠的浏览器端 HTML→纯文本方法，避免正则误删中文
-- `run_web.py` 代理必须绕过系统代理：机器如配置了 Clash/VPN 的 `http_proxy`，`urllib.request.urlopen` 会把 localhost 请求路由到代理，导致 502。固定用 `ProxyHandler({})` opener
-- `app.py:runQA` HTML 解析用 `re.finditer` 而非按行分割：同一"行"可能含多个块级标签（`<h1>...<p>...`），split 会漏掉后续节点
-
----
-
-## Recent fixes (2026-04-20)
-
-| Issue | Fix location | Detail |
-| ----------------- | ------------------------------------------- | --------------------------------------------------------- |
-| 导出文件乱码 | `web/index.html:exportDoc` | 补读 h2/h3/wFont；所有 TextRun 加 `font.name` + `font.eastAsia` |
-| 模板上传栈溢出 | `web/index.html:handleTemplateUpload` | btoa 改为 8192 字节分块编码 |
-| AI 解析排版规则为桩函数 | `web/index.html:runAIParse/applyAIRules` | 实现 AI 文本→JSON 规则解析及一键填入面板 |
-| .doc 文件不显示 | `parsers/dispatcher.py` | 三级回退；前端 `_loadDocFile` 同步改为分块编码 |
-| LibreOffice 失败不继续 | `parsers/dispatcher.py` | 失败后 warning + fall through，不再 raise |
-| 仪表板数据不持久 | `web/index.html` | `tabQAState`/`tabXrefState` 跨 tab 切换保存/恢复 |
-| 首页导航 / 在线状态 | `web/index.html` | 工具栏"首页"按钮；状态栏 30s 轮询在线点 |
-| 图片对齐 | `parsers/docx_parser.py` + `web/index.html` | 扫描 `<w:drawing>` 提取图片+对齐；前端加对齐 CSS 和浮动工具栏 |
-
-### Supabase 架构优化 & 导出增强（2026-04-20）
-
-#### Supabase 前端直连
-
-`window.WC_API` 中以下方法现在直接调用 Supabase JS SDK，绕过 Flask：
-
-- `getDocumentList` / `saveDocument` / `loadDocument` / `updateDocument` → `documents` 表
-- `getUserSettings` / `saveUserSettings` → `user_settings` 表（upsert on_conflict user_id）
-- `getUserTemplates` / `deleteTemplate` → `templates` 表 + Storage
-- `getTokenUsage` → `profiles` + `token_logs` 表
-
-新增 `_sbUserId()` 辅助方法（`getSession()` 取当前用户 ID）。未登录或 Supabase 不可用时自动回退到 Flask 路由。
-
-#### Supabase Realtime
-
-`setupRealtimeDocSync()` 订阅 `public.documents` 表变更，加 `filter: user_id=eq.{uid}` 隔离用户，`init()` 启动时调用，文档列表自动刷新。
-
-#### Edge Function — qa-summary
-
-`supabase/functions/qa-summary/index.ts`：Deno 函数，对文档进行四维 AI 质量检查（逻辑/表述/数据/语言），调用豆包 API，`verify_jwt = true`。
-
-部署：
 ```bash
-supabase link --project-ref nzujajuefdsheggulpze
-supabase secrets set DOUBAO_API_KEY=<key>
-supabase functions deploy qa-summary
+python -m pytest tests/test_batch_regression.py -v
 ```
 
-#### runAIQA() 实现
-
-由桩函数改为真实实现：fetch `qa-summary` Edge Function → 解析逐行建议 → 追加（去重旧条目）到 QA 面板。
-
-#### 导出按格式分流
-
-`exportDoc()` 按 `tab.type` 自动分流：
-
-- `pdf` → `exportDocAsPdf()`：注入 `#printTarget`，`window.print()`，`afterprint` 事件后清理
-- 其他 → `exportDocAsDocx()`：原有 docx.js 逻辑
-
-`@media print` CSS：A4 页面，隐藏所有 UI，仅显示 `#printTarget`。
-
-#### 其他
-
-- `app.py`: Doubao key 改为 `os.environ.get("DOUBAO_API_KEY", fallback)`
-- `.gitignore` 新建：覆盖 `__pycache__/`、`*.py[cod]`、`.env` 等
-- 已追踪的 `.pyc` 文件从 git index 中清除
-
----
-
-## Deployment notes
-
-### Website deployment progress (2026-04-23)
-
-1. 已明确部署形态：采用纯网页 + 云端后端模式，`pycorrector` / `autocorrect` 均在服务器侧安装与运行，终端用户无需本机安装。
-2. 已实现后端 QA 健康检查接口：`/api/qa/health`，可返回 readiness、missing capabilities、自动修复状态等信息。
-3. 已实现 QA 硬门禁：`runQA` 在能力未就绪时阻断检查，返回 `QA_CAPABILITY_NOT_READY`，禁止 silently degraded 检查。
-4. 已实现服务器侧依赖自动准备（best effort）：未就绪时自动尝试安装 `autocorrect`，并进行重探测。
-5. 已加入自动重试与冷却机制：避免频繁重复安装，同时减少"必须手工重启后端"场景。
-6. 已完成前端门禁与状态同步：未就绪时禁用 QA 入口，展示缺失能力与服务准备状态。
-7. 已上线安装进度 UI（已改文案为服务侧）：展示"QA 服务准备进度"，安装完成提示"刷新页面后继续检查"。
-8. 已完成认知对齐：当前服务器环境为 Windows Server（含 nginx + Python 运行中），后续部署 SOP 应按 Windows Server 路线整理，不再按 Ubuntu 假设执行。
-9. 当前落地策略：继续沿用已有腾讯云轻量服务器与域名，原地升级项目并续期证书；不在本次文档中展开具体网站操作步骤。
-10. **`pycorrector` 已完全移除**（2026-04-24）：因依赖 PyTorch（重量级，不适合服务器自动安装），已从项目中删除。QA 能力层改为仅依赖 `autocorrect`（轻量二进制）+ 规则层。`requirements.txt` 同步移除 `torch/transformers/accelerate/pywebview/PyQt6`。
+| Class | 批次 | 覆盖内容 |
+|-------|------|---------|
+| `TestBatch1RunQAChain` | 第一批 | runQA 返回 location_text/rule_id/checker；HTML 内容被真正解析 |
+| `TestBatch3PunctuationChecker` | 第三批 | 句间空格/ug-L/摄氏度/中英文空格默认关闭/typo_lib 他门立生 |
+| `TestBatch8CrossRefReferenceScan` | 第八批 | TargetScanner 识别参考文献节 [1]-[N]；RefPointScanner 文内引用；CrossRefMatcher 有效匹配 |
+| `TestBatch9QAXrefChainFix` | 第九批 | DocElement.content 字段名；runQA 含 crossref；runXRef 返回 element_index；DocumentChunker.content |
+| `TestBatch10FalsePositiveReduction` | 第十批 | 南海海表/生物物理不误报；真实重复字仍检出；AutoCorrect 标题；CJK空格关闭无噪音 |
+| `TestCrossRefNoDuplicateMatches` | 第九/十批 | matches 含 element_index；app.runXRef 序列化完整 |
+| `TestBatch13XRefAdoption` | 第十三批 | runXRef 返回 xref_issues；字段结构完整；有效引用为 unreferenced 类型；bookmark_name 存在；target_label 去重 |

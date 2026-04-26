@@ -704,6 +704,33 @@ class Api:
             return json.dumps({"success": False, "error": str(exc)}, ensure_ascii=False)
 
     # ------------------------------------------------------------------
+    #  排版规范保存/加载
+    # ------------------------------------------------------------------
+
+    _FORMAT_RULES_FILE = os.path.join(os.path.dirname(__file__), "web", "format_rules.json")
+
+    def saveFormatRequirements(self, rules_json: str) -> str:
+        """Save user format rules to local JSON file (Supabase fallback)."""
+        try:
+            rules = json.loads(rules_json) if isinstance(rules_json, str) else rules_json
+            with open(self._FORMAT_RULES_FILE, "w", encoding="utf-8") as f:
+                json.dump(rules, f, ensure_ascii=False, indent=2)
+            return json.dumps({"success": True}, ensure_ascii=False)
+        except Exception as exc:
+            return json.dumps({"success": False, "error": str(exc)}, ensure_ascii=False)
+
+    def loadFormatRequirements(self) -> str:
+        """Load saved format rules."""
+        try:
+            if os.path.exists(self._FORMAT_RULES_FILE):
+                with open(self._FORMAT_RULES_FILE, "r", encoding="utf-8") as f:
+                    rules = json.load(f)
+                return json.dumps({"success": True, "rules": rules}, ensure_ascii=False)
+            return json.dumps({"success": True, "rules": None}, ensure_ascii=False)
+        except Exception as exc:
+            return json.dumps({"success": False, "error": str(exc)}, ensure_ascii=False)
+
+    # ------------------------------------------------------------------
     #  质量检查
     # ------------------------------------------------------------------
 
@@ -867,8 +894,38 @@ class Api:
                             "message": m.message,
                             "element_index": getattr(m.ref_point, 'element_index', None)} for m in report.matches]
 
+            # Build xref_issues for adoption UI (第十三批)
+            # "unreferenced" = valid plain-text ref that can be adopted → REF field
+            # "dangling"     = text ref without a matching target (warning only)
+            xref_issues_out = []
+            seen_labels: set = set()
+            for m in report.matches:
+                if m.status == CrossRefStatus.VALID and m.ref_point.ref_text and m.ref_point.ref_text not in seen_labels:
+                    seen_labels.add(m.ref_point.ref_text)
+                    xref_issues_out.append({
+                        "type": "unreferenced",
+                        "target_label": m.ref_point.ref_text,
+                        "bookmark_name": m.target.bookmark_name if m.target else None,
+                        "element_index": getattr(m.ref_point, "element_index", None),
+                        "title": f"可创建字段：{m.ref_point.ref_text}",
+                        "description": f"「{m.ref_point.ref_text}」在正文中为纯文本，采纳后导出时自动转为 Word REF 字段",
+                        "suggestion": m.ref_point.ref_text,
+                    })
+            for m in report.matches:
+                if m.status == CrossRefStatus.DANGLING and m.ref_point.ref_text:
+                    xref_issues_out.append({
+                        "type": "dangling",
+                        "target_label": m.ref_point.ref_text,
+                        "bookmark_name": None,
+                        "element_index": getattr(m.ref_point, "element_index", None),
+                        "title": f"悬空引用：{m.ref_point.ref_text}",
+                        "description": f"「{m.ref_point.ref_text}」找不到对应目标，请检查引用是否正确",
+                        "suggestion": None,
+                    })
+
             return json.dumps({
                 "success": True, "targets": targets_out, "matches": matches_out,
+                "xref_issues": xref_issues_out,
                 "summary": {"total_targets": len(targets_out),
                              "valid_matches": sum(1 for m in matches_out if m["status"] == "valid"),
                              "dangling_references": sum(1 for m in matches_out if m["status"] == "dangling"),
@@ -1072,10 +1129,14 @@ class Api:
 
         def _runs(para):
             out = []
+            # Check if paragraph contains Word fields (REF, TOC, etc.)
+            para_xml_str = str(para._element.xml)
+            has_field_codes = 'fldChar' in para_xml_str or 'instrText' in para_xml_str
+
             for r in para.runs:
                 r_pr = getattr(r._element, "rPr", None)
                 r_fonts = getattr(r_pr, "rFonts", None) if r_pr is not None else None
-                out.append({
+                run_info = {
                     "text": r.text or "",
                     "font_name": r.font.name,
                     "font_size_pt": float(r.font.size.pt) if r.font.size else None,
@@ -1086,7 +1147,9 @@ class Api:
                     "font_hansi": r_fonts.get(qn("w:hAnsi")) if r_fonts is not None else None,
                     "font_eastAsia": r_fonts.get(qn("w:eastAsia")) if r_fonts is not None else None,
                     "font_cs": r_fonts.get(qn("w:cs")) if r_fonts is not None else None,
-                })
+                    "is_in_field": has_field_codes,
+                }
+                out.append(run_info)
             return out
 
         for element in doc.element.body:
