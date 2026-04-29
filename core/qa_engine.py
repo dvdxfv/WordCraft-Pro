@@ -11,8 +11,6 @@ from __future__ import annotations
 import time
 from typing import Callable, Optional
 
-from typing import Optional
-
 from core.document_model import DocumentModel
 from core.qa_models import QAReport, QAIssue, IssueCategory
 from core.typo_checker import TypoChecker
