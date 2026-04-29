@@ -44,3 +44,4 @@ secrets.yaml
 
 # User-provided QA dictionaries (project-specific, do not share)
 core/data/user_typos.tsv
+.gstack/

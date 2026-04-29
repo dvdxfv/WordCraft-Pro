@@ -297,9 +297,11 @@ class Api:
 
         sections = []
         styles_meta: dict = {}
+        fielded_refs: list = []
         try:
             if ext == "docx":
                 elements, sections, styles_meta = self._parse_docx(path)
+                fielded_refs = Api._extract_ref_field_display_texts(path)
             elif ext in ("txt", "md"):
                 elements = self._parse_text(path)
             else:
@@ -307,6 +309,7 @@ class Api:
                     elements = self._parse_text(path)
                 except Exception:
                     elements, sections, styles_meta = self._parse_docx(path)
+                    fielded_refs = Api._extract_ref_field_display_texts(path)
 
             if not elements:
                 return json.dumps({"success": False, "error": "文件为空或无可解析内容", "error_code": "EMPTY_FILE"})
@@ -334,6 +337,7 @@ class Api:
             "success": True, "name": name, "size": size,
             "type": ext, "elements": elements, "element_count": len(elements),
             "sections": sections, "styles": styles_meta,
+            "fielded_refs": fielded_refs,
         }, ensure_ascii=False)
 
     def saveFile(self, content: str, file_name: str = "document.html") -> str:
@@ -639,23 +643,37 @@ class Api:
 
         return {k: v for k, v in rules.items() if v is not None}
 
+    @staticmethod
+    def _extract_docx_text(file_path: str, max_chars: int = 4000) -> str:
+        """从 .docx 文件提取纯文本内容，供 AI 理解模板描述"""
+        try:
+            from docx import Document
+            doc = Document(file_path)
+            lines = [p.text.strip() for p in doc.paragraphs if p.text and p.text.strip()]
+            text = "\n".join(lines)
+            return text[:max_chars]
+        except Exception:
+            return ""
+
     def uploadTemplate(self, file_path: str, name: str) -> str:
         try:
             format_rules = {}
+            doc_text = ""
             if file_path.lower().endswith('.docx') and os.path.exists(file_path):
                 format_rules = self._extract_docx_format_rules(file_path)
+                doc_text = self._extract_docx_text(file_path)
 
             if self._supabase and self._session.get("user_id"):
                 user_id = self._session["user_id"]
                 file_url = self._supabase.upload_template_file(user_id, file_path, name)
                 if file_url:
                     record = self._supabase.insert_template(user_id, name, file_url, "custom")
-                    return json.dumps({"success": True, "template_id": record.get("id", "") if record else "", "name": name, "file_url": file_url, "format_rules": format_rules}, ensure_ascii=False)
+                    return json.dumps({"success": True, "template_id": record.get("id", "") if record else "", "name": name, "file_url": file_url, "format_rules": format_rules, "doc_text": doc_text}, ensure_ascii=False)
                 return json.dumps({"success": False, "error": "上传失败"})
             else:
                 if not os.path.exists(file_path):
                     return json.dumps({"success": False, "error": "文件不存在"})
-                return json.dumps({"success": True, "template_id": "template-new-001", "name": name, "format_rules": format_rules}, ensure_ascii=False)
+                return json.dumps({"success": True, "template_id": "template-new-001", "name": name, "format_rules": format_rules, "doc_text": doc_text}, ensure_ascii=False)
         except Exception as exc:
             return json.dumps({"success": False, "error": str(exc)}, ensure_ascii=False)
 
@@ -710,22 +728,66 @@ class Api:
     _FORMAT_RULES_FILE = os.path.join(os.path.dirname(__file__), "web", "format_rules.json")
 
     def saveFormatRequirements(self, rules_json: str) -> str:
-        """Save user format rules to local JSON file (Supabase fallback)."""
+        """Save user format rules — Supabase primary, local JSON fallback."""
         try:
             rules = json.loads(rules_json) if isinstance(rules_json, str) else rules_json
+            if isinstance(rules, dict):
+                rules["savedByUser"] = True
+
+            # ── Supabase（已登录时） ──
+            uid = self._session.get("user_id") if self._session else None
+            if self._supabase and uid:
+                try:
+                    self._supabase.client.table("user_format_rules").upsert(
+                        {"user_id": uid, "rules_json": rules,
+                         "updated_at": "now()"},
+                        on_conflict="user_id",
+                    ).execute()
+                    # 同步本地文件作为离线缓存
+                    with open(self._FORMAT_RULES_FILE, "w", encoding="utf-8") as f:
+                        json.dump(rules, f, ensure_ascii=False, indent=2)
+                    return json.dumps({"success": True, "storage": "supabase"}, ensure_ascii=False)
+                except Exception as sb_err:
+                    print(f"[FormatRules] Supabase save failed, falling back to local: {sb_err}")
+
+            # ── 本地 JSON 兜底 ──
             with open(self._FORMAT_RULES_FILE, "w", encoding="utf-8") as f:
                 json.dump(rules, f, ensure_ascii=False, indent=2)
-            return json.dumps({"success": True}, ensure_ascii=False)
+            return json.dumps({"success": True, "storage": "local"}, ensure_ascii=False)
         except Exception as exc:
             return json.dumps({"success": False, "error": str(exc)}, ensure_ascii=False)
 
     def loadFormatRequirements(self) -> str:
-        """Load saved format rules."""
+        """Load saved format rules — Supabase primary, local JSON fallback."""
         try:
+            # ── Supabase（已登录时） ──
+            uid = self._session.get("user_id") if self._session else None
+            if self._supabase and uid:
+                try:
+                    res = (
+                        self._supabase.client
+                        .table("user_format_rules")
+                        .select("rules_json, updated_at")
+                        .eq("user_id", uid)
+                        .limit(1)
+                        .execute()
+                    )
+                    if res.data:
+                        rules = res.data[0]["rules_json"]
+                        # 同步到本地缓存
+                        with open(self._FORMAT_RULES_FILE, "w", encoding="utf-8") as f:
+                            json.dump(rules, f, ensure_ascii=False, indent=2)
+                        return json.dumps({"success": True, "rules": rules,
+                                           "storage": "supabase"}, ensure_ascii=False)
+                except Exception as sb_err:
+                    print(f"[FormatRules] Supabase load failed, falling back to local: {sb_err}")
+
+            # ── 本地 JSON 兜底 ──
             if os.path.exists(self._FORMAT_RULES_FILE):
                 with open(self._FORMAT_RULES_FILE, "r", encoding="utf-8") as f:
                     rules = json.load(f)
-                return json.dumps({"success": True, "rules": rules}, ensure_ascii=False)
+                return json.dumps({"success": True, "rules": rules,
+                                   "storage": "local"}, ensure_ascii=False)
             return json.dumps({"success": True, "rules": None}, ensure_ascii=False)
         except Exception as exc:
             return json.dumps({"success": False, "error": str(exc)}, ensure_ascii=False)
@@ -734,7 +796,8 @@ class Api:
     #  质量检查
     # ------------------------------------------------------------------
 
-    def runQA(self, content: str, categories_str: str = '["typo", "consistency", "logic", "format", "crossref"]') -> str:
+    def runQA(self, content: str, categories_str: str = '["typo", "consistency", "logic", "format", "crossref"]',
+              elements_json: str = None) -> str:
         try:
             qa_health = self._warmup_qa_capabilities(force=False)
             if not qa_health.get("ready", False):
@@ -750,7 +813,7 @@ class Api:
                 }, ensure_ascii=False)
 
             from core.qa_engine import QAEngine
-            from core.document_model import DocumentModel, DocElement, ElementType
+            from core.document_model import DocumentModel, DocElement, ElementType, FontStyle
             from html.parser import HTMLParser
 
             class _StripHTML(HTMLParser):
@@ -759,8 +822,52 @@ class Api:
                 def get_text(self): return ''.join(self._parts)
 
             doc = DocumentModel(title="检查文档", source_format="html")
-            # 将 HTML/纯文本 content 解析为 DocElement 列表
-            if content:
+
+            # ── 优先路径：前端传来结构化 elements（含 runs 字体信息）──
+            if elements_json:
+                try:
+                    import re as _re
+                    raw_elems = json.loads(elements_json) if isinstance(elements_json, str) else elements_json
+                    _TYPE_MAP = {"h1": (ElementType.HEADING, 1), "h2": (ElementType.HEADING, 2),
+                                 "h3": (ElementType.HEADING, 3), "p": (ElementType.PARAGRAPH, 0),
+                                 "li": (ElementType.PARAGRAPH, 0)}
+                    for el in (raw_elems or []):
+                        t = el.get("type", "p")
+                        etype, lvl = _TYPE_MAP.get(t, (ElementType.PARAGRAPH, 0))
+                        txt = (el.get("text") or "").strip()
+                        if not txt:
+                            continue
+                        fs = FontStyle()
+                        runs = el.get("runs") or []
+                        if runs:
+                            # 按字符数加权取主导字体/字号（与前端 _getDominantEastAsiaFont 同逻辑）
+                            font_w: dict[str, int] = {}
+                            size_w: dict[float, int] = {}
+                            for r in runs:
+                                rlen = len((r.get("text") or "").strip())
+                                if not rlen:
+                                    continue
+                                fn = r.get("font_eastAsia") or r.get("font_name") or ""
+                                if fn:
+                                    font_w[fn] = font_w.get(fn, 0) + rlen
+                                sz = r.get("font_size_pt")
+                                if sz:
+                                    size_w[float(sz)] = size_w.get(float(sz), 0) + rlen
+                            if font_w:
+                                fs.font_name_cn = max(font_w, key=font_w.get)
+                            if size_w:
+                                fs.font_size_pt = max(size_w, key=size_w.get)
+                        # 第十八批：保留前端传入的 metadata（含 structure_role 等结构识别字段）
+                        meta = el.get("metadata") if isinstance(el.get("metadata"), dict) else {}
+                        doc.elements.append(DocElement(
+                            element_type=etype, content=txt, level=lvl,
+                            font_style=fs, metadata=dict(meta)))
+                except Exception as _e:
+                    print(f"[runQA] elements_json 解析失败，回退 HTML 路径: {_e}")
+                    doc.elements.clear()
+
+            # ── 回退路径：从 HTML 解析（无字体信息）──
+            if not doc.elements and content:
                 import re as _re
                 raw = content if isinstance(content, str) else str(content)
                 # 逐个匹配 HTML 块元素（h1-h6, p, li）以及换行纯文本
@@ -793,8 +900,26 @@ class Api:
                             doc.elements.append(DocElement(element_type=elem_type, content=txt))
 
             categories = json.loads(categories_str) if isinstance(categories_str, str) else categories_str
+
+            # 加载已保存的格式规范（如有）传给引擎
+            format_rules = None
+            if "format" in categories and os.path.exists(self._FORMAT_RULES_FILE):
+                try:
+                    from core.format_checker import FormatRules
+                    with open(self._FORMAT_RULES_FILE, "r", encoding="utf-8") as _f:
+                        _rules_dict = json.load(_f)
+                    if isinstance(_rules_dict, str):
+                        _rules_dict = json.loads(_rules_dict)
+                    if not isinstance(_rules_dict, dict) or not _rules_dict.get("savedByUser"):
+                        _rules_dict = None
+                    _fr = FormatRules.from_dict(_rules_dict) if _rules_dict else None
+                    if _fr and not _fr.is_empty():
+                        format_rules = _fr
+                except Exception:
+                    pass
+
             engine = QAEngine(config=self._qa_runtime_config)
-            report = engine.check(doc, categories)
+            report = engine.check(doc, categories, format_rules=format_rules)
             return json.dumps({
                 "success": True,
                 "issues": [
@@ -842,7 +967,7 @@ class Api:
     #  交叉引用
     # ------------------------------------------------------------------
 
-    def runXRef(self, content: str) -> str:
+    def runXRef(self, content: str, fielded_refs: list = None, elements_json=None) -> str:
         try:
             from core.document_model import DocumentModel, DocElement, ElementType
             from core.crossref_engine import TargetScanner, RefPointScanner, CrossRefMatcher
@@ -855,29 +980,58 @@ class Api:
                 def get_text(self): return ''.join(self._parts)
 
             doc = DocumentModel(title="xref", source_format="html")
-            for m in re.finditer(
-                r'<h([1-6])[^>]*>(.*?)</h[1-6]>|<(?:p|li)[^>]*>(.*?)</(?:p|li)>',
-                content, re.IGNORECASE | re.DOTALL
-            ):
-                if m.group(1):
-                    p = _Strip(); p.feed(m.group(2)); txt = p.get_text().strip()
-                    if txt:
-                        doc.elements.append(DocElement(element_type=ElementType.HEADING,
-                            content=txt, level=int(m.group(1))))
-                elif m.group(3) is not None:
-                    p = _Strip(); p.feed(m.group(3)); txt = p.get_text().strip()
-                    if txt:
-                        et = ElementType.PARAGRAPH
-                        if re.match(r"^\s*\[\d+\]", txt):
-                            et = ElementType.REFERENCE
-                        doc.elements.append(DocElement(element_type=et, content=txt))
+
+            # ── 第十八批：优先走结构化路径（含 metadata.structure_role），让 TargetScanner
+            #    跳过目录里的"第3章 模型 ......15"等条目 ──
+            if elements_json:
+                try:
+                    raw_elems = json.loads(elements_json) if isinstance(elements_json, str) else elements_json
+                    _XREF_TYPE_MAP = {
+                        "h1": (ElementType.HEADING, 1),
+                        "h2": (ElementType.HEADING, 2),
+                        "h3": (ElementType.HEADING, 3),
+                        "p":  (ElementType.PARAGRAPH, 0),
+                        "li": (ElementType.PARAGRAPH, 0),
+                        "caption": (ElementType.CAPTION, 0),
+                        "ref": (ElementType.REFERENCE, 0),
+                    }
+                    for el in (raw_elems or []):
+                        t = (el.get("type") or "p").lower()
+                        etype, lvl = _XREF_TYPE_MAP.get(t, (ElementType.PARAGRAPH, 0))
+                        txt = (el.get("text") or "").strip()
+                        if not txt:
+                            continue
+                        meta = el.get("metadata") if isinstance(el.get("metadata"), dict) else {}
+                        doc.elements.append(DocElement(
+                            element_type=etype, content=txt, level=lvl,
+                            metadata=dict(meta)))
+                except Exception as _xref_struct_err:
+                    print(f"[runXRef] elements_json 解析失败，回退 HTML 正则路径: {_xref_struct_err}")
+                    doc.elements.clear()
+
+            # ── 回退路径：仅有 HTML 时按现有逻辑解析（无 metadata） ──
+            if not doc.elements:
+                for m in re.finditer(
+                    r'<h([1-6])[^>]*>(.*?)</h[1-6]>|<(?:p|li)[^>]*>(.*?)</(?:p|li)>',
+                    content, re.IGNORECASE | re.DOTALL
+                ):
+                    if m.group(1):
+                        p = _Strip(); p.feed(m.group(2)); txt = p.get_text().strip()
+                        if txt:
+                            doc.elements.append(DocElement(element_type=ElementType.HEADING,
+                                content=txt, level=int(m.group(1))))
+                    elif m.group(3) is not None:
+                        p = _Strip(); p.feed(m.group(3)); txt = p.get_text().strip()
+                        if txt:
+                            et = ElementType.PARAGRAPH
+                            if re.match(r"^\s*\[\d+\]", txt):
+                                et = ElementType.REFERENCE
+                            doc.elements.append(DocElement(element_type=et, content=txt))
 
             scanner = TargetScanner()
             targets = scanner.scan(doc)
             ref_scanner = RefPointScanner()
-            ref_points = ref_scanner.scan(doc)
-            multi_refs = ref_scanner.scan_multi_references(doc)
-            ref_points.extend(multi_refs)
+            ref_points = ref_scanner.scan(doc)  # 单遍扫描，scan_index 已在此赋值
             matcher = CrossRefMatcher()
             report = matcher.match(targets, ref_points)
 
@@ -892,21 +1046,36 @@ class Api:
                             "reference": m.ref_point.ref_text if m.ref_point.ref_text else "—",
                             "target": m.target.label if m.target else "",
                             "message": m.message,
-                            "element_index": getattr(m.ref_point, 'element_index', None)} for m in report.matches]
+                            "context": getattr(m.ref_point, 'context', ''),
+                            "element_index": getattr(m.ref_point, 'element_index', None),
+                            "start_pos": getattr(m.ref_point, 'start_pos', None),
+                            "scan_index": getattr(m.ref_point, 'scan_index', -1)} for m in report.matches]
+            # scan_index 是唯一排序键：扫描阶段按文档阅读顺序分配，禁止任何 reference 二次排序。
+            # UNREFERENCED/DUPLICATE 等合成条目 scan_index=-1，统一排到末尾。
+            matches_out.sort(key=lambda m: m["scan_index"] if m.get("scan_index", -1) >= 0 else 999999)
 
             # Build xref_issues for adoption UI (第十三批)
             # "unreferenced" = valid plain-text ref that can be adopted → REF field
             # "dangling"     = text ref without a matching target (warning only)
+            # Filter out refs that are already Word REF fields (fielded_refs from openFile)
+            already_fielded: set = set(fielded_refs) if fielded_refs else set()
+
             xref_issues_out = []
             seen_labels: set = set()
             for m in report.matches:
                 if m.status == CrossRefStatus.VALID and m.ref_point.ref_text and m.ref_point.ref_text not in seen_labels:
+                    # Skip if this label is already a Word REF field in the document
+                    if m.ref_point.ref_text in already_fielded:
+                        seen_labels.add(m.ref_point.ref_text)
+                        continue
                     seen_labels.add(m.ref_point.ref_text)
                     xref_issues_out.append({
                         "type": "unreferenced",
                         "target_label": m.ref_point.ref_text,
                         "bookmark_name": m.target.bookmark_name if m.target else None,
                         "element_index": getattr(m.ref_point, "element_index", None),
+                        "start_pos": getattr(m.ref_point, "start_pos", None),
+                        "scan_index": getattr(m.ref_point, "scan_index", -1),
                         "title": f"可创建字段：{m.ref_point.ref_text}",
                         "description": f"「{m.ref_point.ref_text}」在正文中为纯文本，采纳后导出时自动转为 Word REF 字段",
                         "suggestion": m.ref_point.ref_text,
@@ -918,10 +1087,14 @@ class Api:
                         "target_label": m.ref_point.ref_text,
                         "bookmark_name": None,
                         "element_index": getattr(m.ref_point, "element_index", None),
+                        "start_pos": getattr(m.ref_point, "start_pos", None),
+                        "scan_index": getattr(m.ref_point, "scan_index", -1),
                         "title": f"悬空引用：{m.ref_point.ref_text}",
                         "description": f"「{m.ref_point.ref_text}」找不到对应目标，请检查引用是否正确",
                         "suggestion": None,
                     })
+            # scan_index 是唯一排序键，与 matches_out 保持一致。
+            xref_issues_out.sort(key=lambda x: x["scan_index"] if x.get("scan_index", -1) >= 0 else 999999)
 
             return json.dumps({
                 "success": True, "targets": targets_out, "matches": matches_out,
@@ -1045,9 +1218,16 @@ class Api:
         temperature = config.get("temperature", 0.3)
         max_tokens = int(config.get("max_tokens", 2048))
         reasoning_effort = config.get("reasoning_effort", "high")
+        # 优先环境变量；若运行时缓存未更新，则直接回读最新 config.yaml 做兜底。
+        latest_cfg = self._load_runtime_config()
+        latest_llm = latest_cfg.get("llm") or {}
+        latest_deepseek = latest_llm.get("deepseek") or {}
+        latest_api = latest_llm.get("api") or {}
         api_key = (
             os.environ.get("DEEPSEEK_API_KEY")
             or ((self._qa_runtime_config.get("llm") or {}).get("deepseek") or {}).get("api_key", "")
+            or latest_deepseek.get("api_key", "")
+            or latest_api.get("api_key", "")
         )
         if not api_key:
             return json.dumps({"error": "DEEPSEEK_API_KEY 未配置，已停用豆包通道。"}, ensure_ascii=False)
@@ -1080,6 +1260,78 @@ class Api:
     # ------------------------------------------------------------------
 
     @staticmethod
+    @staticmethod
+    def _extract_ref_field_display_texts(path: str) -> list:
+        """Extract the display texts of all Word REF fields in a docx file.
+
+        A REF field in OOXML looks like:
+          <w:r><w:fldChar w:fldCharType="begin"/></w:r>
+          <w:r><w:instrText> REF bookmark \h </w:instrText></w:r>
+          <w:r><w:fldChar w:fldCharType="separate"/></w:r>
+          <w:r><w:t>[1]</w:t></w:r>   ← display text we want
+          <w:r><w:fldChar w:fldCharType="end"/></w:r>
+
+        Returns a list of display text strings (e.g. ["[1]","[2]","图1-1"]).
+        """
+        import zipfile
+        import xml.etree.ElementTree as ET
+        W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+        results = []
+        try:
+            with zipfile.ZipFile(path, 'r') as z:
+                if 'word/document.xml' not in z.namelist():
+                    return results
+                xml_bytes = z.read('word/document.xml')
+            root = ET.fromstring(xml_bytes)
+            # Flatten all runs in document order
+            all_runs = root.findall(f'.//{{{W}}}r')
+            i = 0
+            while i < len(all_runs):
+                r = all_runs[i]
+                fc = r.find(f'{{{W}}}fldChar')
+                if fc is not None and fc.get(f'{{{W}}}fldCharType') == 'begin':
+                    # Scan forward: collect instrText, look for REF, then get display text
+                    instr = ''
+                    is_ref_field = False
+                    display_parts = []
+                    in_display = False
+                    j = i + 1
+                    while j < len(all_runs):
+                        rj = all_runs[j]
+                        fci = rj.find(f'{{{W}}}fldChar')
+                        if fci is not None:
+                            ftype = fci.get(f'{{{W}}}fldCharType', '')
+                            if ftype == 'separate':
+                                is_ref_field = Api._is_ref_field(instr)
+                                in_display = True
+                            elif ftype == 'end':
+                                if is_ref_field and display_parts:
+                                    txt = ''.join(display_parts).strip()
+                                    if txt:
+                                        results.append(txt)
+                                i = j
+                                break
+                        instr_el = rj.find(f'{{{W}}}instrText')
+                        if instr_el is not None and instr_el.text:
+                            instr += instr_el.text
+                        if in_display:
+                            t_el = rj.find(f'{{{W}}}t')
+                            if t_el is not None and t_el.text:
+                                display_parts.append(t_el.text)
+                        j += 1
+                i += 1
+        except Exception:
+            pass
+        return results
+
+    @staticmethod
+    def _is_ref_field(instr: str) -> bool:
+        """Return True only for standalone REF fields (not PAGEREF, NOTEREF, etc.)."""
+        import re
+        # REF appears at start of instruction text (after optional whitespace)
+        return bool(re.match(r'\s*REF\s', instr, re.IGNORECASE))
+
+    @staticmethod
     def _parse_docx(path: str):
         """Return (elements, sections, styles).
 
@@ -1093,6 +1345,46 @@ class Api:
         from docx.oxml.ns import qn
         doc = Document(path)
         elements = []
+
+        # ── 样式字体缓存：沿继承链解析每个样式的 eastAsia 字体和字号 ──
+        _style_cache: dict = {}
+
+        def _resolve_style_fonts(style) -> dict:
+            """返回 {eastAsia, ascii, size_pt}，沿 base_style 链向上合并。"""
+            if style is None:
+                return {}
+            key = style.name
+            if key in _style_cache:
+                return _style_cache[key]
+            # 占位防止循环继承
+            _style_cache[key] = {}
+            parent = getattr(style, "base_style", None)
+            resolved = dict(_resolve_style_fonts(parent))
+            # 读本层 rFonts
+            el = style.element
+            r_pr = el.find(qn("w:rPr")) if el is not None else None
+            rf = r_pr.find(qn("w:rFonts")) if r_pr is not None else None
+            if rf is not None:
+                ea = rf.get(qn("w:eastAsia"))
+                asc = rf.get(qn("w:ascii"))
+                if ea:  resolved["eastAsia"] = ea
+                if asc: resolved["ascii"]    = asc
+            # 读本层字号
+            try:
+                sz = style.font.size
+                if sz is not None:
+                    resolved["size_pt"] = float(sz.pt)
+            except Exception:
+                pass
+            _style_cache[key] = resolved
+            return resolved
+
+        # 预热缓存（防止首次查询时递归深度问题）
+        for _s in doc.styles:
+            try:
+                _resolve_style_fonts(_s)
+            except Exception:
+                pass
 
         def _para_fmt(para):
             fmt = para.paragraph_format
@@ -1132,21 +1424,34 @@ class Api:
             # Check if paragraph contains Word fields (REF, TOC, etc.)
             para_xml_str = str(para._element.xml)
             has_field_codes = 'fldChar' in para_xml_str or 'instrText' in para_xml_str
+            # 段落样式继承字体（当 run 没有显式设置时用作回退）
+            style_fonts = _resolve_style_fonts(para.style) if para.style else {}
 
             for r in para.runs:
                 r_pr = getattr(r._element, "rPr", None)
                 r_fonts = getattr(r_pr, "rFonts", None) if r_pr is not None else None
+                # run 显式值
+                r_eastAsia = r_fonts.get(qn("w:eastAsia")) if r_fonts is not None else None
+                r_ascii    = r_fonts.get(qn("w:ascii"))    if r_fonts is not None else None
+                r_hansi    = r_fonts.get(qn("w:hAnsi"))    if r_fonts is not None else None
+                r_cs       = r_fonts.get(qn("w:cs"))       if r_fonts is not None else None
+                r_size     = float(r.font.size.pt) if r.font.size else None
+                r_fname    = r.font.name
+                # 回退到继承链
+                eff_eastAsia = r_eastAsia or style_fonts.get("eastAsia")
+                eff_ascii    = r_ascii    or style_fonts.get("ascii")
+                eff_size     = r_size     or style_fonts.get("size_pt")
                 run_info = {
                     "text": r.text or "",
-                    "font_name": r.font.name,
-                    "font_size_pt": float(r.font.size.pt) if r.font.size else None,
+                    "font_name": r_fname or eff_ascii or eff_eastAsia,
+                    "font_size_pt": eff_size,
                     "bold": bool(r.bold) if r.bold is not None else None,
                     "italic": bool(r.italic) if r.italic is not None else None,
                     "underline": bool(r.underline) if r.underline is not None else None,
-                    "font_ascii": r_fonts.get(qn("w:ascii")) if r_fonts is not None else None,
-                    "font_hansi": r_fonts.get(qn("w:hAnsi")) if r_fonts is not None else None,
-                    "font_eastAsia": r_fonts.get(qn("w:eastAsia")) if r_fonts is not None else None,
-                    "font_cs": r_fonts.get(qn("w:cs")) if r_fonts is not None else None,
+                    "font_ascii":   r_ascii    or eff_ascii,
+                    "font_hansi":   r_hansi    or style_fonts.get("ascii"),
+                    "font_eastAsia": eff_eastAsia,
+                    "font_cs": r_cs,
                     "is_in_field": has_field_codes,
                 }
                 out.append(run_info)
@@ -1221,6 +1526,13 @@ class Api:
                 text = para.text.strip()
                 if text:
                     elements.append({"type": "p", "text": text, "fmt": _para_fmt(para), "runs": _runs(para)})
+
+        # 第十八批：注入结构识别 metadata（cover/toc/heading/body/reference/caption ...）
+        try:
+            from core.document_structure import classify_dicts
+            classify_dicts(elements)
+        except Exception as _structure_err:
+            print(f"[_parse_docx] classify_dicts 失败，已忽略: {_structure_err}")
 
         sections = []
         for s in doc.sections:

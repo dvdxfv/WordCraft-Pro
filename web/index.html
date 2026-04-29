@@ -48,8 +48,8 @@
     },
     async applyFormat(content, rules) { return this._request('applyFormat', { content, rules }); },
     async acceptSuggestion(content, issue_id, original_text, suggested_text) { return this._request('acceptSuggestion', { content, issue_id, original_text, suggested_text }); },
-    async runXRef(content) { return this._request('runXRef', { content }); },
-    async runQA(content, categories) { return this._request('runQA', { content, categories }); },
+    async runXRef(content, fieldedRefs, elements) { return this._request('runXRef', { content, fielded_refs: fieldedRefs||[], elements: elements||null }); },
+    async runQA(content, categories, elements) { return this._request('runQA', { content, categories, elements: elements||null }); },
     async callAI(system_prompt, user_message, config) { return this._request('callAI', { system_prompt, user_message, config }); },
     async openFile(file_content, file_name) { return this._request('openFile', { file_content, file_name }); },
     async saveFile(content, file_name) { return this._request('saveFile', { content, file_name }); },
@@ -1167,8 +1167,13 @@ html,body{height:100%;font-family:-apple-system,'SF Pro Text','PingFang SC','Mic
             AI 解析排版规则
           </button>
           <div class="ai-rules" id="aiRules">
-            <div class="ai-rules-hd"><span>解析结果（可编辑）</span><button onclick="applyAIRules()">应用到文档</button></div>
+            <div class="ai-rules-hd"><span>解析结果（可编辑）</span></div>
             <div class="ai-rules-body" id="aiRulesBody"></div>
+            <button class="fbtn" id="btnSaveAIFormatRules" onclick="saveAIFormatRequirements()" style="display:none;margin-top:8px;background:var(--accent-green,#22a665);color:#fff;width:100%">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg>
+              保存为检查规范
+            </button>
+            <div id="aiFormatRulesSavedHint" style="display:none;font-size:11px;color:#22a665;margin-top:4px">✓ 已保存规范，QA 检查时自动校验</div>
           </div>
         </div>
       </div>
@@ -1364,77 +1369,11 @@ html,body{height:100%;font-family:-apple-system,'SF Pro Text','PingFang SC','Mic
 
 <script>
 // ── DATA ──
-const filesData=[
-  {name:'毕业论文_终稿.docx',size:'2.4 MB',type:'docx',modified:false},
-  {name:'实验数据统计.xlsx',size:'856 KB',type:'xlsx',modified:false},
-  {name:'参考文献汇总.pdf',size:'1.1 MB',type:'pdf',modified:false},
-];
-const docContents={
-  '毕业论文_终稿.docx':[
-    {type:'h1',text:'第一章 绪论'},
-    {type:'p',text:'本文研究了一种基于自然语言处理的智能排版方法，旨在解决传统排版工具操作复杂、效率低下的问题。'},
-    {type:'p',text:'随着办公自动化的不断发展，文档排版的质量和效率越来越受到重视。传统的 Word 排版方式需要用户手动设置大量格式参数，不仅耗时耗力，而且容易出错。'},
-    {type:'h2',text:'1.1 研究背景'},
-    {type:'p',text:'近年来，自然语言处理技术在文档理解领域取得了显著进展。大语言模型的出现使得机器能够理解复杂的排版需求描述。'},
-    {type:'h2',text:'1.2 研究目的'},
-    {type:'p',text:'本研究旨在开发一款智能排版工具，能够自动将用户的自然语言排版需求转换为结构化排版规则，并应用于 Word 文档。'},
-    {type:'h1',text:'第二章 研究方法'},
-    {type:'p',text:'本章详细介绍了系统的设计方案和实现方法。'},
-    {type:'caption',text:'图 3-1 系统架构图'},
-    {type:'p',text:'如图 3-1 所示，系统采用分层架构设计，包括文件解析层、排版引擎层、质量检查层和导出层。'},
-    {type:'p',text:'请输入正确的帐号进行登录。',qaKey:'qa1'},
-    {type:'p',text:'项目总投入 100 万元，即 1000000 元，两种表示方式需统一。',qaKey:'qa2'},
-    {type:'h1',text:'第三章 结论'},
-    {type:'ref',text:'[1] 张三, 李四. 智能排版方法研究[J]. 计算机学报, 2024.'},
-    {type:'ref',text:'[2] Wang J. Document formatting with NLP[C]. ACL, 2023.'},
-  ],
-  '实验数据统计.xlsx':[
-    {type:'h1',text:'实验数据统计报告'},
-    {type:'p',text:'本报告汇总了三组实验的关键数据指标，包括准确率、召回率和 F1 值。'},
-    {type:'caption',text:'表 1 实验结果对比'},
-    {type:'p',text:'实验 A 准确率 95.6%，实验 B 准确率 93.2%，实验 C 准确率 97.1%。'},
-  ],
-  '参考文献汇总.pdf':[
-    {type:'h1',text:'参考文献汇总'},
-    {type:'ref',text:'[1] 张三, 李四. 智能排版方法研究[J]. 计算机学报, 2024, 47(3): 512–525.'},
-    {type:'ref',text:'[2] Wang J, Li M. Document formatting with NLP[C]. ACL, 2023: 1234–1245.'},
-    {type:'ref',text:'[3] 刘五. 基于大模型的文档处理[M]. 北京: 科学出版社, 2022.'},
-  ],
-};
-const fileQaData={
-  '毕业论文_终稿.docx':[
-    {sev:'error',cat:'错别字',title:'"帐号"应为"账号"',desc:'文中使用了"帐号"，正确写法为"账号"',suggestion:'账号',hlText:'帐号',hlClass:'hl-error'},
-    {sev:'warn',cat:'数据不一致',title:'金额表示方式不统一',desc:'文中"100 万元"与"1000000 元"表示同一数值，需统一',suggestion:'100 万元',hlText:'1000000 元',hlClass:'hl-warn'},
-    {sev:'info',cat:'格式问题',title:'参考文献 [1] 缺少页码',desc:'参考文献 [1] 缺少具体起止页码',suggestion:'[1] 张三（1-10页）',hlText:'[1] 张三',hlClass:'hl-info'},
-  ],
-  '实验数据统计.xlsx':[
-    {sev:'warn',cat:'数据不一致',title:'准确率小数位不统一',desc:'95.6%、93.2%、97.1% 小数位一致，但建议核查原始数据精度',suggestion:'93.2%',hlText:'93.2%',hlClass:'hl-warn'},
-  ],
-  '参考文献汇总.pdf':[
-    {sev:'warn',cat:'格式问题',title:'中英文文献标点混用',desc:'中英文文献标点格式不统一',suggestion:'[1] 张三',hlText:'[1] 张三',hlClass:'hl-warn'},
-  ],
-};
-const fileXrefTargets={
-  '毕业论文_终稿.docx':[
-    {type:'章节',num:'1',label:'第一章',title:'绪论'},
-    {type:'章节',num:'2',label:'第二章',title:'研究方法'},
-    {type:'图',num:'3-1',label:'图 3-1',title:'系统架构图'},
-    {type:'参考文献',num:'1',label:'[1]',title:'张三等'},
-    {type:'参考文献',num:'2',label:'[2]',title:'Wang J'},
-  ],
-  '实验数据统计.xlsx':[{type:'表',num:'1',label:'表 1',title:'实验结果对比'}],
-  '参考文献汇总.pdf':[],
-};
-const fileXrefMatches={
-  '毕业论文_终稿.docx':[
-    {status:'ok',ref:'图 3-1',target:'图 3-1 系统架构图',desc:'有效引用',hlText:'图 3-1',hlClass:'hl-xref-ok'},
-    {status:'err',ref:'图 3-2',target:'—',desc:'悬空引用：找不到目标',hlText:'图 3-2',hlClass:'hl-xref-err'},
-    {status:'ok',ref:'[1],[2]',target:'[1] 张三等',desc:'有效引用',hlText:'[1]',hlClass:'hl-xref-ok'},
-    {status:'warn',ref:'—',target:'第三章 结论',desc:'未被引用',hlText:'第三章 结论',hlClass:'hl-xref-unref'},
-  ],
-  '实验数据统计.xlsx':[{status:'ok',ref:'表 1',target:'表 1 实验结果对比',desc:'有效引用',hlText:'表 1',hlClass:'hl-xref-ok'}],
-  '参考文献汇总.pdf':[],
-};
+const filesData=[];
+const docContents={};
+const fileQaData={};
+const fileXrefTargets={};
+const fileXrefMatches={};
 const aiTemplates={
   thesis:'论文使用 A4 纸，页边距上下 2.5cm、左右 3cm。一级标题黑体三号居中加粗，二级标题黑体四号加粗。正文宋体小四号首行缩进 2 字符，1.5 倍行距。',
   gov:'公文 A4，上 3.7cm、下 3.5cm、左 2.8cm、右 2.6cm。标题方正小标宋简体二号居中，正文仿宋 GB2312 三号首行缩进 2 字符，行距固定值 28 磅。',
@@ -1460,8 +1399,17 @@ const tabAcceptedEdits={}; // per-tab accepted edits [{original,suggestion,issue
 const tabXrefAcceptedEdits={}; // per-tab xref adopted refs [{target_label,bookmark_name,element_index}] for REF field export
 let _currentXrefIssues=[]; // active tab's xref adoption issues
 let _savedFormatRules=null; // user-saved format requirements for QA compliance checking
-try{const _sfr=localStorage.getItem('wc_format_rules');if(_sfr){_savedFormatRules=JSON.parse(_sfr);}}catch(e){}
-(function(){const h=document.getElementById('formatRulesSavedHint');if(h&&_savedFormatRules)h.style.display='block';})();
+function _isUserSavedFormatRules(rules){
+  return !!(rules && typeof rules==='object' && rules.savedByUser===true);
+}
+try{
+  const _sfr=localStorage.getItem('wc_format_rules');
+  if(_sfr){
+    const parsed=JSON.parse(_sfr);
+    if(_isUserSavedFormatRules(parsed))_savedFormatRules=parsed;
+  }
+}catch(e){}
+(function(){const h=document.getElementById('formatRulesSavedHint');if(h&&_isUserSavedFormatRules(_savedFormatRules))h.style.display='block';})();
 
 function _setQAGateUI(ready){
   const runBtn=document.querySelector('[onclick="runQA()"]');
@@ -1541,6 +1489,31 @@ async function _checkQAHealthGate(silent=false){
 }
 
 // ── INIT ──
+async function loadFormatRequirementsFromBackend(){
+  try{
+    const resp=await fetch('/api/loadFormatRequirements',{method:'POST'});
+    if(resp.ok){
+      const data=await resp.json();
+      if(data.success&&data.rules){
+        const rules=typeof data.rules==='string'?JSON.parse(data.rules):data.rules;
+        if(_isUserSavedFormatRules(rules)){
+          _savedFormatRules=rules;
+          try{localStorage.setItem('wc_format_rules',JSON.stringify(rules));}catch(e){}
+        }
+      }
+    }
+  }catch(e){
+    console.warn('Failed to load format rules from backend, using localStorage:',e);
+    try{
+      const stored=localStorage.getItem('wc_format_rules');
+      if(stored){
+        const parsed=JSON.parse(stored);
+        if(_isUserSavedFormatRules(parsed))_savedFormatRules=parsed;
+      }
+    }catch(e2){}
+  }
+}
+
 function init(){
   setTheme(getTheme());
   renderFileTree();
@@ -1555,6 +1528,7 @@ function init(){
   _setupImgToolbarOnPage();
   setupRealtimeDocSync();
   _checkQAHealthGate();
+  loadFormatRequirementsFromBackend();
 }
 let _vc=0,_vt=null;
 function handleVersionClick(){_vc++;clearTimeout(_vt);_vt=setTimeout(()=>_vc=0,2000);if(_vc>=5){_vc=0;openDashboard();}}
@@ -1724,7 +1698,10 @@ function updateCounts(){
 function clearHighlights(){
   removeTip();
   document.getElementById('docPage').querySelectorAll('[class^="hl-"]').forEach(hl=>{
-    const p=hl.parentNode;p.replaceChild(document.createTextNode(hl.textContent),hl);p.normalize();
+    const p=hl.parentNode;
+    const frag=document.createDocumentFragment();
+    while(hl.firstChild)frag.appendChild(hl.firstChild);
+    p.replaceChild(frag,hl);p.normalize();
   });
 }
 function clearQAResults(){
@@ -1778,7 +1755,7 @@ function applyHighlights(items){
         if(!sn||!en)continue;
         try{
           const range=document.createRange();range.setStart(sn,so);range.setEnd(en,eo);
-          range.deleteContents();range.insertNode(_mkSpan(item,issueIdx));
+          range.surroundContents(_mkSpan(item,issueIdx));
         }catch(e){}
         break;
       }
@@ -1960,10 +1937,17 @@ async function saveDefaultFormat(){
   showToast('已设为默认格式');
 }
 
-function saveFormatRequirements(){
+async function saveFormatRequirements(){
   const rules=_collectFormatRules();
+  rules.savedByUser=true;
   _savedFormatRules=rules;
   try{localStorage.setItem('wc_format_rules',JSON.stringify(rules));}catch(e){}
+  try{
+    const resp=await fetch('/api/saveFormatRequirements',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rules:JSON.stringify(rules)})});
+    if(!resp.ok)throw new Error(`HTTP ${resp.status}`);
+  }catch(e){
+    console.warn('Backend save failed, using local only:',e);
+  }
   const h=document.getElementById('formatRulesSavedHint');
   if(h)h.style.display='block';
   showToast('格式规范已保存，QA 检查时自动校验');
@@ -2007,7 +1991,7 @@ function _getDominantFontSize(runs){
 
 function _checkFormatCompliance(fn){
   const rules=_savedFormatRules;
-  if(!rules)return [];
+  if(!_isUserSavedFormatRules(rules))return [];
   const elements=docContents[fn];
   if(!elements||!elements.length)return [];
   const hasRuns=elements.some(el=>el&&el.runs&&el.runs.length);
@@ -2181,20 +2165,13 @@ async function handleTemplateUpload(e){
     const data=await window.WC_API.uploadTemplate(b64,name,f.name);
     if(data.success){
       loadUserTemplates();
-      const rules=data.format_rules;
-      if(rules&&Object.keys(rules).length>0){
-        window._aiParsedRules=rules;
-        const labelMap={h1Font:'一级标题字体',h1Size:'一级标题字号(pt)',h2Font:'二级标题字体',h2Size:'二级标题字号(pt)',
-          h3Font:'三级标题字体',h3Size:'三级标题字号(pt)',bodyFont:'正文字体',bodySize:'正文字号(pt)',
-          westFont:'西文字体',indent:'首行缩进(字符)',lineHeight:'行距(倍)',align:'对齐',
-          marginTop:'上边距(cm)',marginBottom:'下边距(cm)',marginLeft:'左边距(cm)',marginRight:'右边距(cm)'};
-        document.getElementById('aiRulesBody').innerHTML=Object.entries(rules)
-          .map(([k,v])=>`<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid #eee"><span style="color:#666">${labelMap[k]||k}</span><span style="font-weight:500">${v}</span></div>`).join('');
-        document.getElementById('aiRules').style.display='block';
-        showToast('模板已上传，排版规则已提取，点击"应用到文档"填入面板');
+      const ai=document.getElementById('aiInput');
+      if(data.doc_text&&data.doc_text.trim()){
+        ai.value=data.doc_text;
+        showToast('模板已上传，AI 正在解析排版规则…');
+        setTimeout(()=>runAIParse(),300);
       }else{
         showToast('模板已上传：'+name);
-        const ai=document.getElementById('aiInput');
         if(!ai.value.trim())ai.value='已上传模板：'+f.name+'，请输入排版要求后点击"AI 解析排版规则"';
       }
     }else{showToast('上传失败：'+(data.error||'未知错误'));}
@@ -2207,23 +2184,105 @@ async function runAIParse(){
   if(btn){btn.disabled=true;btn.style.opacity='0.6';}
   showToast('AI 解析中…');
   try{
-    const sys=`你是排版规则解析器。根据用户描述提取排版参数，以纯 JSON 对象返回（不要 markdown 代码块），键名如下：
-h1Font h1Size h2Font h2Size h3Font h3Size bodyFont bodySize westFont indent lineHeight align marginTop marginBottom marginLeft marginRight
-字体用中文名或英文名；尺寸单位磅(pt)；行距为倍数；缩进为字符数；页边距为厘米。只返回 JSON。`;
-    const data=await window.WC_API.callAI(sys,text,{});
+    const sys=`你是排版规则解析器。从用户提供的文档内容中提取排版参数，以纯 JSON 对象返回（不要 markdown 代码块，不要任何解释文字）。
+
+中文字号别名对照（必须转换为磅值）：
+初号=42 小初=36 一号=26 小一=24 二号=22 小二=18 三号=16 小三=15 四号=14 小四=12 五号=10.5 小五=9 六号=7.5 小六=6.5
+
+返回 JSON 字段（不确定的字段填 null，禁止猜测）：
+【文件标题】titleFont(封面/文件主标题字体), titleSize(pt), titleAlign(center/left/right)
+【正文标题序号层级】
+  h1Font(一级序号"一、"字体), h1Size(pt), h1Bold(true/false)
+  h2Font(二级序号"（一）"字体), h2Size(pt), h2Bold(true/false)
+  h3Font(三级序号"1."或"——"字体), h3Size(pt), h3Bold(true/false)
+  h4Font(四级序号"（1）"字体), h4Size(pt), h4Bold(true/false)
+【正文】bodyFont(正文字体), bodySize(pt), westFont(西文/数字字体), westSize(pt)
+【段落】indent(首行缩进字符数), lineHeight(行距倍数), align(正文对齐方式)
+【页边距 cm】marginTop, marginBottom, marginLeft, marginRight
+【页眉】headerFont, headerSize(pt), headerAlign(center/left/right)
+【页脚】footerFont, footerSize(pt), footerFormat(如"-1-"或"第1页")
+【表格】tableNameFont(表名字体), tableNameSize(pt), tableNamePos(top/bottom), tableContentFont, tableContentSize(pt), tableNumFormat(序号模式：第一位是所在章节号、第二位是该章内顺序号，如"表{章}-{序}"，写成"表X-X")
+【图】figNameFont(图名字体), figNameSize(pt), figNamePos(top/bottom), figNumFormat(序号模式：同表格规则，如"图X-X")
+【附加说明】notes(其他重要规则，不超过80字)
+
+严格约束：
+- lineHeight 必须在 1.0-5.0 之间。如"1.5倍行距"→1.5；"单倍"→1.0；"双倍"→2.0；读到异常大数填 null。
+- 边距必须在 0.5-10 cm 之间，超出填 null。
+- 字号必须在 5-72 pt 之间，超出填 null。
+- 字体名保留原文（如"方正小标宋简体"、"仿宋GB2312"、"Times New Roman"），不翻译。
+- 仅当文档明确指定才填值，"未指定/不确定"一律填 null。
+
+只返回 JSON 对象，不加代码块标记，不加任何解释。`;
+    const data=await window.WC_API.callAI(sys,text,{max_tokens:2000});
     if(data.error)throw new Error(data.error);
     const reply=data.content||'';
-    const m=reply.match(/\{[\s\S]*\}/);
-    if(!m)throw new Error('AI 未返回有效 JSON：'+reply.slice(0,100));
-    window._aiParsedRules=JSON.parse(m[0]);
-    const labelMap={h1Font:'一级标题字体',h1Size:'一级标题字号(pt)',h2Font:'二级标题字体',h2Size:'二级标题字号(pt)',
-      h3Font:'三级标题字体',h3Size:'三级标题字号(pt)',bodyFont:'正文字体',bodySize:'正文字号(pt)',
-      westFont:'西文字体',indent:'首行缩进(字符)',lineHeight:'行距(倍)',align:'对齐',
-      marginTop:'上边距(cm)',marginBottom:'下边距(cm)',marginLeft:'左边距(cm)',marginRight:'右边距(cm)'};
-    document.getElementById('aiRulesBody').innerHTML=Object.entries(window._aiParsedRules)
-      .map(([k,v])=>`<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid #eee"><span style="color:#666">${labelMap[k]||k}</span><span style="font-weight:500">${v}</span></div>`).join('');
+    let parsed;
+    try{
+      // 先尝试整体解析
+      parsed=JSON.parse(reply.trim());
+    }catch(e0){
+      let m=reply.match(/\{[\s\S]*\}/);
+      let jsonStr=m?m[0]:null;
+      if(!jsonStr){
+        // 响应被截断（无结尾 }）——截到最后一个完整字段后修复
+        const start=reply.indexOf('{');
+        if(start<0)throw new Error('AI 未返回有效 JSON：'+reply.slice(0,100));
+        jsonStr=reply.slice(start);
+        // 去掉末尾不完整的字段（如 ,"notes":"未截" → ）再补 }
+        jsonStr=jsonStr.replace(/,?\s*"[^"]*"\s*:\s*(?:"[^"]*)?$/, '')+'}';
+      }
+      try{parsed=JSON.parse(jsonStr);}
+      catch(e1){throw new Error('JSON 解析失败，请重试：'+reply.slice(0,120));}
+    }
+    // 客户端再次校验数值合理性，剔除异常值（防止 AI 偶尔失误）
+    const sanitize=(o)=>{
+      const lh=parseFloat(o.lineHeight);
+      if(!isFinite(lh)||lh<1.0||lh>5.0)o.lineHeight=null;
+      ['marginTop','marginBottom','marginLeft','marginRight'].forEach(k=>{
+        const v=parseFloat(o[k]);
+        if(!isFinite(v)||v<0.5||v>10)o[k]=null;
+      });
+      ['h1Size','h2Size','h3Size','bodySize'].forEach(k=>{
+        const v=parseFloat(o[k]);
+        if(!isFinite(v)||v<5||v>72)o[k]=null;
+      });
+      return o;
+    };
+    window._aiParsedRules=sanitize(parsed);
+    const labelMap={
+      titleFont:'文件标题字体',titleSize:'文件标题字号(pt)',titleAlign:'文件标题对齐',
+      h1Font:'一级序号字体(一、)',h1Size:'一级字号(pt)',h1Bold:'一级加粗',
+      h2Font:'二级序号字体(（一）)',h2Size:'二级字号(pt)',h2Bold:'二级加粗',
+      h3Font:'三级序号字体(1./——)',h3Size:'三级字号(pt)',h3Bold:'三级加粗',
+      h4Font:'四级序号字体(（1）)',h4Size:'四级字号(pt)',h4Bold:'四级加粗',
+      bodyFont:'正文字体',bodySize:'正文字号(pt)',
+      westFont:'西文/数字字体',westSize:'西文字号(pt)',
+      indent:'首行缩进(字符)',lineHeight:'行距(倍)',align:'正文对齐',
+      marginTop:'上边距(cm)',marginBottom:'下边距(cm)',marginLeft:'左边距(cm)',marginRight:'右边距(cm)',
+      headerFont:'页眉字体',headerSize:'页眉字号(pt)',headerAlign:'页眉对齐',
+      footerFont:'页脚字体',footerSize:'页脚字号(pt)',footerFormat:'页码格式',
+      tableNameFont:'表名字体',tableNameSize:'表名字号(pt)',tableNamePos:'表名位置(top/bottom)',
+      tableContentFont:'表内字体',tableContentSize:'表内字号(pt)',tableNumFormat:'表格序号模式(章-序，如表X-X)',
+      figNameFont:'图名字体',figNameSize:'图名字号(pt)',figNamePos:'图名位置(top/bottom)',figNumFormat:'图序号模式(章-序，如图X-X)',
+      notes:'附加说明'};
+    const rows=Object.entries(window._aiParsedRules)
+      .filter(([k,v])=>v!=null&&v!=='')
+      .map(([k,v])=>{
+        const esc=String(v).replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        const isLong=k==='notes'||String(v).length>40;
+        const input=isLong
+          ?`<textarea data-key="${k}" rows="2" style="flex:1;border:1px solid #ddd;border-radius:3px;padding:2px 6px;font-size:12px;resize:vertical;font-family:inherit" onchange="if(window._aiParsedRules)window._aiParsedRules['${k}']=this.value">${esc}</textarea>`
+          :`<input type="text" data-key="${k}" value="${esc}" style="flex:1;border:1px solid #ddd;border-radius:3px;padding:2px 6px;font-size:12px" onchange="if(window._aiParsedRules)window._aiParsedRules['${k}']=this.value">`;
+        return `<div style="display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid #eee"><span style="color:#666;flex:0 0 140px;font-size:11px">${labelMap[k]||k}</span>${input}</div>`;
+      }).join('');
+    document.getElementById('aiRulesBody').innerHTML=rows
+      ||'<div style="color:#999;padding:8px;text-align:center">未提取到有效字段，请补充描述</div>';
     document.getElementById('aiRules').style.display='block';
-    showToast('AI 规则解析完成，点击"应用到文档"填入面板');
+    const sb=document.getElementById('btnSaveAIFormatRules');
+    if(sb)sb.style.display='inline-flex';
+    const sh=document.getElementById('aiFormatRulesSavedHint');
+    if(sh)sh.style.display='none';
+    showToast('解析完成，字段可直接编辑，确认后点击"保存为检查规范"');
   }catch(err){showToast('解析失败：'+err.message);console.error(err);}
   finally{if(btn){btn.disabled=false;btn.style.opacity='';}}
 }
@@ -2242,9 +2301,66 @@ function applyAIRules(){
   set('fML',rules.marginLeft);set('fMR',rules.marginRight);
   showToast('AI 规则已填入排版面板');
 }
+function saveAIFormatRequirements(){
+  const r=window._aiParsedRules;
+  if(!r){showToast('请先运行 AI 解析');return;}
+  // 先从可编辑输入框同步回 _aiParsedRules（用户可能手动改过）
+  document.querySelectorAll('#aiRulesBody [data-key]').forEach(el=>{
+    const k=el.dataset.key;
+    if(k&&window._aiParsedRules)window._aiParsedRules[k]=el.value;
+  });
+  // 直接从 _aiParsedRules 构建规范，不走 select 中转（避免"方正小标宋简体"等专用字体被丢失）
+  const pt=v=>{ const n=parseFloat(v); return isFinite(n)&&n>0?n:null; };
+  const str=v=>v&&String(v).trim()||null;
+  const rules={
+    // 文件主标题
+    titleFont: str(r.titleFont), titleSize: pt(r.titleSize), titleAlign: str(r.titleAlign),
+    // 各级序号
+    h1Font: str(r.h1Font)||'黑体', h1Size: pt(r.h1Size)||16, h1Bold: r.h1Bold===true||r.h1Bold==='true',
+    h2Font: str(r.h2Font)||'黑体', h2Size: pt(r.h2Size)||14, h2Bold: r.h2Bold===true||r.h2Bold==='true',
+    h3Font: str(r.h3Font)||'黑体', h3Size: pt(r.h3Size)||12, h3Bold: r.h3Bold===true||r.h3Bold==='true',
+    h4Font: str(r.h4Font), h4Size: pt(r.h4Size),
+    // 正文
+    bFont: str(r.bodyFont)||'宋体', bSize: pt(r.bodySize)||12,
+    westFont: str(r.westFont), westSize: pt(r.westSize),
+    lineSpacing: pt(r.lineHeight)||1.5, indent: pt(r.indent),
+    // 页边距
+    marginTop: pt(r.marginTop), marginBottom: pt(r.marginBottom),
+    marginLeft: pt(r.marginLeft), marginRight: pt(r.marginRight),
+    // 页眉页脚
+    headerFont: str(r.headerFont), headerSize: pt(r.headerSize), headerAlign: str(r.headerAlign),
+    footerFont: str(r.footerFont), footerSize: pt(r.footerSize), footerFormat: str(r.footerFormat),
+    // 图表
+    tableNameFont: str(r.tableNameFont), tableNameSize: pt(r.tableNameSize), tableNamePos: str(r.tableNamePos),
+    tableContentFont: str(r.tableContentFont), tableContentSize: pt(r.tableContentSize),
+    tableNumFormat: str(r.tableNumFormat),
+    figNameFont: str(r.figNameFont), figNameSize: pt(r.figNameSize), figNamePos: str(r.figNamePos),
+    figNumFormat: str(r.figNumFormat),
+    // 附加说明
+    notes: str(r.notes),
+    savedByUser: true,
+    savedAt: new Date().toISOString(),
+  };
+  _savedFormatRules=rules;
+  try{localStorage.setItem('wc_format_rules',JSON.stringify(rules));}catch(e){}
+  (async ()=>{
+    try{
+      const resp=await fetch('/api/saveFormatRequirements',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rules:JSON.stringify(rules)})});
+      if(!resp.ok)throw new Error(`HTTP ${resp.status}`);
+    }catch(e){
+      console.warn('Backend save failed, using local only:',e);
+    }
+  })();
+  applyAIRules();
+  const h1=document.getElementById('aiFormatRulesSavedHint');if(h1)h1.style.display='block';
+  const h2=document.getElementById('formatRulesSavedHint');if(h2)h2.style.display='block';
+  showToast('AI 解析规范已保存，QA 检查时自动校验');
+}
 
 // ── QA ──
 // 从 docContents 重建保留标题层级的 HTML，供 runQA 和 runXRef 使用
+// 第十八批：metadata.structure_role 为 toc/cover 时降级为 <p>，避免目录条目
+// 与封面行被当作正文标题参与格式/交叉引用检查（视觉上 docx-preview 仍按原样渲染）。
 function _buildQAHtml(fn){
   const els=docContents[fn];
   if(!els||!els.length)return null;
@@ -2253,6 +2369,8 @@ function _buildQAHtml(fn){
   return els.map(e=>{
     const txt=(e.text||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     if(!txt.trim())return '';
+    const role=(e.metadata&&e.metadata.structure_role)||'body';
+    if(role==='toc'||role==='cover')return `<p>${txt}</p>`;
     const t=e.type||'p';
     if(t==='h1')return `<h1>${txt}</h1>`;
     if(t==='h2')return `<h2>${txt}</h2>`;
@@ -2285,7 +2403,9 @@ async function runQA(){
   let qaData=[];
   try{
     const categories=['typo','consistency','logic','format','crossref'];
-    const resp=await window.WC_API.runQA(content,categories);
+    // 传结构化 elements（含 runs 字体信息），让后端 FormatChecker 能实际检查字体/字号
+    const elementsForQA = fn ? (docContents[fn] || null) : null;
+    const resp=await window.WC_API.runQA(content,categories,elementsForQA);
     if(resp&&resp.success&&Array.isArray(resp.issues)){
       const sevMap={error:'error',warning:'warn',info:'info'};
       const catMap={typo:'错别字',inconsistency:'数据不一致',logic:'逻辑问题',
@@ -2670,81 +2790,162 @@ function _normalizeAIModel(model){
 
 // 跳转到文章中的交叉引用位置
 // occurrence: 该 refNum 在匹配列表中的出现次序（0-based），对应文中第几次出现
-function jumpToXRefInText(refNum, occurrence) {
+function _normalizeXrefText(s){
+  return String(s||'').replace(/\s+/g,'').trim();
+}
+
+function jumpToXRefInText(refNum, occurrence, contextText='') {
   const page = document.getElementById('docPage');
   const viewport = document.getElementById('docViewport') || page;
   if (!page) return;
 
   const searchText = refNum.trim();
   const occ = occurrence || 0;
+  const normalizedContext = _normalizeXrefText(contextText);
 
-  // 收集所有包含该引用号的段落
-  const allHits = Array.from(page.querySelectorAll('p, li, td'))
+  // docx-preview 将 [1] 拆成 "[", "1", "]" 三个独立文本节点，
+  // 必须在段落级拼接全文后定位，然后用 Range API 跨节点高亮
+  function allTextNodes(node) {
+    const r = [];
+    if (node.nodeType === 3) r.push(node);
+    else node.childNodes.forEach(c => r.push(...allTextNodes(c)));
+    return r;
+  }
+
+  // 收集所有包含该引用号的块元素，按 DOM 文档顺序（与后端 paraOcc 逻辑一致）
+  // Batch 16 修复：改为不排序，保持 DOM 顺序，使 occ 索引与 paraOcc 含义一致
+  let candidates = Array.from(page.querySelectorAll('p,li,td,th'))
     .filter(el => (el.innerText || '').includes(searchText));
-
-  const hit = allHits[occ] || allHits[0];
-  if (!hit) {
-    showToast('未找到引用位置');
-    return;
+  if(normalizedContext){
+    const exactContextMatches = candidates.filter(el => {
+      const normalizedText = _normalizeXrefText(el.innerText || '');
+      return normalizedText && (normalizedText.includes(normalizedContext) || normalizedContext.includes(normalizedText));
+    });
+    if(exactContextMatches.length) candidates = exactContextMatches;
   }
 
-  // 精确定位：在段落内找到具体的【N】位置并高亮
-  const walker = document.createTreeWalker(hit, NodeFilter.SHOW_TEXT, null);
-  let textNode;
-  let occCount = 0;
-  let targetNode = null;
-  let startOffset = 0;
+  // 取第 occ 个命中（考虑多段包含同一引用）
+  const _fallback = occ >= candidates.length;
+  const hit = candidates[occ] || candidates[0];
+  if (!hit) { showToast('未找到引用位置'); return; }
+  if (_fallback) showToast('引用位置已定位至最近一处');
 
-  while (textNode = walker.nextNode()) {
-    const text = textNode.nodeValue || '';
-    const idx = text.indexOf(searchText);
-    if (idx >= 0) {
-      if (occCount === 0) {
-        targetNode = textNode;
-        startOffset = idx;
-        break;
-      }
-      occCount--;
-    }
-  }
-
-  // 若未能在节点树中找到，回退到整段高亮
-  if (!targetNode) {
+  // 在段落内用拼接文本 + Range API 精确定位
+  const tns = allTextNodes(hit);
+  let full = '';
+  const offs = tns.map(nd => { const s = full.length; full += nd.textContent; return { node: nd, start: s }; });
+  const mi = full.indexOf(searchText);
+  if (mi < 0) {
+    // 极少情况下 innerText 有空格折叠，退回整段高亮
     const rect = hit.getBoundingClientRect();
     const vpRect = viewport.getBoundingClientRect();
     viewport.scrollTop += rect.top - vpRect.top - (vpRect.height / 2) + (rect.height / 2);
     hit.style.boxShadow = 'inset 0 0 0 1000px rgba(255,220,0,0.55)';
     hit.style.transition = 'box-shadow 0.15s';
-    setTimeout(() => {
-      hit.style.transition = 'box-shadow 1.2s';
-      hit.style.boxShadow = '';
-    }, 1400);
+    setTimeout(() => { hit.style.transition = 'box-shadow 1.2s'; hit.style.boxShadow = ''; }, 1400);
+    return;
+  }
+  const me = mi + searchText.length;
+  let sn, so, en, eo;
+  for (const { node, start } of offs) {
+    const end = start + node.textContent.length;
+    if (!sn && mi < end) { sn = node; so = mi - start; }
+    if (sn && me <= end) { en = node; eo = me - start; break; }
+  }
+  if (!sn || !en) { showToast('未找到引用位置'); return; }
+
+  // 插入精确高亮 span
+  let span;
+  try {
+    const range = document.createRange();
+    range.setStart(sn, so);
+    range.setEnd(en, eo);
+    span = document.createElement('span');
+    span.style.cssText = 'background:rgba(255,220,0,0.75);padding:0 2px;border-radius:2px;outline:2px solid rgba(200,150,0,0.6)';
+    range.surroundContents(span);
+  } catch(e) {
+    const rect = hit.getBoundingClientRect();
+    const vpRect = viewport.getBoundingClientRect();
+    viewport.scrollTop += rect.top - vpRect.top - (vpRect.height / 2) + (rect.height / 2);
+    hit.style.boxShadow = 'inset 0 0 0 1000px rgba(255,220,0,0.55)';
+    hit.style.transition = 'box-shadow 0.15s';
+    setTimeout(() => { hit.style.transition = 'box-shadow 1.2s'; hit.style.boxShadow = ''; }, 1400);
     return;
   }
 
-  // 高亮具体的【N】数字
-  const range = document.createRange();
-  range.setStart(targetNode, startOffset);
-  range.setEnd(targetNode, startOffset + searchText.length);
-  const span = document.createElement('span');
-  span.style.backgroundColor = 'rgba(255, 220, 0, 0.7)';
-  span.style.padding = '0 2px';
-  span.style.borderRadius = '2px';
-  range.surroundContents(span);
-
-  // 滚动使高亮部分在视口中央
+  // 滚动使高亮居中
   const rect = span.getBoundingClientRect();
   const vpRect = viewport.getBoundingClientRect();
   viewport.scrollTop += rect.top - vpRect.top - (vpRect.height / 2) + (rect.height / 2);
 
-  // 2秒后移除高亮
+  // 2 秒后移除高亮，恢复原文本（提取子节点而非转换为 textContent，保留 <sup> 等结构）
   setTimeout(() => {
-    if (span.parentNode) {
+    if (span && span.parentNode) {
       const parent = span.parentNode;
-      while (span.firstChild) parent.insertBefore(span.firstChild, span);
-      parent.removeChild(span);
+      const frag = document.createDocumentFragment();
+      while (span.firstChild) frag.appendChild(span.firstChild);
+      parent.replaceChild(frag, span);
+      parent.normalize();
     }
   }, 2000);
+}
+
+function _groupXrefMatchesForDisplay(matches){
+  const sorted=[...(matches||[])].sort((a,b)=>
+    (a.scan_index != null ? a.scan_index : Infinity) - (b.scan_index != null ? b.scan_index : Infinity)
+  );
+  const grouped=[];
+  for(const match of sorted){
+    const refText=match.reference||match.ref||'—';
+    const spanKey=`${match.element_index ?? 'na'}:${match.start_pos ?? 'na'}`;
+    const prev=grouped[grouped.length-1];
+    const isSameSpan = prev && prev._spanKey===spanKey;
+    const isAdjacentSpan = prev
+      && prev._elementIndex === (match.element_index ?? null)
+      && typeof match.start_pos === 'number'
+      && match.start_pos === prev._nextStartPos;
+    if(isSameSpan || isAdjacentSpan){
+      prev.refs.push(refText);
+      if(match.target && !prev.targets.includes(match.target)) prev.targets.push(match.target);
+      if(match.message && !prev.messages.includes(match.message)) prev.messages.push(match.message);
+      prev.scan_index=Math.min(prev.scan_index, match.scan_index ?? Infinity);
+      prev._nextStartPos=(match.start_pos ?? 0) + refText.length;
+      continue;
+    }
+    grouped.push({
+      _spanKey: spanKey,
+      _elementIndex: match.element_index ?? null,
+      _nextStartPos: (match.start_pos ?? 0) + refText.length,
+      refs:[refText],
+      targets:match.target ? [match.target] : [],
+      messages:match.message ? [match.message] : [],
+      context:match.context || '',
+      status:match.status || 'dangling',
+      scan_index:match.scan_index ?? Infinity,
+    });
+  }
+
+  const occCounters={};
+  return grouped.map(item=>{
+    const ref=item.refs.join('');
+    const paraOcc=occCounters[ref]||0;
+    occCounters[ref]=paraOcc+1;
+    return {
+      status:{valid:'ok',dangling:'err',unreferenced:'warn'}[item.status]||'err',
+      ref,
+      target:item.targets.join('；'),
+      desc:item.messages.join('；'),
+      context:item.context || '',
+      paraOcc,
+    };
+  });
+}
+
+window._currentXrefMatches = [];
+function jumpToXRefMatch(idx){
+  const item = window._currentXrefMatches[idx];
+  if(!item) return;
+  jumpToXRefInText(item.ref, item.paraOcc, item.context || '');
 }
 
 // ── XREF ──
@@ -2759,7 +2960,11 @@ async function runXRef(){
     const isDocxTab=tab&&(tab.type==='docx'||tab.type==='doc');
     const structHtml=isDocxTab&&fn?_buildQAHtml(fn):null;
     const xrefContent=structHtml||(page?page.innerHTML:'');
-    const data=await window.WC_API.runXRef(xrefContent);
+    const fieldedRefs=fn?docFieldedRefs[fn]||[]:[];
+    // 第十八批：把 docContents（含 metadata.structure_role）一起送到后端，
+    // 让 TargetScanner 跳过目录条目和封面元素
+    const elementsForXRef=fn?(docContents[fn]||null):null;
+    const data=await window.WC_API.runXRef(xrefContent, fieldedRefs, elementsForXRef);
     if(data.success){
       // 处理后端返回的数据
       const targets=data.targets||[];
@@ -2770,31 +2975,12 @@ async function runXRef(){
       targets.forEach(t=>{
         targetMap[t.type+'-'+t.text]={type:t.type,num:t.text,label:t.label,title:''};
       });
-
-      const sl={valid:'ok',dangling:'err',unreferenced:'warn'};
-      // 用 element_index 计算每个引用在文档中对应的段落出现次序
-      // element_index 是后端 DocElement 的序号，相同 element_index 的引用在同一段落
-      const _elemOcc={};  // ref -> {elemIdx -> paraOcc}
-      const _paraOccCount={};  // ref -> 已见到的不重复段落数
-      const formattedMatches=matches.map(m=>{
-        const ref=m.reference||m.ref||'—';
-        const ei=m.element_index;
-        let paraOcc=0;
-        if(ei!=null){
-          if(!_elemOcc[ref])_elemOcc[ref]={};
-          if(_elemOcc[ref][ei]==null){
-            const c=_paraOccCount[ref]||0;
-            _elemOcc[ref][ei]=c;
-            _paraOccCount[ref]=c+1;
-          }
-          paraOcc=_elemOcc[ref][ei];
-        }
-        return {status:sl[m.status]||'err',ref,target:m.target?.label||m.target||'',desc:m.message||'',paraOcc};
-      });
+      const formattedMatches=_groupXrefMatchesForDisplay(matches);
 
       document.getElementById('xrefTargetsBody').innerHTML=Object.values(targetMap).map(t=>`<tr><td>${t.type}</td><td>${t.num}</td><td>${t.label}</td><td>${esc(t.title)}</td></tr>`).join('');
-      document.getElementById('xrefMatchesBody').innerHTML=formattedMatches.map(m=>{
-        return `<tr style="cursor:pointer" onclick="jumpToXRefInText('${m.ref}',${m.paraOcc})"><td><span class="sdot ${m.status}"></span>${{'ok':'有效','err':'悬空','warn':'未引用'}[m.status]}</td><td>${esc(m.ref)}</td><td>${esc(m.target)}</td><td>${esc(m.desc)}</td></tr>`;
+      window._currentXrefMatches = formattedMatches;
+      document.getElementById('xrefMatchesBody').innerHTML=formattedMatches.map((m,idx)=>{
+        return `<tr style="cursor:pointer" onclick="jumpToXRefMatch(${idx})"><td><span class="sdot ${m.status}"></span>${{'ok':'有效','err':'悬空','warn':'未引用'}[m.status]}</td><td>${esc(m.ref)}</td><td>${esc(m.target)}</td><td>${esc(m.desc)}</td></tr>`;
       }).join('');
       document.getElementById('xrefTargets').textContent=targets.length;
       document.getElementById('xrefRefs').textContent=formattedMatches.filter(m=>m.ref!=='—').length;
@@ -2822,19 +3008,19 @@ async function runXRef(){
   const matches=fileXrefMatches[fn]||[];
   document.getElementById('xrefTargetsBody').innerHTML=targets.map(t=>`<tr><td>${t.type}</td><td>${t.num}</td><td>${t.label}</td><td>${esc(t.title)}</td></tr>`).join('');
   const sl={ok:'有效',err:'悬空',warn:'未引用'};
-  const _occCount2={};
-  document.getElementById('xrefMatchesBody').innerHTML=matches.map(m=>{
-    const occ=(_occCount2[m.ref]||0);_occCount2[m.ref]=(occ+1);
-    return `<tr style="cursor:pointer" onclick="jumpToXRefInText('${m.ref}',${occ})"><td><span class="sdot ${m.status}"></span>${sl[m.status]}</td><td>${esc(m.ref)}</td><td>${esc(m.target)}</td><td>${esc(m.desc)}</td></tr>`;
+  const formattedFallbackMatches=_groupXrefMatchesForDisplay(matches);
+  window._currentXrefMatches = formattedFallbackMatches;
+  document.getElementById('xrefMatchesBody').innerHTML=formattedFallbackMatches.map((m,idx)=>{
+    return `<tr style="cursor:pointer" onclick="jumpToXRefMatch(${idx})"><td><span class="sdot ${m.status}"></span>${sl[m.status]}</td><td>${esc(m.ref)}</td><td>${esc(m.target)}</td><td>${esc(m.desc)}</td></tr>`;
   }).join('');
   document.getElementById('xrefTargets').textContent=targets.length;
-  document.getElementById('xrefRefs').textContent=matches.filter(m=>m.ref!=='—').length;
-  document.getElementById('xrefValid').textContent=matches.filter(m=>m.status==='ok').length;
-  document.getElementById('xrefDangling').textContent=matches.filter(m=>m.status==='err').length;
-  document.getElementById('xrefUnref').textContent=matches.filter(m=>m.status==='warn').length;
-  tabXrefState[fn]={targets:targets.length,refs:matches.filter(m=>m.ref!=='—').length,valid:matches.filter(m=>m.status==='ok').length,dangling:matches.filter(m=>m.status==='err').length,unref:matches.filter(m=>m.status==='warn').length,tableHtml:document.getElementById('xrefTargetsBody').innerHTML,matchHtml:document.getElementById('xrefMatchesBody').innerHTML,xrefIssues:[]};
+  document.getElementById('xrefRefs').textContent=formattedFallbackMatches.filter(m=>m.ref!=='—').length;
+  document.getElementById('xrefValid').textContent=formattedFallbackMatches.filter(m=>m.status==='ok').length;
+  document.getElementById('xrefDangling').textContent=formattedFallbackMatches.filter(m=>m.status==='err').length;
+  document.getElementById('xrefUnref').textContent=formattedFallbackMatches.filter(m=>m.status==='warn').length;
+  tabXrefState[fn]={targets:targets.length,refs:formattedFallbackMatches.filter(m=>m.ref!=='—').length,valid:formattedFallbackMatches.filter(m=>m.status==='ok').length,dangling:formattedFallbackMatches.filter(m=>m.status==='err').length,unref:formattedFallbackMatches.filter(m=>m.status==='warn').length,tableHtml:document.getElementById('xrefTargetsBody').innerHTML,matchHtml:document.getElementById('xrefMatchesBody').innerHTML,xrefIssues:[]};
   _renderXrefIssueCards([],fn);
-  applyHighlights(matches);switchRightTab('xref');
+  applyHighlights(formattedFallbackMatches);switchRightTab('xref');
   showToast('已标注引用关系（本地缓存）');setStatus('交叉引用检查完成');
 }
 function switchXRefSub(sub,el){
@@ -2947,6 +3133,8 @@ let docxBuffers={},pdfBuffers={},xlsxBuffers={};
 let docSections={};
 let docStyles={};
 let docRoundTripReady={};
+// Display texts of references that are already Word REF fields (keyed by file name)
+let docFieldedRefs={};
 function _arrayBufferToBase64(ab){
   const bytes=new Uint8Array(ab);
   let bin='';const chunk=8192;
@@ -2959,6 +3147,7 @@ async function _fetchRoundTripDocMeta(fileKey,ab,backendFileName){
     docRoundTripReady[fileKey]=true;
     if(Array.isArray(j.sections))docSections[fileKey]=j.sections;
     if(j.styles&&typeof j.styles==='object')docStyles[fileKey]=j.styles;
+    if(Array.isArray(j.fielded_refs))docFieldedRefs[fileKey]=j.fielded_refs;
     return j.elements;
   }
   docRoundTripReady[fileKey]=false;
@@ -4270,3 +4459,4 @@ init();
 </script>
 </body>
 </html>
+

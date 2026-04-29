@@ -8,6 +8,121 @@ git log --all --oneline
 git show <commit-hash>:CLAUDE.md  # 查看特定提交时的完整历史
 ```
 
+## Recent fixes (2026-04-27) — 第十四批 Phase 3：格式规范 E2E 测试 + 后端持久化集成
+
+> 完成 Batch 14 Phase 3 端到端测试与后端集成，确保格式规范可被持久化到 Supabase 并在页面重载后恢复。
+
+### A. web/index.html：格式规范保存流程添加后端 API 调用
+
+| 函数 | 改动 |
+| ---- | ---- |
+| `saveFormatRequirements()` | 添加异步 `fetch('/api/saveFormatRequirements', {method:'POST'})` 调用，在 localStorage 之外持久化到后端；若后端不可用则 gracefully fallback |
+| `saveAIFormatRequirements()` | 添加同样的后端 API 调用逻辑 |
+
+**效果**：规范现在既保存在 localStorage 作为会话缓存，又通过 Supabase 持久化到后端，支持跨设备和跨会话访问。
+
+### B. web/index.html：页面初始化加载格式规范
+
+| 函数 | 改动 |
+| ---- | ---- |
+| `loadFormatRequirementsFromBackend()` | 新增函数：app 初始化时调用，从后端加载用户已保存的规范；若后端失败则 fallback 到 localStorage |
+| `init()` | 在初始化链末尾调用 `loadFormatRequirementsFromBackend()` |
+
+**效果**：用户首次访问页面或重新打开时，已保存的格式规范会自动从后端加载并填充到 `_savedFormatRules`，无需用户手动重新输入。
+
+### C. core/format_checker.py：优化 rate limiting 提示文案
+
+| 文件 | 改动 |
+| ---- | ---- |
+| `format_checker.py` | 更新 summary issue 的 description，从"共检测到约 X 处"改为"显示 N 个格式错误（共检出 X 个同类问题），为避免过多提示仅显示最严重的 N 个，还有 Y 个类似问题已折叠"，明确说明为何只展示部分问题 |
+
+**效果**：用户看到 rate limiting 提示时能明确理解为何只展示 2 个，以及可以在设置中调整显示数量。
+
+### D. tests/e2e/test_format_qa_workflow.py：E2E 测试覆盖三大场景
+
+| 测试 | 覆盖 |
+| ---- | ---- |
+| `test_format_qa_happy_path` | 用户设置规范 → 点保存 → 上传文档 → 运行 QA → 格式问题正确检出 |
+| `test_format_qa_supabase_fallback` | Supabase 不可用时，app 从 localStorage fallback 恢复规范；页面重载后仍能使用缓存的规范 |
+| `test_format_qa_partial_rules` | 上传的模板仅包含部分字段（如仅 h1 font/size），app 不崩溃且仅检查已定义的字段 |
+
+**验证**：
+- `tests/e2e/test_format_qa_workflow.py`：3/3 通过（happy path / fallback / partial rules）
+- `tests/test_format_checker.py`：23/23 通过
+- `tests/test_batch_regression.py`：27/27 通过
+- 合计：**53 tests passed**
+
+### E. 第十四批 Phase 3 状态同步
+
+- `PLANS/batch14_format_qa.md` 已同步为 `Phase 3 Testing ✅ Complete (2026-04-27)`。
+- 第十四批（Phase 1 + Phase 2 + Phase 3）已完整闭环，后续进入第十五批后的增量优化与稳定性收口。
+
+### F. 交叉引用结果排序与点击定位映射修复（人工回归后续补丁，2026-04-27）
+
+> 触发背景：人工测试 `samples/南海鸢乌贼捕捞量智能反演文献综述.docx` 时，发现“结果顺序”和“点击不同引用却高亮同段”的回归。
+
+| 文件 | 改动 |
+| ---- | ---- |
+| `web/index.html` | `paraOcc` 计算从“基于 `element_index` 计数”改为“基于排序后 `matches` 序列位置计数”，使前端定位索引与结果列表顺序一致 |
+| `web/index.html` | `jumpToXRefInText` 候选排序由“按 `innerText` 长度排序”改为“保持 DOM 原始顺序”，减少错位映射概率 |
+| `tests/test_batch_regression.py` | 新增 `TestBatch16XRefLocationMapping`（2 个测试）：验证 `paraOcc` 序列语义与 matches 排序稳定性 |
+
+**验证结果**：
+- `tests/test_batch_regression.py`：32/32 通过（含新增 2 项）
+- `tests/test_format_checker.py`：23/23 通过
+- `tests/e2e/test_format_qa_workflow.py`：3/3 通过
+- 合计：**58 tests passed**
+
+**最终结论（✅ DONE，人工验收通过，2026-04-28）**：
+- 本次补丁已通过人工确认：排序错乱与点击错位问题均已修复，满足验收标准。
+- 后续如需进一步提升定位精度（如同段多引用场景），可在新批次中按需跟进：
+  1. 后端返回段落内 offset / 文本片段哈希等强锚点；
+  2. 前端点击定位由”候选序号匹配”升级为”锚点精确匹配”。
+
+## Recent fixes (2026-04-26) — 第十五批：AI 智能排版解析改进 + 一键保存检查规范
+
+> 依据 `PLANS/batch15_ai_format_parser_improvement.md` 对齐记录（本批聚焦 AI 解析路径与可用性闭环）。
+
+### A. app.py：模板上传增加 docx 纯文本提取路径
+
+| 文件 | 改动 |
+| ---- | ---- |
+| `app.py` | 新增 `_extract_docx_text()`；`uploadTemplate()` 在返回中增加 `doc_text` 字段（保留原有 `format_rules` 路径） |
+
+**目的**：把「规范描述文档」交给 AI 理解文本语义，而不是只依赖 Word 样式静态读取，避免行距等字段异常值（如 `383540`）。
+
+### B. web/index.html：模板上传改为“文本→AI 自动解析”
+
+| 函数 | 改动 |
+| ---- | ---- |
+| `handleTemplateUpload()` | 上传后优先读取 `data.doc_text`，自动写入 `#aiInput`，并自动触发 `runAIParse()` |
+
+**效果**：用户上传模板后无需手工复制内容或重复点击，直接进入 AI 解析。
+
+### C. web/index.html：runAIParse() 提示词增强
+
+- 增加中文字号别名到 pt 的映射约束（如初号/二号/小四等）
+- 增加标题对齐字段（`h1Align/h2Align/h3Align`）
+- 增加行距与边距值域限制（行距 `1.0-5.0`、边距 `0.5-10cm`）
+- 强制“仅返回 JSON、未知字段用 null”
+
+### D. web/index.html：AI tab 新增“保存为检查规范”并复用既有保存链路
+
+| 函数/区域 | 改动 |
+| --------- | ---- |
+| `#fp-ai` | 增加 `btnSaveAIFormatRules` 和已保存提示 `aiFormatRulesSavedHint` |
+| `runAIParse()` | 解析成功后显示“保存为检查规范”按钮 |
+| `saveAIFormatRequirements()` | 新增函数：先 `applyAIRules()` 同步到表单，再复用 `saveFormatRequirements()` 保存 |
+
+**设计取舍**：不新造保存协议，直接复用第十四批已完成的 FormatRules 存储与 QA 联动逻辑，降低维护成本。
+
+### E. 第十五批验证状态
+
+- 功能验证清单已在 `PLANS/batch15_ai_format_parser_improvement.md` 给出
+- 当前 changelog 记录实现项；逐条勾选结果以该计划清单为准
+
+---
+
 ## Recent fixes (2026-04-26) — 第十四批 Phase 1 Core：FormatChecker 后端 + Supabase 存储 + 结构化元素路径
 
 ### A. core/format_checker.py（新建）
@@ -61,6 +176,46 @@ git show <commit-hash>:CLAUDE.md  # 查看特定提交时的完整历史
 ### G. Supabase MCP 配置
 
 `.claude/settings.local.json` 新增 `mcpServers.supabase`：`@supabase/mcp-server-supabase@latest` + personal access token，下次 Claude Code 重启后生效。
+
+### H. 第十四批 Phase 2 前端联动完成（同日补齐）
+
+`web/index.html` 已完成与后端 FormatRules 路径的前端闭环，对齐 `PLANS/batch14_format_qa.md` 的 Phase 2：
+
+- 新增/启用「保存为检查规范」入口，保存后写入 `_savedFormatRules`（localStorage）
+- `runQA()` 合并展示 format 类问题，并区分 `rule_source='format_rule'` 与标点/规范类问题来源
+- 规则检查入口 `_checkFormatCompliance()` 与 `WC_API` 包装保持统一调用链，保存即生效
+
+### I. 第十四批测试状态对齐
+
+- 单元测试：`tests/test_format_checker.py` 23 项已通过（见上文 A 节）
+- E2E：`tests/e2e/test_format_qa_workflow.py` 仍为待完成（pending）
+
+---
+
+## Recent fixes (2026-04-26) — 第十三批：交叉引用采纳式设计（已完成）
+
+### A. 后端：`runXRef` 增强可采纳问题输出
+
+- 返回新增 `xref_issues` 字段，供前端按“问题卡片”方式展示可采纳引用。
+- 字段覆盖 `type/target_label/bookmark_name/element_index` 等关键定位信息。
+- 有效文内引用映射为可采纳项（`type="unreferenced"`）；悬空引用为 `type="dangling"`。
+- 结果按 `target_label` 去重，减少重复采纳项。
+
+### B. 前端：交叉引用面板改为采纳式工作流
+
+- 新增“可采纳引用”子视图（QA 风格卡片），支持定位、采纳、忽略、撤销。
+- 新增状态 `tabXrefAcceptedEdits`，按 tab 维持采纳结果。
+- 采纳后对预览区目标文本加 `hl-xref-accepted` 视觉标记，便于复核和撤销。
+
+### C. 导出：采纳结果写回 Word REF 字段
+
+- 导出阶段将采纳的 `target_label` 替换为 Word REF 字段 XML（含 `bookmark_name`）。
+- 使“手写引用文本”在导出后可转为可更新的 Word 交叉引用字段。
+
+### D. 第十三批回归与状态
+
+- 回归测试覆盖：`TestBatch13XRefAdoption`（`tests/test_batch_regression.py`）覆盖 `xref_issues` 返回结构、`bookmark_name`、`target_label` 去重等核心行为。
+- 第十三批已完成；后续相关修复（如定位精度/UI 清洁）在第十至第十一批条目中持续补齐。
 
 ---
 

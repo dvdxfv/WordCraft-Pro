@@ -1,84 +1,34 @@
 # CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+## 中盘阶段执行策略（gstack + superpowers）
 
+1. 新批次先 `/office-hours`，明确范围、非目标与规则层/AI层边界。
+2. 改 `app.py`、`core/qa_engine.py`、`web/index.html` 前必须先 `/plan-eng-review`。
+3. 功能完成先 `/qa-only`，收口再 `/qa`。
+4. 提交前固定 `/review`，关注行为回归与接口兼容，不做风格争论。
+5. 每次改动后必须跑 `tests/test_batch_regression.py` 与 `tests/test_format_checker.py`。
+6. 批次合并前跑 `/ship`；合并后用 `/document-release` 同步文档状态。
+7. 每周至少一次 `/retro`，追踪返工热点与漏测模式。
 ## Current status
 
-P6（第十四批）+ 第十三批 已完成并修复（2026-04-26）。
+第十五批（含 run 样式修复）+ 第十四批（含 Phase 3 E2E）+ 第十三批已完成（2026-04-27）。
 
-**第十四批（P6）完成内容**：排版规范与 QA 联动（完整实现）。
-- **Phase 1 Core（后端）**：新建 `core/format_checker.py`（`FormatRules` + `FormatChecker`）；`QAEngine.check()` 集成 `format_rules` 参数；`runQA` 新增 `elements_json` 结构化元素路径（按字符数加权提取 dominant 字体/字号，真正触发格式检查）；Supabase `user_format_rules` 表（RLS + unique per user）；`saveFormatRequirements` / `loadFormatRequirements` 双存储（Supabase 主 + 本地 JSON fallback）；23 个单元测试全通过。
-- **Phase 2 Frontend**："保存为检查规范"按钮 + `_savedFormatRules` localStorage 持久化 + `_checkFormatCompliance()` run 级字体/字号校验 + `runQA()` 合并格式问题；WC_API `saveFormatRequirements` / `loadFormatRequirements` 封装。
+- Batch14 全量测试通过：`tests/test_format_checker.py`（23）+ `tests/test_batch_regression.py`（27）+ `tests/e2e/test_format_qa_workflow.py`（3）= **53 tests passed**。
 
-**第十三批完成内容**：交叉引用采纳式设计。
-- 后端 `runXRef` 新增 `xref_issues` 字段：有效文内引用 → `type="unreferenced"` + `bookmark_name`；悬空引用 → `type="dangling"`；按 `target_label` 去重。
-- 前端新增"可采纳引用"子标签页（QA 风格卡片），支持采纳/忽略/撤销。
-- 采纳时：`hl-xref-accepted` 绿色下划线高亮 + 写入 `tabXrefAcceptedEdits`。
-- 导出时：`_applyXrefEditsToDocXml` 将 `target_label` 替换为 Word REF 字段 XML。
-- 回归测试：27/27 通过（新增 5 个 TestBatch13XRefAdoption 测试）。
-
-**用户反馈问题修复（2026-04-26）**：
-1. ✅ **精确定位** - `jumpToXRefInText()` 改进：使用 TreeWalker 精确定位【1】等数字，而非整段高亮
-2. ✅ **标题排除** - `TargetScanner.scan()` 删除 `_try_match_chapter()` 调用，只有图表/公式/参考文献参与交叉引用
-3. ✅ **UI 清洁** - 排版面板删除"应用排版规则"和"设为默认格式"按钮，只保留"保存为检查规范"
-4. ⚠️ **已字段化检测** - `_parse_docx:_runs()` 新增 `is_in_field` 标记；需进一步集成到 `runXRef` 过滤逻辑
+- 完成项细节统一维护在 [CHANGELOG.md](docs/CHANGELOG.md)（第十三至第十五批）。
+- 计划文档索引：
+  - 第十四批：`PLANS/batch14_format_qa.md`
+  - 第十五批：`PLANS/batch15_ai_format_parser_improvement.md`
 
 ---
 
-## Next batch（第十四批 P6 之后）
+## Next batch（第十五批之后）
 
-**目标**：用户文档中常出现"图1-1"、"[1]"等手写引用文字，但这些只是普通文本而非 Word REF 字段。新设计让用户像处理 QA 问题一样采纳这些文字，点击采纳时自动创建交叉引用。
-
-**核心需求**：
-1. 识别正文中未被字段化的引用（"图N"、"[N]"等）
-2. 像 QA 问题一样展示，支持采纳/忽略/撤销
-3. 采纳时在预览区标记，导出时创建 Word REF 字段
-
-**交付内容**：
-
-### 1. 后端（app.py:runXRef）
-- 返回 `xref_issues` 数组，包含：
-  - `type`: "unreferenced" | "dangling" （未被引用的目标 | 悬空引用）
-  - `target_label`: 目标标签（"图1-1", "[1]"等）
-  - `element_index`: 目标在 doc.elements 中的索引
-  - `title`: 问题标题（用于 UI 显示）
-  - `description`: 详细说明
-  - `suggestion`: 建议的引用文字
-
-### 2. 前端 UI（web/index.html）
-- 交叉引用面板改为 QA 风格卡片：
-  - 每张卡片显示一个"可采纳的交叉引用"
-  - 按钮：定位（跳转到文档）、采纳、忽略、撤销
-  - 使用现有的 QAIssue 卡片样式和逻辑
-- 新增状态变量：`tabXrefAcceptedEdits[tab.name]`，记录已采纳的交叉引用
-
-### 3. 采纳行为
-- 采纳时：
-  - 在预览区将目标文字标记为 `hl-xref-accepted`（绿色下划线，与 QA 的 `hl-accepted` 风格一致）
-  - 保留 `data-xref-id="${targetId}"` 便于撤销定位
-  - 推入 `tabXrefAcceptedEdits` 记录 `{target_label, target_type, element_index}`
-- 撤销时：
-  - 删除 `hl-xref-accepted` 标记，恢复原样式
-  - 从 `tabXrefAcceptedEdits` 移除
-
-### 4. 导出时生效
-- `exportDocAsDocxClone` 在 XML 替换阶段，对 `xrefAcceptedEdits` 中的每条：
-  - 在 `<w:t>` 中找到 `target_label` 文字
-  - 替换为 Word REF 字段代码：
-    ```xml
-    <w:fldChar w:fldCharType="begin"/>
-    <w:instrText xml:space="preserve"> REF target_bookmark \h </w:instrText>
-    <w:fldChar w:fldCharType="end"/>
-    ```
-  - `target_bookmark` 来自 RefTarget 的 `bookmark_name`（已在 TargetScanner 中生成）
-
-### 5. 测试验证
-- 后端：新 runXRef 返回结构、xref_issues 字段正确
-- 前端：采纳/撤销 UI 行为正确、tabXrefAcceptedEdits 状态同步
-- 导出：
-  - 采纳的引用生成 REF 字段
-  - 在 Word 中更新域，编号自动链接到目标
-  - 导出前后对比：手写"[1]" vs 字段"[1]"，导出行为不同
+**待办 1：第十五批后续优化与稳定性收口（优先）**
+- 现状：第十四批 Phase 3 E2E 已闭环（3/3 通过），第十五批核心能力已完成。
+- 目标：继续围绕格式规则解析精度、回归稳定性与交互体验做增量优化。
+- 计划链接：`PLANS/batch15_ai_format_parser_improvement.md`
 
 ---
 
@@ -104,19 +54,6 @@ P6（第十四批）+ 第十三批 已完成并修复（2026-04-26）。
 **修复方向**：
 - **短期（Quick fix）**：在 consistency_checker.py 中增加启发式检查——当一个标题被解析成多个微小的 DocElement 时（如 docx-preview 的 span 拆分），比较相邻元素的字体大小，如果在视觉上属于同一标题但字号不同则报错
 - **长期（正确方案）**：重构数据模型，引入 `DocRun` 类来记录 run 级别的样式（类似 Word 的内部结构），修改 docx_parser.py 从源文件提取 run 级别的字体大小信息。后者工作量较大，但能准确处理各种混合格式文本
-
-### P6：排版规范与 QA 联动（第十四批）
-
-**现象**：用户手工设置排版规范后无法复用；排版检查结果与 QA 问题无关联。
-
-**解决方案**：保存用户的排版规范 → 自动检查 → QA 同步显示。详见 [docs/PLANS/batch14_format_qa.md](docs/PLANS/batch14_format_qa.md)。
-
-**核心改动**：
-- 新增 `FormatRules` 数据模型 + `FormatChecker` 检查器
-- `saveFormatRequirements()` API 保存规范至 Supabase
-- `runQA` 自动加载规范，排版问题归入 format 类别
-
----
 
 ## Quick commands
 
@@ -271,7 +208,7 @@ See [BUSINESS.md](docs/BUSINESS.md) for monetization strategy and pricing detail
 
 ---
 
-See [CHANGELOG.md](docs/CHANGELOG.md) for detailed fix history（第一至十四批修复记录）and [DEPLOYMENT.md](DEPLOYMENT.md) for deployment notes.
+See [CHANGELOG.md](docs/CHANGELOG.md) for detailed fix history（第一至十四批修复记录）. Deployment notes: `DEPLOYMENT.md`（暂未提供）.
 
 ## Test Coverage（回归测试）
 

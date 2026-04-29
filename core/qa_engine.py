@@ -11,6 +11,8 @@ from __future__ import annotations
 import time
 from typing import Callable, Optional
 
+from typing import Optional
+
 from core.document_model import DocumentModel
 from core.qa_models import QAReport, QAIssue, IssueCategory
 from core.typo_checker import TypoChecker
@@ -74,7 +76,8 @@ class QAEngine:
         self.llm_config = qa_config.get("llm_check", {})
         self.llm_checker = None
 
-    def check(self, doc: DocumentModel, categories: list[str] = None) -> QAReport:
+    def check(self, doc: DocumentModel, categories: list[str] = None,
+              format_rules=None) -> QAReport:
         """
         对文档执行质量检查。
 
@@ -94,12 +97,12 @@ class QAEngine:
         use_chunking = self.enable_chunking and total_elements > self.chunk_size
         
         if use_chunking:
-            return self._check_chunked(doc, categories, start_time)
+            return self._check_chunked(doc, categories, start_time, format_rules)
         else:
-            return self._check_sequential(doc, categories, start_time)
+            return self._check_sequential(doc, categories, start_time, format_rules)
     
-    def _check_sequential(self, doc: DocumentModel, categories: list[str], 
-                         start_time: float) -> QAReport:
+    def _check_sequential(self, doc: DocumentModel, categories: list[str],
+                         start_time: float, format_rules=None) -> QAReport:
         """顺序检查（短文档）"""
         report = QAReport()
         seen_fingerprints: set[tuple[str, str, str, str]] = set()
@@ -142,6 +145,20 @@ class QAEngine:
             report=report,
             seen_fingerprints=seen_fingerprints,
         )
+
+        # 格式规范检查（需要保存的 FormatRules）
+        if "format" in categories and format_rules is not None:
+            try:
+                from core.format_checker import FormatChecker
+                self._run_checker(
+                    enabled=True,
+                    runner=FormatChecker(format_rules).check,
+                    doc=doc,
+                    report=report,
+                    seen_fingerprints=seen_fingerprints,
+                )
+            except Exception as e:
+                print(f"[QA Engine] FormatChecker 失败: {e}")
 
         # LLM 增强检测（如果启用）
         if self.llm_config.get("enabled", False):
@@ -279,8 +296,8 @@ class QAEngine:
         
         return False
     
-    def _check_chunked(self, doc: DocumentModel, categories: list[str], 
-                      start_time: float) -> QAReport:
+    def _check_chunked(self, doc: DocumentModel, categories: list[str],
+                      start_time: float, format_rules=None) -> QAReport:
         """分块检查（长文档）"""
         report = QAReport()
         
@@ -296,7 +313,7 @@ class QAEngine:
             )
             chunk_doc.elements = chunk.elements
             
-            chunk_report = self._check_sequential(chunk_doc, categories, time.time())
+            chunk_report = self._check_sequential(chunk_doc, categories, time.time(), format_rules)
             chunk_reports.append(chunk_report)
         
         # 合并报告

@@ -52,8 +52,8 @@ class TargetScanner:
 
     # 章节标题模式
     CHAPTER_PATTERNS = [
-        re.compile(r"第([一二三四五六七八九十百\d]+)章\s*(.*)"),
-        re.compile(r"(\d+)\s*[\.、]\s*(.*)"),  # "1 标题" 或 "1、标题"
+        re.compile(r"^第([一二三四五六七八九十百零〇\d]+)章\s*(.*)$"),
+        re.compile(r"^(\d+)\s*[\.、]\s*(.*)$"),  # "1 标题" 或 "1、标题"
     ]
 
     # 参考文献模式
@@ -70,6 +70,10 @@ class TargetScanner:
             if not elem.content:
                 continue
 
+            # 第十八批：目录条目 / 封面 不作为交叉引用目标，避免把目录里的"第3章 ......15"当真章节
+            if isinstance(elem.metadata, dict) and elem.metadata.get("exclude_from_xref_targets"):
+                continue
+
             text = elem.content.strip()
 
             # ── 标题：判断是否进入/退出参考文献节（标题本身不作为交叉引用目标）──
@@ -77,8 +81,13 @@ class TargetScanner:
                 if self.REF_SECTION_PATTERN.search(text):
                     in_ref_section = True
                     ref_seq = 0
-                else:
-                    in_ref_section = False
+                    continue
+
+                in_ref_section = False
+                chapter = self._try_match_chapter(elem, idx)
+                if chapter:
+                    current_chapter = chapter.chapter_num
+                    targets.append(chapter)
                 continue
 
             # ── 参考文献节内部：按位置顺序编号 ──
@@ -128,7 +137,7 @@ class TargetScanner:
 
         return targets
 
-    def _try_match_chapter(self, elem: DocElement) -> Optional[RefTarget]:
+    def _try_match_chapter(self, elem: DocElement, idx: int) -> Optional[RefTarget]:
         """尝试匹配章节标题"""
         if elem.element_type != ElementType.HEADING:
             return None
@@ -161,7 +170,7 @@ class TargetScanner:
                 number=str(chapter_num),
                 label=label,
                 title=title,
-                element_index=elem.metadata.get("_original_index", -1),
+                element_index=idx,
                 chapter_num=chapter_num,
                 seq_num=0,
                 bookmark_name=f"_chapter_{chapter_num}",
@@ -373,36 +382,52 @@ class RefPointScanner:
     ]
 
     def scan(self, doc: DocumentModel) -> list[RefPoint]:
-        """扫描文档，提取所有引用点"""
-        ref_points: list[RefPoint] = []
+        """单遍扫描，按文档阅读顺序分配全局递增 scan_index。
 
-        for idx, elem in enumerate(doc.elements):
+        核心不变量：输出序列 = 文档从前到后扫描到的引用 token 序列（保真映射）。
+        - 段内按 match.start() 排序后统一分配 scan_index，再合并到全局列表。
+        - 多引用（如 [2,3,6,7]）在同一 span 内展开，展开顺序即为 findall 顺序。
+        - 不允许任何按 reference/target_label 的重排。
+        """
+        ref_points: list[RefPoint] = []
+        scan_index = 0
+
+        for elem_idx, elem in enumerate(doc.elements):
             if not elem.content:
                 continue
-
-            # 跳过标题本身（标题不是引用点）
-            if elem.element_type == ElementType.HEADING:
+            if elem.element_type in (ElementType.HEADING, ElementType.REFERENCE):
                 continue
 
-            # 跳过题注本身（题注是目标，不是引用点）
-            if elem.element_type == ElementType.CAPTION:
-                # 但需要检查题注中是否引用了其他目标（罕见但可能）
-                pass
-
             text = elem.content
+            para_hits: list[tuple[int, list[RefPoint]]] = []
+            seen_spans: set[tuple[int, int]] = set()
+
             for target_type, pattern in self.REF_PATTERNS:
                 for match in pattern.finditer(text):
-                    ref_point = self._create_ref_point(
-                        match, target_type, text, idx
-                    )
-                    if ref_point:
-                        ref_points.append(ref_point)
+                    span = (match.start(), match.end())
+                    if span in seen_spans:
+                        continue
+                    rps = self._expand_match(match, target_type, text, elem_idx)
+                    if rps:
+                        seen_spans.add(span)
+                        para_hits.append((match.start(), rps))
+
+            para_hits.sort(key=lambda x: x[0])
+
+            for _, rps in para_hits:
+                for rp in rps:
+                    rp.scan_index = scan_index
+                    scan_index += 1
+                    ref_points.append(rp)
 
         return ref_points
 
-    def _create_ref_point(self, match: re.Match, target_type: RefTargetType,
-                          context: str, element_index: int) -> Optional[RefPoint]:
-        """从正则匹配创建引用点"""
+    def _expand_match(self, match: re.Match, target_type: RefTargetType,
+                      context: str, element_index: int) -> list[RefPoint]:
+        """将正则匹配展开为一个或多个 RefPoint。
+
+        REFERENCE 多引用（如 [1,3,5]）展开为多个 RefPoint；其余类型最多产生一个。
+        """
         ref_text = match.group(0)
 
         if target_type == RefTargetType.FIGURE:
@@ -411,12 +436,16 @@ class RefPointScanner:
                     ch, seq = int(match.group(1)), int(match.group(2))
                     number = f"{ch}-{seq}"
                 except ValueError:
-                    return None
+                    return []
             else:
                 try:
                     number = str(int(match.group(1)))
                 except ValueError:
-                    return None
+                    return []
+            return [RefPoint(ref_text=ref_text, target_type=target_type,
+                             target_number=number, context=context,
+                             element_index=element_index,
+                             start_pos=match.start(), end_pos=match.end())]
 
         elif target_type == RefTargetType.TABLE:
             if match.lastindex >= 2:
@@ -424,19 +453,27 @@ class RefPointScanner:
                     ch, seq = int(match.group(1)), int(match.group(2))
                     number = f"{ch}-{seq}"
                 except ValueError:
-                    return None
+                    return []
             else:
                 try:
                     number = str(int(match.group(1)))
                 except ValueError:
-                    return None
+                    return []
+            return [RefPoint(ref_text=ref_text, target_type=target_type,
+                             target_number=number, context=context,
+                             element_index=element_index,
+                             start_pos=match.start(), end_pos=match.end())]
 
         elif target_type == RefTargetType.EQUATION:
             try:
                 ch, seq = int(match.group(1)), int(match.group(2))
                 number = f"{ch}-{seq}"
             except (ValueError, IndexError):
-                return None
+                return []
+            return [RefPoint(ref_text=ref_text, target_type=target_type,
+                             target_number=number, context=context,
+                             element_index=element_index,
+                             start_pos=match.start(), end_pos=match.end())]
 
         elif target_type == RefTargetType.CHAPTER:
             raw = match.group(1)
@@ -451,56 +488,32 @@ class RefPointScanner:
                 try:
                     number = str(int(raw))
                 except ValueError:
-                    return None
+                    return []
+            return [RefPoint(ref_text=ref_text, target_type=target_type,
+                             target_number=number, context=context,
+                             element_index=element_index,
+                             start_pos=match.start(), end_pos=match.end())]
 
         elif target_type == RefTargetType.REFERENCE:
-            # 参考文献可能一次引用多个：[1,3,5]
             refs_str = match.group(1)
             numbers = re.findall(r"\d+", refs_str)
-            if len(numbers) == 1:
-                number = numbers[0]
-            else:
-                # 多个引用，为每个创建单独的引用点
-                # 这里先返回 None，在 scan 中特殊处理
-                return None  # 由下面的多引用处理逻辑接管
+            if not numbers:
+                return []
+            return [RefPoint(
+                ref_text=f"[{num}]",
+                target_type=target_type,
+                target_number=num,
+                context=context,
+                element_index=element_index,
+                start_pos=match.start(),
+                end_pos=match.end(),
+            ) for num in numbers]
 
-        else:
-            return None
-
-        return RefPoint(
-            ref_text=ref_text,
-            target_type=target_type,
-            target_number=number,
-            context=context,
-            element_index=element_index,
-            start_pos=match.start(),
-            end_pos=match.end(),
-        )
+        return []
 
     def scan_multi_references(self, doc: DocumentModel) -> list[RefPoint]:
-        """扫描文档中的多参考文献引用（如 [1,3,5]）"""
-        ref_points: list[RefPoint] = []
-        multi_pattern = re.compile(r"\[(\d+(?:\s*[,，;；]\s*\d+)*)\]")
-
-        for idx, elem in enumerate(doc.elements):
-            if not elem.content or elem.element_type == ElementType.HEADING:
-                continue
-
-            for match in multi_pattern.finditer(elem.content):
-                refs_str = match.group(1)
-                numbers = re.findall(r"\d+", refs_str)
-                for num in numbers:
-                    ref_points.append(RefPoint(
-                        ref_text=f"[{num}]",
-                        target_type=RefTargetType.REFERENCE,
-                        target_number=num,
-                        context=elem.content,
-                        element_index=idx,
-                        start_pos=match.start(),
-                        end_pos=match.end(),
-                    ))
-
-        return ref_points
+        """已废弃：功能已合并至 scan()。保留方法签名供向后兼容，始终返回空列表。"""
+        return []
 
 
 # ============================================================
@@ -608,12 +621,8 @@ class CrossRefEngine:
         # 1. 扫描目标
         targets = self.target_scanner.scan(doc)
 
-        # 2. 扫描引用点
+        # 2. 扫描引用点（单遍，含多引用展开，scan_index 已赋值）
         ref_points = self.ref_scanner.scan(doc)
-
-        # 2.5 扫描多参考文献引用
-        multi_refs = self.ref_scanner.scan_multi_references(doc)
-        ref_points.extend(multi_refs)
 
         # 3. 匹配与校验
         report = self.matcher.match(targets, ref_points)

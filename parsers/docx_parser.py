@@ -69,6 +69,14 @@ class DocxParser(BaseParser):
         # 提取图片
         self._extract_images(doc, model)
 
+        # 第十八批：注入结构识别 metadata（cover/toc/heading/body/reference/caption ...）
+        try:
+            from core.document_structure import classify_elements
+            classify_elements(model.elements)
+        except Exception as _structure_err:
+            # 失败时静默降级：保留 element_type 不变，仅缺失 metadata.structure_role
+            print(f"[DocxParser] classify_elements 失败，已忽略: {_structure_err}")
+
         return model
 
     # ---- 元数据 ----
@@ -282,15 +290,17 @@ class DocxParser(BaseParser):
         style_name = (para.style.name or "").lower()
 
         # 标题检测 - 使用精确匹配以避免误匹配
-        if style_name in ("heading 1", "标题 1", "title", "toc 1") or \
+        # 第十八批：移除 'toc 1/2/3' 误归类为 HEADING，TOC 段落保持 PARAGRAPH，
+        # 由 core/document_structure.classify_elements 后置打 metadata.structure_role=toc。
+        if style_name in ("heading 1", "标题 1", "title") or \
            style_name.startswith("heading 1 ") or style_name.startswith("标题 1 "):
             return ElementType.HEADING, 1
-        
-        if style_name in ("heading 2", "标题 2", "toc 2") or \
+
+        if style_name in ("heading 2", "标题 2") or \
            style_name.startswith("heading 2 ") or style_name.startswith("标题 2 "):
             return ElementType.HEADING, 2
-        
-        if style_name in ("heading 3", "标题 3", "toc 3") or \
+
+        if style_name in ("heading 3", "标题 3") or \
            style_name.startswith("heading 3 ") or style_name.startswith("标题 3 "):
             return ElementType.HEADING, 3
         

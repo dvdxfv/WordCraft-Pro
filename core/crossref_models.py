@@ -76,6 +76,7 @@ class RefPoint:
     element_index: int = -1     # 在 DocumentModel.elements 中的索引
     start_pos: int = 0          # 引用在段落中的起始位置
     end_pos: int = 0            # 引用在段落中的结束位置
+    scan_index: int = -1        # 扫描阶段分配的全局递增序号；-1 = 未赋值/合成
     matched_target: Optional[RefTarget] = None  # 匹配到的目标
 
     def to_dict(self) -> dict:
@@ -87,6 +88,7 @@ class RefPoint:
             "element_index": self.element_index,
             "start_pos": self.start_pos,
             "end_pos": self.end_pos,
+            "scan_index": self.scan_index,
         }
         if self.matched_target:
             d["matched_target"] = self.matched_target.to_dict()

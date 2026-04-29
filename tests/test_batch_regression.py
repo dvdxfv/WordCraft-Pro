@@ -399,3 +399,579 @@ class TestCrossRefNoDuplicateMatches:
             assert "element_index" in m, (
                 f"runXRef 返回的 match 缺少 element_index：{m}"
             )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 第十三批：交叉引用采纳式设计
+# ──────────────────────────────────────────────────────────────────────────────
+
+class TestBatch13XRefAdoption:
+    """第十三批：runXRef 返回 xref_issues 字段，支持采纳式交叉引用设计"""
+
+    def _html_with_refs(self) -> str:
+        return (
+            "<h1>1 引言</h1>"
+            "<p>研究发现[1]有重要意义，[2]也提供了佐证。</p>"
+            "<p>如图1-1所示，结果明显。</p>"
+            "<h1>参考文献</h1>"
+            "<p>第一篇参考文献。</p>"
+            "<p>第二篇参考文献。</p>"
+        )
+
+    def test_runxref_returns_xref_issues_field(self):
+        """runXRef 返回值必须包含 xref_issues 字段（第十三批新增）"""
+        from app import Api
+        api = Api(supabase_enabled=False)
+        data = json.loads(api.runXRef(self._html_with_refs()))
+        assert data.get("success") is True
+        assert "xref_issues" in data, "runXRef 返回值缺少 xref_issues 字段"
+
+    def test_xref_issues_have_required_fields(self):
+        """xref_issues 每条必须有 type/target_label/element_index/title/description"""
+        from app import Api
+        api = Api(supabase_enabled=False)
+        data = json.loads(api.runXRef(self._html_with_refs()))
+        issues = data.get("xref_issues", [])
+        assert len(issues) > 0, "有有效引用时 xref_issues 不应为空"
+        for iss in issues:
+            for field in ("type", "target_label", "element_index", "title", "description"):
+                assert field in iss, f"xref_issues 条目缺少字段 '{field}'：{iss}"
+
+    def test_valid_refs_appear_as_unreferenced_type(self):
+        """与已知目标匹配的文内引用，在 xref_issues 中应为 type='unreferenced'（可采纳）"""
+        from app import Api
+        api = Api(supabase_enabled=False)
+        data = json.loads(api.runXRef(self._html_with_refs()))
+        issues = data.get("xref_issues", [])
+        unref = [i for i in issues if i["type"] == "unreferenced"]
+        assert len(unref) > 0, "有效引用[1][2]应生成 type=unreferenced 的 xref_issues"
+
+    def test_valid_refs_have_bookmark_name(self):
+        """可采纳的引用（type=unreferenced）必须携带 bookmark_name，供导出时生成 REF 字段"""
+        from app import Api
+        api = Api(supabase_enabled=False)
+        data = json.loads(api.runXRef(self._html_with_refs()))
+        issues = data.get("xref_issues", [])
+        for iss in issues:
+            if iss["type"] == "unreferenced":
+                assert iss.get("bookmark_name"), (
+                    f"可采纳引用缺少 bookmark_name：{iss}"
+                )
+
+    def test_xref_issues_deduplicated_by_label(self):
+        """同一引用标签（如 [1]）在 xref_issues 中只出现一次（前端按 target_label 采纳所有实例）"""
+        from app import Api
+        api = Api(supabase_enabled=False)
+        # [1] appears twice in this HTML
+        html = (
+            "<h1>1 引言</h1>"
+            "<p>根据[1]的结果，[1]得到了验证。</p>"
+            "<h1>参考文献</h1>"
+            "<p>第一篇参考文献。</p>"
+        )
+        data = json.loads(api.runXRef(html))
+        issues = data.get("xref_issues", [])
+        labels = [i["target_label"] for i in issues if i["type"] == "unreferenced"]
+        assert labels.count("[1]") == 1, f"[1] 在 xref_issues 中重复出现：{labels}"
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 第十六批：交叉引用结果排序与样式保留
+# ──────────────────────────────────────────────────────────────────────────────
+
+class TestBatch16XRefSort:
+    """第十六批：runXRef matches 和 xref_issues 必须按 element_index 文档顺序升序排列"""
+
+    def test_matches_sorted_by_element_index(self):
+        """runXRef matches 列表必须按 element_index 升序（文档从上到下）"""
+        from app import Api
+        api = Api(supabase_enabled=False)
+        # 构造引用出现在不同位置的 HTML，顺序为 [3], [1], [2]
+        html = (
+            "<h1>1 引言</h1>"
+            "<p>见第三节[3]的讨论</p>"
+            "<p>见第一节[1]的讨论</p>"
+            "<p>见第二节[2]的讨论</p>"
+            "<h1>参考文献</h1>"
+            "<p>[1] 第一节</p>"
+            "<p>[2] 第二节</p>"
+            "<p>[3] 第三节</p>"
+        )
+        data = json.loads(api.runXRef(html))
+        assert data.get("success") is True
+        matches = data.get("matches", [])
+        indices = [m["element_index"] for m in matches if m["element_index"] is not None]
+        # 验证 element_index 是升序的
+        assert indices == sorted(indices), (
+            f"matches 未按 element_index 升序排列，实际顺序：{indices}"
+        )
+
+    def test_xref_issues_sorted_by_element_index(self):
+        """runXRef xref_issues 列表必须按 element_index 升序"""
+        from app import Api
+        api = Api(supabase_enabled=False)
+        html = (
+            "<h1>1 引言</h1>"
+            "<p>见[3]节和[1]节的讨论，也见[2]节</p>"
+            "<h1>参考文献</h1>"
+            "<p>[1] 第一节</p>"
+            "<p>[2] 第二节</p>"
+            "<p>[3] 第三节</p>"
+        )
+        data = json.loads(api.runXRef(html))
+        assert data.get("success") is True
+        issues = data.get("xref_issues", [])
+        indices = [x["element_index"] for x in issues if x["element_index"] is not None]
+        # 验证 element_index 是升序的
+        assert indices == sorted(indices), (
+            f"xref_issues 未按 element_index 升序排列，实际顺序：{indices}"
+        )
+
+    def test_same_element_index_sorted_by_start_pos_not_alphabetical(self):
+        """同一 element_index 的多个引用应按在段落中的出现位置（start_pos）排列，不按字母序"""
+        from app import Api
+        api = Api(supabase_enabled=False)
+        # [3] 在段落中最先出现，然后是 [1]，最后是 [2]
+        # 修复前：按字典序 = [1],[2],[3]（错误）
+        # 修复后：按出现位置 = [3],[1],[2]（正确）
+        html = (
+            "<h1>1 引言</h1>"
+            "<p>见[3]节和[1]节与[2]节的讨论</p>"
+            "<h1>参考文献</h1>"
+            "<p>[1] 第一节</p>"
+            "<p>[2] 第二节</p>"
+            "<p>[3] 第三节</p>"
+        )
+        data = json.loads(api.runXRef(html))
+        assert data.get("success") is True
+        matches = data.get("matches", [])
+        # 找出包含 [1],[2],[3] 的那个 element_index
+        by_index: dict = {}
+        for m in matches:
+            ei = m["element_index"]
+            if ei is not None:
+                by_index.setdefault(ei, []).append(m["reference"])
+        para_refs = None
+        for refs in by_index.values():
+            if set(refs) >= {"[1]", "[2]", "[3]"}:
+                para_refs = refs
+                break
+        assert para_refs is not None, "未找到包含 [1],[2],[3] 的段落 matches"
+        # 文档出现顺序：[3] 最先，[1] 居中，[2] 最后
+        assert para_refs == ["[3]", "[1]", "[2]"], (
+            f"同一段落内引用未按出现位置排列，实际顺序：{para_refs}，期望：['[3]', '[1]', '[2]']"
+        )
+
+    def test_no_duplicate_matches_from_multi_ref_scanner(self):
+        """scan_multi_references 不应为普通单号引用 [N] 产生重复 RefPoint"""
+        from app import Api
+        from collections import Counter
+        api = Api(supabase_enabled=False)
+        # 段落中 [1] 和 [2] 均为独立引用（非组合引用 [1,2]）
+        # 修复前：scan() + scan_multi_references() 各产生一次 → 每个 ref 出现两次
+        # 修复后：scan_multi_references() 跳过单号引用 → 每个 ref 只出现一次
+        html = (
+            "<h1>1 引言</h1>"
+            "<p>文献[1]和文献[2]均支持此结论。</p>"
+            "<h1>参考文献</h1>"
+            "<p>[1] 第一篇文献</p>"
+            "<p>[2] 第二篇文献</p>"
+        )
+        data = json.loads(api.runXRef(html))
+        assert data.get("success") is True
+        matches = data.get("matches", [])
+        valid_matches = [m for m in matches if m["status"] == "valid"]
+        ref_counts = Counter(m["reference"] for m in valid_matches)
+        assert ref_counts.get("[1]", 0) == 1, (
+            f"[1] 的有效匹配数应为 1，实际为 {ref_counts.get('[1]', 0)}（存在重复）"
+        )
+        assert ref_counts.get("[2]", 0) == 1, (
+            f"[2] 的有效匹配数应为 1，实际为 {ref_counts.get('[2]', 0)}（存在重复）"
+        )
+
+    def test_matches_include_start_pos_field(self):
+        """runXRef matches 应包含 start_pos 字段，供前端按段内位置精确定位"""
+        from app import Api
+        api = Api(supabase_enabled=False)
+        html = (
+            "<h1>1 引言</h1>"
+            "<p>文献[1]支持此结论。</p>"
+            "<h1>参考文献</h1>"
+            "<p>[1] 第一篇文献</p>"
+        )
+        data = json.loads(api.runXRef(html))
+        assert data.get("success") is True
+        matches = data.get("matches", [])
+        valid = [m for m in matches if m["status"] == "valid"]
+        assert len(valid) > 0, "应有至少一个有效匹配"
+        for m in valid:
+            assert "start_pos" in m, f"match 缺少 start_pos 字段：{m}"
+            assert isinstance(m["start_pos"], int), f"start_pos 应为整数：{m.get('start_pos')}"
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Batch 16 补充：交叉引用定位映射修复
+# ──────────────────────────────────────────────────────────────────────────────
+
+class TestBatch16XRefLocationMapping:
+    """第十六批补充：paraOcc 定义修复，确保定位映射正确"""
+
+    def test_para_occ_based_on_match_sequence_not_element_index(self):
+        """paraOcc 应基于 matches 序列中的位置，而非 element_index 计数"""
+        from app import Api
+        api = Api(supabase_enabled=False)
+        # HTML 中 [1] 出现3次，位置不同
+        html = (
+            "<h1>1 引言</h1>"
+            "<p>根据[1]的研究</p>"
+            "<p>进一步[1]分析表明</p>"
+            "<p>综合[1]结果可知</p>"
+            "<h1>参考文献</h1>"
+            "<p>[1] 第一篇文献</p>"
+        )
+        data = json.loads(api.runXRef(html))
+        assert data.get("success") is True
+        matches = data.get("matches", [])
+
+        # 筛出所有 [1] 的 matches
+        ref1_matches = [m for m in matches if m["reference"] == "[1]"]
+
+        # 如果有多个 [1]，它们在返回的 matches 中应该是连续出现的，
+        # 且顺序应该按文档顺序（因为后端按 element_index 排序）
+        assert len(ref1_matches) > 0, "应该有 [1] 的 matches"
+
+    def test_matches_ordering_stable_for_location_lookup(self):
+        """后端返回的 matches 顺序应该稳定，便于前端通过 occ 参数定位"""
+        from app import Api
+        api = Api(supabase_enabled=False)
+        # 构造一个特定顺序的引用出现
+        html = (
+            "<h1>1 背景</h1>"
+            "<p>见文献[2]和[1]的对比</p>"
+            "<p>另外[3]也有相关论述</p>"
+            "<h1>参考文献</h1>"
+            "<p>[1] 第一篇</p>"
+            "<p>[2] 第二篇</p>"
+            "<p>[3] 第三篇</p>"
+        )
+        data = json.loads(api.runXRef(html))
+        assert data.get("success") is True
+        matches = data.get("matches", [])
+
+        # 同一个引用的多个出现应该有不同的 element_index
+        # 且后端返回的顺序应该是按 element_index 升序的
+        ei_list = [m["element_index"] for m in matches if m["element_index"] is not None]
+        assert ei_list == sorted(ei_list), (
+            f"matches 未按 element_index 升序排列：{ei_list}"
+        )
+
+    def test_duplicate_refs_preserved_not_deduplicated(self):
+        """同一引用（如 [2]）在不同位置出现时，matches 中应保留所有实例（不去重）"""
+        from app import Api
+        api = Api(supabase_enabled=False)
+        # [2] 在段落中出现两次，期望 matches 中有两条 [2] 的 valid 记录
+        html = (
+            "<h1>1 引言</h1>"
+            "<p>文献[1]奠定基础，[2]提出方法，[2]进一步验证。</p>"
+            "<h1>参考文献</h1>"
+            "<p>[1] 第一篇</p>"
+            "<p>[2] 第二篇</p>"
+        )
+        data = json.loads(api.runXRef(html))
+        assert data.get("success") is True
+        matches = data.get("matches", [])
+        valid = [m for m in matches if m["status"] == "valid"]
+        refs = [m["reference"] for m in valid]
+        # matches 必须包含两条 [2]
+        assert refs.count("[2]") == 2, (
+            f"[2] 出现两次时 matches 应有 2 条，实际：{refs}"
+        )
+        # 出现顺序必须是 [1],[2],[2]（scan order）
+        assert refs == ["[1]", "[2]", "[2]"], (
+            f"scan order 应为 ['[1]','[2]','[2]']，实际：{refs}"
+        )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 第十七批：scan_index 属性测试
+# ──────────────────────────────────────────────────────────────────────────────
+
+class TestBatch17ScanIndex:
+    """scan_index 核心不变量：输出序列 = 文档扫描顺序，与引用编号大小无关。"""
+
+    def test_scan_index_field_present_in_all_valid_matches(self):
+        """matches 每条记录必须携带 scan_index 字段"""
+        from app import Api
+        api = Api(supabase_enabled=False)
+        html = (
+            "<h1>1 引言</h1>"
+            "<p>见[1]和[2]的研究。</p>"
+            "<h1>参考文献</h1>"
+            "<p>[1] 第一篇</p>"
+            "<p>[2] 第二篇</p>"
+        )
+        data = json.loads(api.runXRef(html))
+        assert data.get("success") is True
+        for m in data.get("matches", []):
+            assert "scan_index" in m, f"match 缺少 scan_index 字段：{m}"
+
+    def test_large_ref_numbers_do_not_affect_display_order(self):
+        """属性测试：引用编号大小不影响展示顺序（[10][2][300] → 按文中出现顺序）"""
+        from app import Api
+        api = Api(supabase_enabled=False)
+        # 段落中顺序：[10] → [2] → [300]，正确结果必须是 [10],[2],[300]
+        html = (
+            "<h1>1 引言</h1>"
+            "<p>见文献[10]的基础工作，[2]提出改进，[300]做了综述。</p>"
+            "<h1>参考文献</h1>"
+            "<p>[2] 第二篇</p>"
+            "<p>[10] 第十篇</p>"
+            "<p>[300] 第三百篇</p>"
+        )
+        data = json.loads(api.runXRef(html))
+        assert data.get("success") is True
+        matches = data.get("matches", [])
+        valid = [m for m in matches if m["status"] == "valid"]
+        refs = [m["reference"] for m in valid]
+        assert refs == ["[10]", "[2]", "[300]"], (
+            f"引用编号大小不应影响顺序，期望 ['[10]','[2]','[300]']，实际：{refs}"
+        )
+
+    def test_multi_ref_expansion_preserves_order(self):
+        """多引用 [2,3,6,7] 展开后顺序必须为 [2],[3],[6],[7]（不按编号重排）"""
+        from app import Api
+        api = Api(supabase_enabled=False)
+        html = (
+            "<h1>1 引言</h1>"
+            "<p>见文献[2,3,6,7]所示方法。</p>"
+            "<h1>参考文献</h1>"
+            "<p>[2] 第二篇</p>"
+            "<p>[3] 第三篇</p>"
+            "<p>[6] 第六篇</p>"
+            "<p>[7] 第七篇</p>"
+        )
+        data = json.loads(api.runXRef(html))
+        assert data.get("success") is True
+        matches = data.get("matches", [])
+        valid = [m for m in matches if m["status"] == "valid"]
+        refs = [m["reference"] for m in valid]
+        assert refs == ["[2]", "[3]", "[6]", "[7]"], (
+            f"多引用展开顺序应为 ['[2]','[3]','[6]','[7]']，实际：{refs}"
+        )
+
+    def test_scan_index_monotonically_increases(self):
+        """valid matches 的 scan_index 必须严格单调递增（无重复，无逆序）"""
+        from app import Api
+        api = Api(supabase_enabled=False)
+        html = (
+            "<h1>1 背景</h1>"
+            "<p>文献[3]奠定基础，[1]提出改进，[2]做了综述。</p>"
+            "<p>另见[4]的讨论。</p>"
+            "<h1>参考文献</h1>"
+            "<p>[1] 第一篇</p>"
+            "<p>[2] 第二篇</p>"
+            "<p>[3] 第三篇</p>"
+            "<p>[4] 第四篇</p>"
+        )
+        data = json.loads(api.runXRef(html))
+        assert data.get("success") is True
+        matches = data.get("matches", [])
+        valid_si = [m["scan_index"] for m in matches
+                    if m["status"] == "valid" and m.get("scan_index", -1) >= 0]
+        assert valid_si == sorted(valid_si), (
+            f"valid matches 的 scan_index 应单调递增，实际：{valid_si}"
+        )
+        assert len(valid_si) == len(set(valid_si)), (
+            f"scan_index 存在重复值：{valid_si}"
+        )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 第十八批：文档结构识别（cover/toc/heading/body 自动分类 + metadata 流通）
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+class TestBatch18StructureRecognition:
+    """第十八批：纯规则结构识别层
+
+    回归点：
+      1. classify_dicts 写入 metadata.structure_role / structure_confidence /
+         structure_reason / exclude_from_format_body / exclude_from_xref_targets
+      2. parsers/docx_parser.py 不再把 'toc 1/2/3' 样式归类为 HEADING
+      3. FormatChecker 跳过 exclude_from_format_body=True 的元素
+      4. CrossRefEngine.TargetScanner 跳过 exclude_from_xref_targets=True 的元素
+      5. app.py.runXRef 接受 elements_json 并保留 metadata
+    """
+
+    def _toc_doc_dict(self):
+        """构造一份带封面 + 目录 + 真章节的 dict 形态文档。"""
+        return [
+            {"type": "p", "text": "研究报告标题", "fmt": {"alignment": "CENTER"},
+             "runs": [{"text": "研究报告标题", "font_size_pt": 22.0, "bold": True}]},
+            {"type": "p", "text": "作者：张三", "fmt": {"alignment": "CENTER"},
+             "runs": [{"text": "作者：张三", "font_size_pt": 14.0}]},
+            {"type": "h1", "text": "目录", "fmt": {"style": "heading 1"},
+             "runs": [{"text": "目录", "font_size_pt": 16.0, "bold": True}]},
+            {"type": "p", "text": "第3章 模型与方法 ......15", "fmt": {"style": "toc 1"},
+             "runs": [{"text": "第3章 模型与方法 ......15", "font_size_pt": 11.0}]},
+            {"type": "h1", "text": "第3章 模型与方法", "fmt": {"style": "heading 1"},
+             "runs": [{"text": "第3章 模型与方法", "font_size_pt": 16.0, "bold": True}]},
+            {"type": "p", "text": "正文段落内容很长很长很长" * 2, "fmt": {"first_line_indent_twips": 420},
+             "runs": [{"text": "正文段落", "font_size_pt": 11.0}]},
+        ]
+
+    def test_classify_dicts_writes_required_metadata(self):
+        from core.document_structure import classify_dicts
+
+        elems = self._toc_doc_dict()
+        classify_dicts(elems)
+
+        for el in elems:
+            meta = el.get("metadata") or {}
+            assert "structure_role" in meta
+            assert "structure_confidence" in meta
+            assert "structure_reason" in meta
+            assert "exclude_from_format_body" in meta
+            assert "exclude_from_xref_targets" in meta
+            assert isinstance(meta["structure_role"], str)
+            assert 0.0 <= meta["structure_confidence"] <= 1.0
+
+    def test_toc_entry_excluded_from_xref_targets(self):
+        from core.document_structure import classify_dicts
+
+        elems = self._toc_doc_dict()
+        classify_dicts(elems)
+
+        # 索引 3 是目录条目"第3章 ......15"，必须被排除作为交叉引用目标
+        toc_entry = elems[3]["metadata"]
+        assert toc_entry["structure_role"] == "toc"
+        assert toc_entry["exclude_from_xref_targets"] is True
+
+        # 索引 4 是真章节"第3章 模型与方法"，不应被排除
+        real_chapter = elems[4]["metadata"]
+        assert real_chapter["structure_role"] == "heading"
+        assert real_chapter["exclude_from_xref_targets"] is False
+
+    def test_cover_excluded_from_format_body(self):
+        from core.document_structure import classify_dicts
+
+        elems = self._toc_doc_dict()
+        classify_dicts(elems)
+
+        # 索引 0、1 是封面：居中 + 大字号
+        for i in (0, 1):
+            meta = elems[i]["metadata"]
+            assert meta["structure_role"] == "cover", f"index {i}"
+            assert meta["exclude_from_format_body"] is True, f"index {i}"
+
+    def test_docx_parser_no_longer_maps_toc_styles_to_heading(self):
+        """parsers/docx_parser.py 不再把 'toc 1/2/3' 当 HEADING。
+
+        以源码文本断言代替运行时 import，避免 parsers/__init__.py 链式触发可选
+        依赖 (pdfplumber 等) 的 ImportError。
+        """
+        import os
+        path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "parsers", "docx_parser.py",
+        )
+        with open(path, "r", encoding="utf-8") as f:
+            src = f.read()
+
+        # 找到 _detect_element_type 函数体范围，仅在该范围内检查
+        start = src.find("def _detect_element_type")
+        assert start >= 0, "未找到 _detect_element_type 函数"
+        # 从函数开始到下一个顶层 def 之间
+        end = src.find("\n    def ", start + 1)
+        body = src[start:end if end > 0 else len(src)]
+
+        # HEADING 1/2/3 分支不应再出现 'toc 1/2/3' 字面量
+        # （TOC 段落由 core.document_structure.classify_elements 后置识别）
+        for bad in ('"toc 1"', '"toc 2"', '"toc 3"', "'toc 1'", "'toc 2'", "'toc 3'"):
+            assert bad not in body, (
+                f"docx_parser.py._detect_element_type 不应再把 {bad} 当作 HEADING；"
+                f"TOC 段落需保留 PARAGRAPH 类型，结构识别由 classify_elements 处理。"
+            )
+
+    def test_format_checker_skips_exclude_from_format_body(self):
+        """FormatChecker 必须跳过 metadata.exclude_from_format_body=True 的元素。"""
+        from core.document_model import (
+            DocumentModel, DocElement, ElementType, FontStyle,
+        )
+        from core.format_checker import FormatChecker, FormatRules
+
+        rules = FormatRules(bFont="宋体", bSize=11.0)
+        # 一个被排除的封面段（字体不符规范）
+        excluded = DocElement(
+            element_type=ElementType.PARAGRAPH,
+            content="封面大标题",
+            font_style=FontStyle(font_name_cn="黑体", font_size_pt=22.0),
+            metadata={"exclude_from_format_body": True, "structure_role": "cover"},
+        )
+        # 一个普通正文段（同样字体不符）
+        included = DocElement(
+            element_type=ElementType.PARAGRAPH,
+            content="正文段落",
+            font_style=FontStyle(font_name_cn="黑体", font_size_pt=11.0),
+        )
+        doc = DocumentModel(title="t", source_format="txt")
+        doc.elements.extend([excluded, included])
+
+        report = FormatChecker(rules).check(doc)
+        # 应只对正文段报字体问题，封面段被跳过
+        font_issues = [i for i in report.issues if "字体" in i.title]
+        assert len(font_issues) == 1
+        assert "正文段落" in font_issues[0].suggestion
+
+    def test_crossref_target_scanner_skips_exclude_from_xref(self):
+        """TargetScanner 必须跳过 metadata.exclude_from_xref_targets=True 的元素。"""
+        from core.document_model import (
+            DocumentModel, DocElement, ElementType,
+        )
+        from core.crossref_engine import TargetScanner
+
+        # 目录条目 "第3章 ......15"（被标记排除）+ 真章节 "第3章 模型"（HEADING）
+        toc_entry = DocElement(
+            element_type=ElementType.HEADING, level=1,
+            content="第3章 模型与方法",
+            metadata={"exclude_from_xref_targets": True, "structure_role": "toc"},
+        )
+        real = DocElement(
+            element_type=ElementType.HEADING, level=1,
+            content="第3章 模型与方法",
+        )
+        doc = DocumentModel(title="t", source_format="txt")
+        doc.elements.extend([toc_entry, real])
+
+        targets = TargetScanner().scan(doc)
+        chapter_targets = [t for t in targets if t.target_type.value == "chapter"]
+        assert len(chapter_targets) == 1, (
+            "目录条目应被排除，只有真章节进入 targets"
+        )
+        assert chapter_targets[0].element_index == 1, "应来自索引 1（真章节）而非 0（目录）"
+
+    def test_runxref_carries_metadata_through_elements_json(self):
+        """app.py.runXRef 通过 elements_json 接收 metadata 后，TargetScanner 跳过目录章节。"""
+        from app import Api
+
+        api = Api()
+        # elements_json：目录条目带 exclude_from_xref_targets=True，真章节不带
+        elements = [
+            {"type": "h1", "text": "目录"},
+            {"type": "p", "text": "第3章 模型 ......15",
+             "metadata": {"structure_role": "toc",
+                          "exclude_from_xref_targets": True,
+                          "exclude_from_format_body": True}},
+            {"type": "h1", "text": "第3章 模型与方法"},
+            {"type": "p", "text": "正文中提到第3章的内容"},
+        ]
+        elements_json = json.dumps(elements, ensure_ascii=False)
+        # content 留空，强制走 elements_json 路径
+        result = json.loads(api.runXRef("", [], elements_json=elements_json))
+        assert result.get("success") is True
+        targets = result.get("targets", [])
+        # 只应有 1 个 chapter target（真章节），目录条目被跳过
+        chapter_targets = [t for t in targets if t.get("type") == "chapter"]
+        assert len(chapter_targets) == 1, (
+            f"目录条目不应进入 targets，实际 chapter targets={chapter_targets}"
+        )

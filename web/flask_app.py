@@ -166,14 +166,21 @@ def run_qa():
     content = data.get('content')
     categories = data.get('categories')
     cats_str = _json.dumps(categories) if isinstance(categories, list) else (categories or '["typo","consistency","logic","format","crossref"]')
-    result = api.runQA(content, cats_str)
+    elements = data.get('elements')
+    elements_str = _json.dumps(elements) if elements is not None else None
+    result = api.runQA(content, cats_str, elements_json=elements_str)
     return result
 
 @app.route('/api/runXRef', methods=['POST'])
 def run_xref():
+    import json as _json
     data = request.json
     content = data.get('content')
-    result = api.runXRef(content)
+    fielded_refs = data.get('fielded_refs', [])
+    # 第十八批：透传结构化 elements（含 metadata.structure_role）让 XRef 跳过目录条目
+    elements = data.get('elements')
+    elements_str = _json.dumps(elements) if elements is not None else None
+    result = api.runXRef(content, fielded_refs, elements_json=elements_str)
     return result
 
 @app.route('/api/applyFormat', methods=['POST'])
@@ -220,6 +227,19 @@ def refresh_docx_fields():
     result = api.refreshDocxFields(docx_b64)
     return result
 
+@app.route('/api/saveFormatRequirements', methods=['POST'])
+def save_format_requirements():
+    data = request.json
+    rules = data.get('rules', {})
+    import json as _json
+    result = api.saveFormatRequirements(_json.dumps(rules))
+    return result
+
+@app.route('/api/loadFormatRequirements', methods=['POST'])
+def load_format_requirements():
+    result = api.loadFormatRequirements()
+    return result
+
 @app.route('/api/updateDocument', methods=['POST'])
 def update_document():
     data = request.json
@@ -238,6 +258,23 @@ def accept_suggestion():
     suggested_text = data.get('suggested_text')
     result = api.acceptSuggestion(content, issue_id, original_text, suggested_text)
     return result
+
+@app.route('/api/openLocalFile', methods=['POST'])
+def open_local_file():
+    """Test-only: open a server-side file by path (dev server only)."""
+    data = request.json
+    path = data.get('path', '')
+    if not os.path.isabs(path) or not os.path.exists(path):
+        return jsonify({'success': False, 'error': 'File not found: ' + path})
+    with open(path, 'rb') as f:
+        raw = f.read()
+    content_b64 = base64.b64encode(raw).decode()
+    file_name = os.path.basename(path)
+    import json as _json
+    result_str = api.openFile(content_b64, file_name)
+    result = _json.loads(result_str) if isinstance(result_str, str) else result_str.get_json()
+    result['raw_b64'] = content_b64  # include raw bytes for docx-preview
+    return jsonify(result)
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)

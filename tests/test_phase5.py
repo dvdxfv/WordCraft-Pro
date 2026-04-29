@@ -282,19 +282,24 @@ class TestRefPointScanner:
         assert len(single_refs) >= 1
 
     def test_scan_multi_references(self):
-        """多参考文献引用"""
+        """多参考文献引用（scan() 统一处理，含多引用展开）"""
         doc = _make_doc(
             _p("参考文献[1,3,5]表明该方法有效。"),
             _p("如文献[2，4]所示。"),
         )
-        multi_refs = RefPointScanner().scan_multi_references(doc)
-        assert len(multi_refs) == 5  # [1], [3], [5], [2], [4]
-        numbers = [r.target_number for r in multi_refs]
+        refs = RefPointScanner().scan(doc)
+        ref_refs = [r for r in refs if r.target_type == RefTargetType.REFERENCE]
+        assert len(ref_refs) == 5  # [1], [3], [5], [2], [4]
+        numbers = [r.target_number for r in ref_refs]
         assert "1" in numbers
         assert "3" in numbers
         assert "5" in numbers
         assert "2" in numbers
         assert "4" in numbers
+        # 每个 RefPoint 均有有效 scan_index（全局递增）
+        scan_indices = [r.scan_index for r in ref_refs]
+        assert all(i >= 0 for i in scan_indices), f"scan_index 未赋值：{scan_indices}"
+        assert scan_indices == sorted(scan_indices), f"scan_index 不单调递增：{scan_indices}"
 
     def test_skip_heading_as_ref(self):
         """标题不应作为引用点"""
