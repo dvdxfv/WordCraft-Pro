@@ -3,559 +3,2562 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WordCraft Pro - 后端监控</title>
+    <title>WordCraft Pro 管理后台</title>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script>
-        // Supabase 初始化
-        const SUPABASE_URL = 'https://nzujajuefdsheggulpze.supabase.co';
-        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im56dWphanVlZmRzaGVnZ3VscHplIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYyNDY0MDMsImV4cCI6MjA5MTgyMjQwM30.N3jsg3tIi6ezlmp_MvQYvbUo41SzR5kEBECawel5KDE';
-        window.supabaseClient = null;
-        try {
-            if (window.supabase && typeof window.supabase.createClient === 'function') {
-                window.supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-            }
-        } catch (e) { console.error('Supabase init failed:', e); }
-
-        // 检查登录状态
-        (async function() {
-            try {
-                const { data, error } = await window.supabaseClient.auth.getSession();
-                if (!data.session) {
-                    window.location.href = 'wordcraft_landing.html';
-                }
-            } catch (error) {
-                console.error('Session check error:', error);
-                window.location.href = 'wordcraft_landing.html';
-            }
-        })();
-    </script>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --bg: #f5f5f7;
+            --surface: #ffffff;
+            --surface-alt: #f2f2f7;
+            --surface-muted: #fafafc;
+            --text: #111111;
+            --text-soft: #6e6e73;
+            --text-faint: #8e8e93;
+            --line: #e5e5ea;
+            --line-strong: #d1d1d6;
+            --blue: #007aff;
+            --green: #34c759;
+            --orange: #ff9500;
+            --red: #ff3b30;
+            --black: #0a0a0a;
+            --radius: 8px;
+            --shadow: 0 8px 28px rgba(15, 23, 42, 0.06);
+            --font-sans: system-ui, "SF Pro Display", "Inter", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        html, body {
+            min-height: 100%;
+        }
+
         body {
-            font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif;
-            background: #f2f2f7;
-            color: #1c1c1e;
+            font-family: var(--font-sans);
+            background:
+                radial-gradient(circle at top right, rgba(0, 122, 255, 0.06), transparent 24%),
+                linear-gradient(180deg, #fbfbfd 0%, #f5f5f7 48%, #efeff4 100%);
+            color: var(--text);
             line-height: 1.5;
+        }
+
+        body.modal-open,
+        body.drawer-open {
+            overflow: hidden;
+        }
+
+        button,
+        input,
+        select {
+            font: inherit;
+        }
+
+        button {
+            cursor: pointer;
+        }
+
+        a {
+            color: inherit;
+        }
+
+        .app-shell {
             min-height: 100vh;
         }
-        .container {
-            max-width: 1200px;
+
+        .topbar {
+            position: sticky;
+            top: 0;
+            z-index: 40;
+            background: rgba(10, 10, 10, 0.94);
+            color: #fff;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            backdrop-filter: blur(18px);
+        }
+
+        .topbar-inner {
+            max-width: 1440px;
             margin: 0 auto;
-            padding: 20px;
-        }
-        .header {
-            background: linear-gradient(135deg, #007AFF, #5856D6);
-            color: white;
-            padding: 30px;
-            border-radius: 16px;
-            margin-bottom: 24px;
-            box-shadow: 0 4px 20px rgba(0, 122, 255, 0.3);
-        }
-        .header h1 {
-            font-size: 28px;
-            font-weight: 700;
-            margin-bottom: 8px;
-        }
-        .header p {
-            font-size: 14px;
-            opacity: 0.9;
-        }
-        .grid {
+            padding: 14px 24px;
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 20px;
-            margin-bottom: 24px;
+            grid-template-columns: 320px minmax(0, 1fr) 220px;
+            gap: 18px;
+            align-items: center;
         }
-        .card {
-            background: white;
-            border-radius: 12px;
-            padding: 20px;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-            transition: transform 0.2s, box-shadow 0.2s;
+
+        .identity-card {
+            display: grid;
+            gap: 6px;
         }
-        .card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+
+        .identity-path {
+            font-size: 12px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: rgba(255, 255, 255, 0.58);
         }
-        .card h3 {
+
+        .identity-main {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            min-width: 0;
+        }
+
+        .identity-email {
             font-size: 16px;
             font-weight: 600;
-            margin-bottom: 16px;
-            color: #1c1c1e;
-            display: flex;
-            align-items: center;
-            gap: 8px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
-        .card h3::before {
-            content: '';
-            width: 4px;
-            height: 16px;
-            background: #007AFF;
-            border-radius: 2px;
-        }
-        .stat-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 8px 0;
-            border-bottom: 1px solid #f0f0f0;
-        }
-        .stat-item:last-child {
-            border-bottom: none;
-        }
-        .stat-label {
-            font-size: 13px;
-            color: #6c6c70;
-        }
-        .stat-value {
-            font-size: 14px;
-            font-weight: 600;
-            color: #1c1c1e;
-        }
-        .stat-value.success {
-            color: #34C759;
-        }
-        .stat-value.warning {
-            color: #FF9500;
-        }
-        .stat-value.error {
-            color: #FF3B30;
-        }
-        .button {
+
+        .badge {
             display: inline-flex;
             align-items: center;
-            gap: 8px;
-            padding: 10px 20px;
-            border: none;
-            border-radius: 8px;
-            font-size: 14px;
-            font-weight: 500;
-            cursor: pointer;
-            transition: all 0.2s;
+            gap: 6px;
+            border-radius: 999px;
+            padding: 4px 10px;
+            font-size: 12px;
+            font-weight: 600;
+            background: rgba(255, 255, 255, 0.1);
+            color: rgba(255, 255, 255, 0.9);
         }
-        .button-primary {
-            background: #007AFF;
-            color: white;
+
+        .badge::before {
+            content: "";
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--green);
         }
-        .button-primary:hover {
-            background: #0066cc;
-            transform: translateY(-1px);
+
+        .kpi-strip {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 10px;
         }
-        .button-secondary {
-            background: #f2f2f7;
-            color: #1c1c1e;
-            border: 1px solid #e0e0e0;
+
+        .kpi-item {
+            min-height: 74px;
+            border-radius: 0;
+            padding: 10px 12px;
+            border-left: 1px solid rgba(255, 255, 255, 0.1);
+            display: grid;
+            align-content: center;
+            gap: 6px;
         }
-        .button-secondary:hover {
-            background: #e0e0e0;
+
+        .kpi-item:first-child {
+            border-left: none;
         }
-        .section {
-            background: white;
-            border-radius: 12px;
-            padding: 24px;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-            margin-bottom: 24px;
+
+        .kpi-label {
+            font-size: 12px;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            color: rgba(255, 255, 255, 0.62);
         }
-        .section h2 {
-            font-size: 20px;
+
+        .kpi-value {
+            font-size: 28px;
+            line-height: 1;
             font-weight: 700;
-            margin-bottom: 20px;
-            color: #1c1c1e;
+            font-feature-settings: "tnum" 1, "lnum" 1;
+            color: #fff;
         }
-        .table-container {
-            overflow-x: auto;
+
+        .kpi-meta {
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.58);
         }
+
+        .topbar-actions {
+            display: grid;
+            justify-items: end;
+            gap: 10px;
+        }
+
+        .refresh-meta {
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.58);
+            text-align: right;
+            font-feature-settings: "tnum" 1, "lnum" 1;
+        }
+
+        .toolbar {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .button {
+            appearance: none;
+            border: 1px solid transparent;
+            border-radius: 6px;
+            padding: 9px 14px;
+            font-size: 13px;
+            font-weight: 600;
+            transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease, transform 0.18s ease;
+        }
+
+        .button:focus-visible,
+        .input:focus-visible,
+        .select:focus-visible {
+            outline: 2px solid rgba(0, 122, 255, 0.28);
+            outline-offset: 2px;
+        }
+
+        .button-primary {
+            background: var(--blue);
+            color: #fff;
+        }
+
+        .button-primary:hover {
+            background: #0069d9;
+        }
+
+        .button-ghost {
+            background: transparent;
+            color: inherit;
+            border-color: var(--line);
+        }
+
+        .button-ghost:hover {
+            background: var(--surface-alt);
+        }
+
+        .button-danger {
+            background: rgba(255, 59, 48, 0.08);
+            color: var(--red);
+            border-color: rgba(255, 59, 48, 0.18);
+        }
+
+        .button-danger:hover {
+            background: rgba(255, 59, 48, 0.14);
+        }
+
+        .button-dark {
+            background: rgba(255, 255, 255, 0.08);
+            color: #fff;
+            border-color: rgba(255, 255, 255, 0.12);
+        }
+
+        .button-dark:hover {
+            background: rgba(255, 255, 255, 0.14);
+        }
+
+        .button[disabled] {
+            cursor: default;
+            opacity: 0.58;
+        }
+
+        .page {
+            max-width: 1440px;
+            margin: 0 auto;
+            padding: 22px 24px 48px;
+        }
+
+        .page-grid {
+            display: grid;
+            gap: 18px;
+        }
+
+        .section-card {
+            background: rgba(255, 255, 255, 0.92);
+            border: 1px solid rgba(229, 229, 234, 0.92);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            overflow: hidden;
+        }
+
+        .section-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 18px;
+            padding: 18px 20px 16px;
+            border-bottom: 1px solid var(--line);
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.94) 0%, rgba(250, 250, 252, 0.92) 100%);
+        }
+
+        .section-title {
+            display: grid;
+            gap: 5px;
+        }
+
+        .section-eyebrow {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--text-soft);
+        }
+
+        .section-head h2 {
+            font-size: 18px;
+            line-height: 1.2;
+            font-weight: 700;
+        }
+
+        .section-head p {
+            font-size: 13px;
+            color: var(--text-soft);
+        }
+
+        .section-tools {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+
+        .section-body {
+            padding: 18px 20px 20px;
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: 1.25fr 1fr;
+            gap: 16px;
+        }
+
+        .subpanel {
+            background: var(--surface-muted);
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 16px;
+        }
+
+        .subpanel h3 {
+            margin-bottom: 12px;
+            font-size: 13px;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            color: var(--text-soft);
+        }
+
+        .stack {
+            display: grid;
+            gap: 12px;
+        }
+
+        .legend-row,
+        .metric-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 13px;
+        }
+
+        .metric-row {
+            justify-content: space-between;
+        }
+
+        .bar-track {
+            position: relative;
+            width: 100%;
+            height: 12px;
+            border-radius: 999px;
+            overflow: hidden;
+            background: #e9edf5;
+        }
+
+        .bar-track.tall {
+            height: 18px;
+        }
+
+        .bar-segment {
+            height: 100%;
+            float: left;
+        }
+
+        .bar-segment.free { background: #d1d1d6; }
+        .bar-segment.pro { background: #007aff; }
+        .bar-segment.team { background: #34c759; }
+        .bar-segment.enterprise { background: #111111; }
+        .bar-segment.system { background: #8e8e93; }
+        .bar-segment.activation_code { background: #ff9500; }
+        .bar-segment.payment { background: #007aff; }
+        .bar-segment.admin,
+        .bar-segment.manual { background: #34c759; }
+
+        .list-tight {
+            list-style: none;
+            display: grid;
+            gap: 10px;
+        }
+
+        .list-tight li {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 14px;
+            font-size: 13px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid var(--line);
+        }
+
+        .list-tight li:last-child {
+            border-bottom: none;
+            padding-bottom: 0;
+        }
+
+        .mono {
+            font-feature-settings: "tnum" 1, "lnum" 1;
+            font-variant-numeric: tabular-nums lining-nums;
+        }
+
+        .filters {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+
+        .input,
+        .select {
+            min-height: 36px;
+            border: 1px solid var(--line-strong);
+            border-radius: 6px;
+            padding: 0 12px;
+            background: #fff;
+            color: var(--text);
+        }
+
+        .input {
+            min-width: 180px;
+        }
+
+        .select {
+            min-width: 132px;
+        }
+
+        .table-shell {
+            position: relative;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            overflow: hidden;
+            background: #fff;
+        }
+
+        .table-scroll {
+            overflow: auto;
+            position: relative;
+        }
+
+        .table-shell::after {
+            content: "";
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 18px;
+            height: 100%;
+            pointer-events: none;
+            background: linear-gradient(270deg, rgba(245, 245, 247, 0.98), rgba(245, 245, 247, 0));
+            opacity: 0;
+            transition: opacity 0.18s ease;
+        }
+
+        .table-shell.has-overflow::after {
+            opacity: 1;
+        }
+
         table {
             width: 100%;
             border-collapse: collapse;
+            min-width: 820px;
+            background: #fff;
+        }
+
+        th,
+        td {
+            padding: 11px 14px;
             font-size: 13px;
-        }
-        th, td {
-            padding: 12px 16px;
+            border-bottom: 1px solid var(--line);
             text-align: left;
-            border-bottom: 1px solid #f0f0f0;
+            vertical-align: middle;
         }
+
         th {
-            background: #f8f8f8;
+            position: sticky;
+            top: 0;
+            z-index: 2;
+            background: #fafafc;
+            color: var(--text-soft);
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            font-size: 12px;
+        }
+
+        tbody tr {
+            transition: background 0.16s ease;
+        }
+
+        tbody tr:hover {
+            background: #fafcff;
+        }
+
+        .click-row {
+            cursor: pointer;
+        }
+
+        .sort-button {
+            appearance: none;
+            border: none;
+            background: transparent;
+            color: inherit;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-weight: 700;
+            text-transform: inherit;
+            letter-spacing: inherit;
+            padding: 0;
+        }
+
+        .sort-indicator {
+            color: var(--text-faint);
+            font-size: 11px;
+        }
+
+        .pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            border-radius: 999px;
+            padding: 4px 9px;
+            font-size: 12px;
             font-weight: 600;
-            color: #1c1c1e;
+            background: var(--surface-alt);
+            color: var(--text-soft);
+            border: 1px solid var(--line);
+            white-space: nowrap;
         }
-        tr:hover {
-            background: #f8f8f8;
+
+        .pill.active,
+        .pill.green {
+            color: #196b36;
+            background: rgba(52, 199, 89, 0.12);
+            border-color: rgba(52, 199, 89, 0.18);
         }
-        .status-indicator {
-            display: inline-block;
+
+        .pill.orange {
+            color: #9f5c00;
+            background: rgba(255, 149, 0, 0.12);
+            border-color: rgba(255, 149, 0, 0.18);
+        }
+
+        .pill.red {
+            color: #a11d20;
+            background: rgba(255, 59, 48, 0.12);
+            border-color: rgba(255, 59, 48, 0.18);
+        }
+
+        .subtle {
+            color: var(--text-soft);
+        }
+
+        .empty-state,
+        .error-state,
+        .forbidden-state {
+            display: grid;
+            justify-items: start;
+            gap: 10px;
+            padding: 14px 0;
+            color: var(--text-soft);
+        }
+
+        .state-title {
+            font-size: 15px;
+            font-weight: 700;
+            color: var(--text);
+        }
+
+        .state-card {
+            border: 1px dashed var(--line-strong);
+            border-radius: 8px;
+            padding: 18px;
+            background: #fcfcfe;
+        }
+
+        .skeleton {
+            display: grid;
+            gap: 10px;
+        }
+
+        .skeleton-line {
+            height: 14px;
+            border-radius: 999px;
+            background: linear-gradient(90deg, #ececf1 25%, #f6f6f9 37%, #ececf1 63%);
+            background-size: 400% 100%;
+            animation: shimmer 1.2s ease infinite;
+        }
+
+        .skeleton-line.short { width: 32%; }
+        .skeleton-line.mid { width: 56%; }
+        .skeleton-line.long { width: 88%; }
+        .skeleton-row { display: grid; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+
+        @keyframes shimmer {
+            0% { background-position: 100% 0; }
+            100% { background-position: -100% 0; }
+        }
+
+        .trend-grid {
+            display: grid;
+            gap: 14px;
+        }
+
+        .trend-bars {
+            display: grid;
+            grid-template-columns: repeat(30, minmax(0, 1fr));
+            gap: 6px;
+            align-items: end;
+            min-height: 180px;
+            padding-top: 8px;
+        }
+
+        .trend-bar {
+            border-radius: 6px 6px 2px 2px;
+            min-height: 8px;
+            background: #d1d1d6;
+            position: relative;
+        }
+
+        .trend-bar.blue { background: rgba(0, 122, 255, 0.82); }
+        .trend-bar.green { background: rgba(52, 199, 89, 0.82); }
+        .trend-bar.orange { background: rgba(255, 149, 0, 0.82); }
+        .trend-bar.black { background: rgba(17, 17, 17, 0.82); }
+
+        .trend-labels {
+            display: grid;
+            grid-template-columns: repeat(6, minmax(0, 1fr));
+            gap: 8px;
+            font-size: 12px;
+            color: var(--text-faint);
+        }
+
+        .dual-grid {
+            display: grid;
+            grid-template-columns: 1.35fr 1fr;
+            gap: 16px;
+        }
+
+        .row-gap {
+            display: grid;
+            gap: 12px;
+        }
+
+        .status-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 14px;
+            padding: 14px 18px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.8);
+            color: var(--text-soft);
+            font-size: 13px;
+            margin-top: 18px;
+        }
+
+        .status-left {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .status-dot {
             width: 8px;
             height: 8px;
             border-radius: 50%;
-            margin-right: 8px;
+            background: var(--green);
         }
-        .status-online {
-            background: #34C759;
-        }
-        .status-offline {
-            background: #FF3B30;
-        }
-        .status-warning {
-            background: #FF9500;
-        }
-        .footer {
-            text-align: center;
-            padding: 20px;
-            font-size: 12px;
-            color: #6c6c70;
-        }
-        .refresh-btn {
+
+        .drawer-backdrop,
+        .modal-backdrop {
             position: fixed;
-            bottom: 20px;
-            right: 20px;
-            width: 50px;
-            height: 50px;
-            border-radius: 50%;
-            background: #007AFF;
-            color: white;
-            border: none;
+            inset: 0;
+            background: rgba(10, 10, 10, 0.42);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.18s ease;
+            z-index: 90;
+        }
+
+        .drawer-backdrop.open,
+        .modal-backdrop.open {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .drawer {
+            position: fixed;
+            top: 0;
+            right: 0;
+            width: min(560px, 100vw);
+            height: 100vh;
+            background: #fff;
+            box-shadow: -18px 0 40px rgba(15, 23, 42, 0.16);
+            transform: translateX(100%);
+            transition: transform 0.18s ease;
+            z-index: 100;
+            display: grid;
+            grid-template-rows: auto 1fr;
+        }
+
+        .drawer.open {
+            transform: translateX(0);
+        }
+
+        .drawer-head {
+            padding: 18px 20px;
+            border-bottom: 1px solid var(--line);
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            align-items: flex-start;
+        }
+
+        .drawer-title {
+            display: grid;
+            gap: 6px;
+        }
+
+        .drawer-title h3 {
             font-size: 18px;
-            cursor: pointer;
-            box-shadow: 0 4px 12px rgba(0, 122, 255, 0.3);
-            transition: all 0.2s;
         }
-        .refresh-btn:hover {
-            transform: scale(1.1);
-            background: #0066cc;
+
+        .drawer-body {
+            overflow: auto;
+            padding: 18px 20px 24px;
+            display: grid;
+            gap: 18px;
         }
-        .loading {
-            display: inline-block;
-            width: 16px;
-            height: 16px;
-            border: 2px solid #f3f3f3;
-            border-top: 2px solid #007AFF;
+
+        .timeline {
+            display: grid;
+            gap: 12px;
+        }
+
+        .timeline-item {
+            position: relative;
+            padding-left: 18px;
+            border-left: 2px solid var(--line);
+        }
+
+        .timeline-item::before {
+            content: "";
+            position: absolute;
+            left: -6px;
+            top: 4px;
+            width: 10px;
+            height: 10px;
             border-radius: 50%;
-            animation: spin 1s linear infinite;
+            background: var(--blue);
         }
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+
+        .modal {
+            position: fixed;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -48%);
+            width: min(460px, calc(100vw - 24px));
+            background: #fff;
+            border-radius: 10px;
+            box-shadow: 0 20px 44px rgba(15, 23, 42, 0.2);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.18s ease, transform 0.18s ease;
+            z-index: 100;
+        }
+
+        .modal.open {
+            opacity: 1;
+            pointer-events: auto;
+            transform: translate(-50%, -50%);
+        }
+
+        .modal-head,
+        .modal-body,
+        .modal-foot {
+            padding: 18px 20px;
+        }
+
+        .modal-head {
+            border-bottom: 1px solid var(--line);
+        }
+
+        .modal-body {
+            display: grid;
+            gap: 14px;
+        }
+
+        .modal-foot {
+            border-top: 1px solid var(--line);
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+
+        .form-grid {
+            display: grid;
+            gap: 12px;
+        }
+
+        .field {
+            display: grid;
+            gap: 6px;
+        }
+
+        .field label {
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .footer-note {
+            font-size: 12px;
+            color: var(--text-faint);
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        .toast-wrap {
+            position: fixed;
+            top: 18px;
+            right: 18px;
+            z-index: 110;
+            display: grid;
+            gap: 10px;
+        }
+
+        .toast {
+            min-width: 220px;
+            max-width: 340px;
+            border-radius: 8px;
+            padding: 12px 14px;
+            color: #fff;
+            box-shadow: 0 12px 32px rgba(15, 23, 42, 0.22);
+            animation: toast-in 0.18s ease;
+        }
+
+        .toast.info { background: rgba(28, 28, 30, 0.94); }
+        .toast.success { background: rgba(34, 139, 70, 0.96); }
+        .toast.error { background: rgba(203, 52, 45, 0.96); }
+
+        @keyframes toast-in {
+            from { transform: translateY(-6px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+
+        @media (max-width: 1120px) {
+            .topbar-inner {
+                grid-template-columns: 1fr;
+            }
+
+            .topbar-actions {
+                justify-items: start;
+            }
+
+            .kpi-strip {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+
+            .kpi-item {
+                border-left: none;
+                border-top: 1px solid rgba(255, 255, 255, 0.1);
+                min-height: 82px;
+            }
+
+            .metrics-grid,
+            .dual-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .page,
+            .topbar-inner {
+                padding-left: 16px;
+                padding-right: 16px;
+            }
+
+            .kpi-strip {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 0;
+            }
+
+            .section-head {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .section-tools {
+                justify-content: flex-start;
+            }
+
+            .filters {
+                flex-direction: column;
+            }
+
+            .input,
+            .select {
+                width: 100%;
+                min-width: 0;
+            }
+
+            .status-row {
+                flex-direction: column;
+                align-items: flex-start;
+            }
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="header">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <div>
-                    <h1>WordCraft Pro - 后端监控</h1>
-                    <p>实时监控 Supabase 后端状态和数据</p>
-                </div>
-                <button class="button button-secondary" onclick="handleLogout()" style="color: white; background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3);">
-                    登出
-                </button>
-            </div>
-        </div>
-
-        <div class="grid">
-            <div class="card">
-                <h3>数据库状态</h3>
-                <div class="stat-item">
-                    <span class="stat-label">连接状态</span>
-                    <span class="stat-value success" id="dbStatus"><span class="status-indicator status-online"></span>在线</span>
-                </div>
-                <div class="stat-item">
-                    <span class="stat-label">用户数（profiles）</span>
-                    <span class="stat-value" id="dbUserCount">—</span>
-                </div>
-                <div class="stat-item">
-                    <span class="stat-label">文档数</span>
-                    <span class="stat-value" id="dbDocCount">—</span>
-                </div>
-                <div class="stat-item">
-                    <span class="stat-label">Token 日志数</span>
-                    <span class="stat-value" id="dbLogCount">—</span>
-                </div>
-            </div>
-
-            <div class="card">
-                <h3>Token 用量（今日）</h3>
-                <div class="stat-item">
-                    <span class="stat-label">今日消耗</span>
-                    <span class="stat-value" id="tokenToday">—</span>
-                </div>
-                <div class="stat-item">
-                    <span class="stat-label">今日活跃用户</span>
-                    <span class="stat-value success" id="tokenTodayUsers">—</span>
-                </div>
-                <div class="stat-item">
-                    <span class="stat-label">本周消耗</span>
-                    <span class="stat-value" id="tokenWeek">—</span>
-                </div>
-                <div class="stat-item">
-                    <span class="stat-label">本月消耗</span>
-                    <span class="stat-value" id="tokenMonth">—</span>
-                </div>
-            </div>
-
-            <div class="card">
-                <h3>用户统计</h3>
-                <div class="stat-item">
-                    <span class="stat-label">总用户数</span>
-                    <span class="stat-value" id="userTotal">—</span>
-                </div>
-                <div class="stat-item">
-                    <span class="stat-label">今日活跃</span>
-                    <span class="stat-value" id="userActiveToday">—</span>
-                </div>
-                <div class="stat-item">
-                    <span class="stat-label">本周活跃</span>
-                    <span class="stat-value" id="userActiveWeek">—</span>
-                </div>
-                <div class="stat-item">
-                    <span class="stat-label">新注册（今日）</span>
-                    <span class="stat-value" id="userNewToday">—</span>
-                </div>
-            </div>
-        </div>
-
-        <div class="section">
-            <h2>数据库表记录数</h2>
-            <div class="table-container">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>表名</th>
-                            <th>记录数</th>
-                            <th>状态</th>
-                        </tr>
-                    </thead>
-                    <tbody id="tableStatsBody">
-                        <tr><td colspan="3" style="text-align:center;color:#6c6c70;padding:20px">正在加载…</td></tr>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
-        <div class="section">
-            <h2>Token 使用日志（最近 50 条）</h2>
-            <div class="table-container">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>时间</th>
-                            <th>用户</th>
-                            <th>操作</th>
-                            <th>Token 消耗</th>
-                            <th>模型</th>
-                        </tr>
-                    </thead>
-                    <tbody id="logsTableBody">
-                        <tr><td colspan="5" style="text-align:center;color:#6c6c70;padding:20px">正在加载…</td></tr>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
-        <div class="section">
-            <h2>Supabase 连接信息</h2>
-            <div class="grid">
-                <div class="card">
-                    <h3>项目信息</h3>
-                    <div class="stat-item">
-                        <span class="stat-label">项目 ID</span>
-                        <span class="stat-value">nzujajuefdsheggulpze</span>
+    <div class="app-shell">
+        <header class="topbar">
+            <div class="topbar-inner">
+                <div class="identity-card">
+                    <div class="identity-path">WordCraft Pro / 管理后台</div>
+                    <div class="identity-main">
+                        <div class="identity-email" id="identityEmail">正在验证身份</div>
+                        <span class="badge" id="identityBadge">管理员</span>
                     </div>
-                    <div class="stat-item">
-                        <span class="stat-label">API URL</span>
-                        <span class="stat-value">https://nzujajuefdsheggulpze.supabase.co</span>
+                    <div class="refresh-meta" id="identityMeta">仅管理员可查看套餐、激活码和团队全局数据</div>
+                </div>
+                <div class="kpi-strip" id="kpiStrip">
+                    <div class="kpi-item">
+                        <div class="kpi-label">用户总数</div>
+                        <div class="kpi-value" id="kpiUsers">—</div>
+                        <div class="kpi-meta" id="kpiUsersMeta">等待加载</div>
                     </div>
-                    <div class="stat-item">
-                        <span class="stat-label">创建时间</span>
-                        <span class="stat-value">2026-04-15</span>
+                    <div class="kpi-item">
+                        <div class="kpi-label">近 7 天新增</div>
+                        <div class="kpi-value" id="kpiActiveToday">—</div>
+                        <div class="kpi-meta" id="kpiActiveMeta">等待加载</div>
+                    </div>
+                    <div class="kpi-item">
+                        <div class="kpi-label">本月 Token</div>
+                        <div class="kpi-value" id="kpiTokens">—</div>
+                        <div class="kpi-meta" id="kpiTokensMeta">等待加载</div>
+                    </div>
+                    <div class="kpi-item">
+                        <div class="kpi-label">付费占比</div>
+                        <div class="kpi-value" id="kpiPaidRate">—</div>
+                        <div class="kpi-meta" id="kpiPaidMeta">等待加载</div>
                     </div>
                 </div>
-                <div class="card">
-                    <h3>认证信息</h3>
-                    <div class="stat-item">
-                        <span class="stat-label">匿名密钥</span>
-                        <span class="stat-value">****************************************************************************************************************************************************************************************************************************</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">服务密钥</span>
-                        <span class="stat-value">****************************************************************************************************************************************************************************************************************************</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">JWT 密钥</span>
-                        <span class="stat-value">****************************************************************************************************************************************************************************************************************************</span>
+                <div class="topbar-actions">
+                    <div class="refresh-meta" id="refreshMeta">尚未刷新</div>
+                    <div class="toolbar">
+                        <button class="button button-dark" id="refreshAllBtn" type="button">刷新</button>
+                        <button class="button button-dark" id="logoutBtn" type="button">登出</button>
                     </div>
                 </div>
             </div>
-        </div>
+        </header>
 
-        <div class="footer">
-            <p>WordCraft Pro © 2026 | 后端监控面板</p>
-        </div>
+        <main class="page hidden" id="dashboardPage">
+            <div class="page-grid">
+                <section class="section-card">
+                    <div class="section-head">
+                        <div class="section-title">
+                            <div class="section-eyebrow">Section 1</div>
+                            <h2>套餐看板</h2>
+                            <p>查看套餐结构、开通来源和即将到期用户。</p>
+                        </div>
+                        <div class="section-tools">
+                            <button class="button button-ghost" type="button" data-refresh="overview">刷新本区</button>
+                        </div>
+                    </div>
+                    <div class="section-body" id="overviewSection"></div>
+                </section>
+
+                <section class="section-card">
+                    <div class="section-head">
+                        <div class="section-title">
+                            <div class="section-eyebrow">Section 2</div>
+                            <h2>用户列表</h2>
+                            <p>支持套餐、状态、来源和关键字筛选，点击行查看订阅与用量。</p>
+                        </div>
+                        <div class="section-tools">
+                            <button class="button button-ghost" type="button" data-refresh="users">刷新本区</button>
+                        </div>
+                    </div>
+                    <div class="section-body" id="usersSection"></div>
+                </section>
+
+                <section class="section-card">
+                    <div class="section-head">
+                        <div class="section-title">
+                            <div class="section-eyebrow">Section 3</div>
+                            <h2>激活码管理</h2>
+                            <p>管理套餐激活码，支持生成、查看兑换次数与订阅关联。</p>
+                        </div>
+                        <div class="section-tools">
+                            <button class="button button-primary" type="button" id="openActivationModalBtn">生成激活码</button>
+                            <button class="button button-ghost" type="button" data-refresh="codes">刷新本区</button>
+                        </div>
+                    </div>
+                    <div class="section-body" id="codesSection"></div>
+                </section>
+
+                <section class="section-card">
+                    <div class="section-head">
+                        <div class="section-title">
+                            <div class="section-eyebrow">Section 4</div>
+                            <h2>Token 与用量</h2>
+                            <p>近 30 天趋势、Top 用户，以及最近 token 日志筛选与导出。</p>
+                        </div>
+                        <div class="section-tools">
+                            <button class="button button-ghost" type="button" id="exportLogsBtn">导出 CSV</button>
+                            <button class="button button-ghost" type="button" data-refresh="tokens">刷新本区</button>
+                        </div>
+                    </div>
+                    <div class="section-body" id="tokensSection"></div>
+                </section>
+
+                <section class="section-card">
+                    <div class="section-head">
+                        <div class="section-title">
+                            <div class="section-eyebrow">Section 5</div>
+                            <h2>内容与团队</h2>
+                            <p>查看文档、模板总量以及团队席位使用情况。</p>
+                        </div>
+                        <div class="section-tools">
+                            <button class="button button-ghost" type="button" data-refresh="content">刷新本区</button>
+                        </div>
+                    </div>
+                    <div class="section-body" id="contentSection"></div>
+                </section>
+            </div>
+
+            <div class="status-row">
+                <div class="status-left">
+                    <span class="status-dot"></span>
+                    <span id="systemStatusText">连接尚未建立</span>
+                </div>
+                <div class="mono" id="systemStatusMeta">上次成功查询：—</div>
+            </div>
+        </main>
+
+        <main class="page" id="forbiddenPage">
+            <section class="section-card">
+                <div class="section-body">
+                    <div class="state-card forbidden-state">
+                        <div class="state-title">正在验证后台访问权限</div>
+                        <p>如当前账号不是管理员，页面会自动切换到受限提示。</p>
+                    </div>
+                </div>
+            </section>
+        </main>
     </div>
 
-    <button class="refresh-btn" onclick="refreshData()" title="刷新数据">🔄</button>
+    <div class="toast-wrap" id="toastWrap"></div>
+
+    <div class="drawer-backdrop" id="drawerBackdrop"></div>
+    <aside class="drawer" id="detailDrawer" aria-hidden="true">
+        <div class="drawer-head">
+            <div class="drawer-title">
+                <div class="section-eyebrow" id="drawerEyebrow">详情</div>
+                <h3 id="drawerTitle">载入中</h3>
+                <div class="subtle" id="drawerSubtitle">请稍候</div>
+            </div>
+            <button class="button button-ghost" type="button" id="closeDrawerBtn">关闭</button>
+        </div>
+        <div class="drawer-body" id="drawerBody"></div>
+    </aside>
+
+    <div class="modal-backdrop" id="modalBackdrop"></div>
+    <div class="modal" id="activationModal" aria-hidden="true">
+        <div class="modal-head">
+            <h3>生成激活码</h3>
+            <p class="subtle">创建后会立即写入 `activation_codes`，供普通用户兑换。</p>
+        </div>
+        <form id="activationForm">
+            <div class="modal-body">
+                <div class="form-grid">
+                    <div class="field">
+                        <label for="activationPlanTier">套餐</label>
+                        <select class="select" id="activationPlanTier" name="plan_tier">
+                            <option value="pro">专业版</option>
+                            <option value="team">团队版</option>
+                            <option value="enterprise">机构版</option>
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label for="activationDuration">有效天数</label>
+                        <input class="input" id="activationDuration" name="duration_days" type="number" min="1" max="3650" value="30">
+                    </div>
+                    <div class="field">
+                        <label for="activationMax">可兑换次数</label>
+                        <input class="input" id="activationMax" name="max_redemptions" type="number" min="1" max="999" value="1">
+                    </div>
+                    <div class="field">
+                        <label for="activationExpiresAt">过期时间（可选）</label>
+                        <input class="input" id="activationExpiresAt" name="expires_at" type="datetime-local">
+                    </div>
+                </div>
+                <div class="footer-note">激活码会自动生成 4 组分段格式，例如 `WCPR-AB12-CD34-EF56`。</div>
+            </div>
+            <div class="modal-foot">
+                <button class="button button-ghost" type="button" id="closeActivationModalBtn">取消</button>
+                <button class="button button-primary" type="submit" id="submitActivationBtn">立即生成</button>
+            </div>
+        </form>
+    </div>
 
     <script>
-        const sb = window.supabaseClient;
+        const SUPABASE_URL = "https://nzujajuefdsheggulpze.supabase.co";
+        const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im56dWphanVlZmRzaGVnZ3VscHplIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYyNDY0MDMsImV4cCI6MjA5MTgyMjQwM30.N3jsg3tIi6ezlmp_MvQYvbUo41SzR5kEBECawel5KDE";
+        const sb = window.supabase?.createClient ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 
-        // ── 工具函数 ──
-        function fmt(n) { return n == null ? '—' : Number(n).toLocaleString(); }
-        function fmtTime(iso) {
-            if (!iso) return '—';
-            const d = new Date(iso);
-            return d.toLocaleDateString('zh-CN') + ' ' + d.toLocaleTimeString('zh-CN', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+        const LABELS = {
+            plan_tier: { free: "免费版", pro: "专业版", team: "团队版", enterprise: "机构版" },
+            plan_status: { active: "生效中", expired: "已过期", canceled: "已取消", trial: "试用中" },
+            plan_source: { system: "系统默认", activation_code: "激活码", payment: "支付", admin: "管理员开通", manual: "手工开通" },
+            purpose: { ai_qa: "AI 深度检查", ai_parse: "AI 格式解析", deep_xref: "深度交叉引用", rule_check: "规则检查" },
+            team_role: { owner: "团队所有者", member: "成员" },
+            jwt_role: { admin: "管理员", authenticated: "普通用户", anon: "未登录" },
+        };
+
+        const state = {
+            session: null,
+            user: null,
+            role: "anon",
+            lastRefreshAt: null,
+            lastSuccessAt: null,
+            lastLatencyMs: null,
+            pollingTimer: null,
+            profiles: [],
+            profilesById: {},
+            latestUsageByUser: {},
+            activationCodes: [],
+            deletingCode: null,
+            tokenDaily: [],
+            tokenLogs: [],
+            tokenLogsTotal: 0,
+            teams: [],
+            teamMembers: [],
+            contentCounts: { documents: null, templates: null },
+            userStats: null,
+            userFilters: { tier: "", status: "", source: "", keyword: "" },
+            userSort: { key: "current_period_end", dir: "asc" },
+            codeSort: { key: "created_at", dir: "desc" },
+            tokenFilters: { start: "", end: "", model: "", keyword: "", pageSize: 50, page: 1 },
+            tokenSort: { key: "created_at", dir: "desc" },
+        };
+
+        function L(group, key) {
+            const mapped = LABELS[group]?.[key];
+            if (mapped == null) {
+                console.warn("[LABELS] missing", group, key);
+                return key ?? "—";
+            }
+            return mapped;
         }
-        function set(id, val) { const el = document.getElementById(id); if (el) el.textContent = val; }
 
-        // ── 数据加载 ──
-        async function loadDashboardData() {
-            const btn = document.querySelector('.refresh-btn');
-            btn.innerHTML = '<div class="loading"></div>';
+        function escapeHtml(value) {
+            return String(value ?? "")
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#39;");
+        }
+
+        function fmtNumber(value) {
+            if (value == null || Number.isNaN(Number(value))) return "—";
+            return Number(value).toLocaleString("zh-CN");
+        }
+
+        function fmtPercent(value) {
+            if (value == null || Number.isNaN(Number(value))) return "—";
+            return `${(Number(value) * 100).toFixed(1)}%`;
+        }
+
+        function fmtDateTime(iso) {
+            if (!iso) return "—";
+            const date = new Date(iso);
+            if (Number.isNaN(date.getTime())) return "—";
+            return date.toLocaleString("zh-CN", {
+                timeZone: "Asia/Shanghai",
+                year: "numeric",
+                month: "2-digit",
+                day: "2-digit",
+                hour: "2-digit",
+                minute: "2-digit",
+            });
+        }
+
+        function fmtDateOnly(iso) {
+            if (!iso) return "—";
+            const date = new Date(iso);
+            if (Number.isNaN(date.getTime())) return "—";
+            return date.toLocaleDateString("zh-CN", {
+                timeZone: "Asia/Shanghai",
+                year: "numeric",
+                month: "2-digit",
+                day: "2-digit",
+            });
+        }
+
+        function fmtRelativeTime(dateLike) {
+            if (!dateLike) return "尚未刷新";
+            const diffMs = Date.now() - new Date(dateLike).getTime();
+            const diffSec = Math.max(0, Math.round(diffMs / 1000));
+            if (diffSec < 60) return `${diffSec} 秒前`;
+            const diffMin = Math.round(diffSec / 60);
+            if (diffMin < 60) return `${diffMin} 分钟前`;
+            const diffHour = Math.round(diffMin / 60);
+            return `${diffHour} 小时前`;
+        }
+
+        function withUtcTitle(text, iso) {
+            const utc = iso ? new Date(iso).toISOString() : "";
+            return `<span class="mono" title="${escapeHtml(utc)}">${escapeHtml(text)}</span>`;
+        }
+
+        function getStatusPill(status) {
+            if (status === "active" || status === "trial") return "pill active";
+            if (status === "expired" || status === "canceled") return "pill red";
+            return "pill";
+        }
+
+        function getSourcePill(source) {
+            if (source === "activation_code") return "pill orange";
+            if (source === "payment" || source === "admin" || source === "manual") return "pill green";
+            return "pill";
+        }
+
+        function getForbiddenHint(sectionName) {
+            return `${sectionName} 当前返回了权限不足。请确认已应用 Batch 19 的 admin RLS 迁移。`;
+        }
+
+        function aggregateTokenDaily(rows) {
+            const grouped = new Map();
+            for (const row of rows || []) {
+                const key = row.stat_date || row.date;
+                if (!key) continue;
+                const current = grouped.get(key) || {
+                    stat_date: key,
+                    total_tokens: 0,
+                    total_requests: 0,
+                    active_users: 0,
+                };
+                current.total_tokens += Number(row.total_tokens || 0);
+                current.total_requests += Number(row.total_requests || 0);
+                current.active_users = Math.max(current.active_users, Number(row.active_users || row.user_count || 0));
+                grouped.set(key, current);
+            }
+            return Array.from(grouped.values()).sort((a, b) => String(a.stat_date).localeCompare(String(b.stat_date)));
+        }
+
+        function inferSectionErrorType(error) {
+            const message = `${error?.message || ""} ${error?.details || ""} ${error?.hint || ""}`.toLowerCase();
+            if (error?.code === "42501" || message.includes("permission") || message.includes("row-level security")) {
+                return "forbidden";
+            }
+            return "error";
+        }
+
+        function daysUntil(iso) {
+            if (!iso) return null;
+            const target = new Date(iso);
+            if (Number.isNaN(target.getTime())) return null;
+            const diff = target.getTime() - Date.now();
+            return Math.ceil(diff / 86400000);
+        }
+
+        function buildSortIndicator(current, key) {
+            if (current.key !== key) return "<span class=\"sort-indicator\">↕</span>";
+            return `<span class="sort-indicator">${current.dir === "asc" ? "↑" : "↓"}</span>`;
+        }
+
+        function compareValues(a, b, dir) {
+            const av = a ?? "";
+            const bv = b ?? "";
+            if (typeof av === "number" && typeof bv === "number") {
+                return dir === "asc" ? av - bv : bv - av;
+            }
+            const an = new Date(av).getTime();
+            const bn = new Date(bv).getTime();
+            if (!Number.isNaN(an) && !Number.isNaN(bn)) {
+                return dir === "asc" ? an - bn : bn - an;
+            }
+            return dir === "asc"
+                ? String(av).localeCompare(String(bv), "zh-CN")
+                : String(bv).localeCompare(String(av), "zh-CN");
+        }
+
+        function setTableOverflowHint(container) {
+            if (!container) return;
+            const shell = container.closest(".table-shell");
+            if (!shell) return;
+            shell.classList.toggle("has-overflow", container.scrollWidth > container.clientWidth + 6);
+        }
+
+        function toast(message, type = "info") {
+            const wrap = document.getElementById("toastWrap");
+            const el = document.createElement("div");
+            el.className = `toast ${type}`;
+            el.textContent = message;
+            wrap.appendChild(el);
+            setTimeout(() => {
+                el.style.opacity = "0";
+                el.style.transform = "translateY(-4px)";
+                setTimeout(() => el.remove(), 180);
+            }, 2400);
+        }
+
+        function setSectionLoading(sectionId) {
+            document.getElementById(sectionId).innerHTML = `
+                <div class="skeleton">
+                    <div class="skeleton-row">
+                        <div class="skeleton-line short"></div>
+                        <div class="skeleton-line long"></div>
+                    </div>
+                    <div class="skeleton-row">
+                        <div class="skeleton-line mid"></div>
+                        <div class="skeleton-line long"></div>
+                    </div>
+                    <div class="skeleton-row">
+                        <div class="skeleton-line short"></div>
+                        <div class="skeleton-line long"></div>
+                    </div>
+                    <div class="skeleton-row">
+                        <div class="skeleton-line mid"></div>
+                        <div class="skeleton-line long"></div>
+                    </div>
+                    <div class="skeleton-row">
+                        <div class="skeleton-line short"></div>
+                        <div class="skeleton-line long"></div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderEmptyState(sectionId, title, body, actionHtml = "") {
+            document.getElementById(sectionId).innerHTML = `
+                <div class="state-card empty-state">
+                    <div class="state-title">${escapeHtml(title)}</div>
+                    <p>${escapeHtml(body)}</p>
+                    ${actionHtml}
+                </div>
+            `;
+        }
+
+        function renderForbiddenState(sectionId, title, body) {
+            document.getElementById(sectionId).innerHTML = `
+                <div class="state-card forbidden-state">
+                    <div class="state-title">${escapeHtml(title)}</div>
+                    <p>${escapeHtml(body)}</p>
+                    <div class="toolbar">
+                        <button class="button button-ghost" type="button" onclick="handleLogout()">登出</button>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderErrorState(sectionId, title, body, refreshKey) {
+            document.getElementById(sectionId).innerHTML = `
+                <div class="state-card error-state">
+                    <div class="state-title">${escapeHtml(title)}</div>
+                    <p>${escapeHtml(body)}</p>
+                    <div class="toolbar">
+                        <button class="button button-ghost" type="button" data-refresh="${escapeHtml(refreshKey)}">重试</button>
+                    </div>
+                </div>
+            `;
+            bindRefreshButtons();
+        }
+
+        function randomCode() {
+            const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+            const makeChunk = () => Array.from({ length: 4 }, () => alphabet[Math.floor(Math.random() * alphabet.length)]).join("");
+            return `WCPR-${makeChunk()}-${makeChunk()}-${makeChunk()}`;
+        }
+
+        function computeLatestUsage(rows) {
+            const latest = {};
+            for (const row of rows || []) {
+                const current = latest[row.user_id];
+                if (!current || String(row.period_key) > String(current.period_key)) {
+                    latest[row.user_id] = row;
+                }
+            }
+            return latest;
+        }
+
+        function getUserEmail(userId) {
+            return state.profilesById[userId]?.email || `${String(userId || "").slice(0, 8)}…`;
+        }
+
+        function syncRefreshMeta() {
+            const meta = document.getElementById("refreshMeta");
+            const status = document.getElementById("systemStatusMeta");
+            const latencyText = state.lastLatencyMs == null ? "延迟：—" : `延迟：${Math.round(state.lastLatencyMs)}ms`;
+            const timeText = state.lastSuccessAt ? `上次成功查询：${fmtDateTime(state.lastSuccessAt)}` : "上次成功查询：—";
+            meta.textContent = state.lastRefreshAt
+                ? `上次刷新于 ${fmtRelativeTime(state.lastRefreshAt)}`
+                : "尚未刷新";
+            status.textContent = `${timeText} · ${latencyText}`;
+        }
+
+        function setSystemStatus(text, ok = true) {
+            document.getElementById("systemStatusText").textContent = text;
+            document.querySelector(".status-dot").style.background = ok ? "var(--green)" : "var(--orange)";
+        }
+
+        async function checkSessionAndBoot() {
+            if (!sb) {
+                renderForbiddenScreen({ email: "未初始化", role: "anon", message: "Supabase 客户端初始化失败，无法进入管理后台。" });
+                return;
+            }
             try {
-                await Promise.all([
-                    loadTableCounts(),
-                    loadUserStats(),
-                    loadTokenStats(),
-                    loadLogs(),
+                const { data, error } = await sb.auth.getSession();
+                if (error) throw error;
+                if (!data.session) {
+                    window.location.href = "wordcraft_landing.html";
+                    return;
+                }
+
+                state.session = data.session;
+                state.user = data.session.user;
+                state.role = data.session.user?.app_metadata?.role || data.session.user?.user_metadata?.role || "authenticated";
+
+                if (state.role !== "admin") {
+                    renderForbiddenScreen({
+                        email: data.session.user?.email || "未知账号",
+                        role: state.role,
+                        message: "当前账号没有管理员权限，系统不会继续发起任何 admin 全局查询。",
+                    });
+                    return;
+                }
+
+                document.getElementById("identityEmail").textContent = data.session.user?.email || "admin@wordcraft.com";
+                document.getElementById("identityBadge").textContent = L("jwt_role", state.role);
+                document.getElementById("identityMeta").textContent = "可查看套餐分布、激活码与全局 Token 趋势；团队闭环将在 17B 接入";
+                document.getElementById("forbiddenPage").classList.add("hidden");
+                document.getElementById("dashboardPage").classList.remove("hidden");
+                document.body.dataset.role = "admin";
+                await loadAllSections();
+                startPolling();
+            } catch (error) {
+                console.error("Session check failed:", error);
+                window.location.href = "wordcraft_landing.html";
+            }
+        }
+
+        function renderForbiddenScreen({ email, role, message }) {
+            const page = document.getElementById("forbiddenPage");
+            page.innerHTML = `
+                <section class="section-card">
+                    <div class="section-body">
+                        <div class="state-card forbidden-state">
+                            <div class="state-title">非管理员账号</div>
+                            <p>${escapeHtml(message || "当前会话不具备管理员权限。")}</p>
+                            <p>账号：${escapeHtml(email || "未知")} · 角色：${escapeHtml(L("jwt_role", role || "authenticated"))}</p>
+                            <div class="toolbar">
+                                <button class="button button-primary" type="button" onclick="window.location.href='wordcraft_landing.html'">返回主站</button>
+                                <button class="button button-ghost" type="button" onclick="handleLogout()">登出</button>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            `;
+            document.getElementById("dashboardPage").classList.add("hidden");
+            page.classList.remove("hidden");
+        }
+
+        async function measureLatency() {
+            const start = performance.now();
+            const { error } = await sb.from("admin_user_stats").select("total_users").limit(1);
+            if (error) throw error;
+            state.lastLatencyMs = performance.now() - start;
+        }
+
+        async function loadAllSections() {
+            document.getElementById("refreshAllBtn").disabled = true;
+            state.lastRefreshAt = new Date().toISOString();
+            syncRefreshMeta();
+            setSystemStatus("正在刷新管理后台数据…", true);
+            await Promise.all([
+                loadOverviewSection(),
+                loadUsersSection(),
+                loadCodesSection(),
+                loadTokensSection(),
+                loadContentSection(),
+            ]);
+            try {
+                await measureLatency();
+            } catch (error) {
+                console.warn("Latency check failed:", error);
+            }
+            state.lastSuccessAt = new Date().toISOString();
+            syncRefreshMeta();
+            setSystemStatus("连接正常，管理数据已同步。", true);
+            document.getElementById("refreshAllBtn").disabled = false;
+        }
+
+        async function loadOverviewSection() {
+            const sectionId = "overviewSection";
+            setSectionLoading(sectionId);
+            try {
+                const [statsRes, profilesRes, tokenRes] = await Promise.all([
+                    sb.from("admin_user_stats").select("total_users,new_users_7d,new_users_30d,total_tokens_used").single(),
+                    sb.from("profiles").select("id,email,plan_tier,plan_status,plan_source,current_period_end,created_at"),
+                    sb.from("admin_token_daily_stats").select("date,total_tokens,total_requests,active_users,purpose").order("date", { ascending: false }).limit(90),
                 ]);
-                showToast('数据已刷新');
-            } catch (e) {
-                console.error('加载失败:', e);
-                showToast('部分数据加载失败');
+                if (statsRes.error) throw statsRes.error;
+                if (profilesRes.error) throw profilesRes.error;
+                if (tokenRes.error) throw tokenRes.error;
+
+                state.userStats = statsRes.data;
+                state.profiles = profilesRes.data || [];
+                state.profilesById = Object.fromEntries(state.profiles.map((item) => [item.id, item]));
+                state.tokenDaily = aggregateTokenDaily(tokenRes.data || []);
+
+                const countsByTier = { free: 0, pro: 0, team: 0, enterprise: 0 };
+                const countsBySource = { system: 0, activation_code: 0, payment: 0, admin: 0, manual: 0 };
+                const expiring = [];
+                for (const profile of state.profiles) {
+                    countsByTier[profile.plan_tier] = (countsByTier[profile.plan_tier] || 0) + 1;
+                    countsBySource[profile.plan_source] = (countsBySource[profile.plan_source] || 0) + 1;
+                    const daysLeft = daysUntil(profile.current_period_end);
+                    if (daysLeft != null && daysLeft >= 0 && daysLeft <= 7) {
+                        expiring.push({ ...profile, daysLeft });
+                    }
+                }
+                expiring.sort((a, b) => a.daysLeft - b.daysLeft);
+                const totalUsers = state.profiles.length;
+                const paidUsers = state.profiles.filter((item) => item.plan_tier && item.plan_tier !== "free").length;
+                const monthlyTokens = state.tokenDaily.reduce((sum, row) => sum + Number(row.total_tokens || 0), 0);
+
+                document.getElementById("kpiUsers").textContent = fmtNumber(state.userStats.total_users);
+                document.getElementById("kpiUsersMeta").textContent = `近 30 天新增 ${fmtNumber(state.userStats.new_users_30d)}`;
+                document.getElementById("kpiActiveToday").textContent = fmtNumber(state.userStats.new_users_7d);
+                document.getElementById("kpiActiveMeta").textContent = `总用户 ${fmtNumber(state.userStats.total_users)}`;
+                document.getElementById("kpiTokens").textContent = fmtNumber(monthlyTokens);
+                document.getElementById("kpiTokensMeta").textContent = `近 30 天累计`;
+                document.getElementById("kpiPaidRate").textContent = fmtPercent(totalUsers ? paidUsers / totalUsers : 0);
+                document.getElementById("kpiPaidMeta").textContent = `${fmtNumber(paidUsers)} / ${fmtNumber(totalUsers)} 账号`;
+
+                const tierSegments = Object.entries(countsByTier)
+                    .map(([key, value]) => {
+                        const width = totalUsers ? (value / totalUsers) * 100 : 0;
+                        return `<span class="bar-segment ${escapeHtml(key)}" style="width:${width}%"></span>`;
+                    })
+                    .join("");
+
+                const tierLegend = Object.entries(countsByTier)
+                    .map(([key, value]) => `
+                        <div class="metric-row">
+                            <span>${escapeHtml(L("plan_tier", key))}</span>
+                            <span class="mono">${fmtNumber(value)}</span>
+                        </div>
+                    `)
+                    .join("");
+
+                const sourceTotal = Object.values(countsBySource).reduce((sum, value) => sum + value, 0);
+                const sourceLegend = Object.entries(countsBySource)
+                    .filter(([, value]) => value > 0)
+                    .map(([key, value]) => {
+                        const width = sourceTotal ? (value / sourceTotal) * 100 : 0;
+                        return `
+                            <div class="stack">
+                                <div class="metric-row">
+                                    <span>${escapeHtml(L("plan_source", key))}</span>
+                                    <span class="mono">${fmtNumber(value)}</span>
+                                </div>
+                                <div class="bar-track">
+                                    <span class="bar-segment ${escapeHtml(key)}" style="width:${width}%"></span>
+                                </div>
+                            </div>
+                        `;
+                    })
+                    .join("");
+
+                const expiringList = expiring.length
+                    ? `
+                        <ul class="list-tight">
+                            ${expiring.slice(0, 10).map((item) => `
+                                <li>
+                                    <div>
+                                        <div>${escapeHtml(item.email || "未命名账号")}</div>
+                                        <div class="subtle">${escapeHtml(L("plan_tier", item.plan_tier))}</div>
+                                    </div>
+                                    <div class="mono">${item.daysLeft === 0 ? "今天到期" : `${item.daysLeft} 天`}</div>
+                                </li>
+                            `).join("")}
+                        </ul>
+                    `
+                    : `<div class="subtle">未来 7 天内没有即将到期的账号。</div>`;
+
+                document.getElementById(sectionId).innerHTML = `
+                    <div class="metrics-grid">
+                        <div class="subpanel stack">
+                            <div>
+                                <h3>套餐分布</h3>
+                                <div class="bar-track tall">${tierSegments}</div>
+                            </div>
+                            <div class="row-gap">${tierLegend}</div>
+                        </div>
+                        <div class="subpanel stack">
+                            <div>
+                                <h3>最近 7 天到期</h3>
+                                <div class="metric-row">
+                                    <span>即将到期账号</span>
+                                    <span class="mono">${fmtNumber(expiring.length)}</span>
+                                </div>
+                            </div>
+                            ${expiringList}
+                        </div>
+                    </div>
+                    <div style="height:16px"></div>
+                    <div class="subpanel stack">
+                        <h3>开通来源</h3>
+                        ${sourceLegend || '<div class="subtle">暂无来源数据。</div>'}
+                    </div>
+                `;
+            } catch (error) {
+                console.error("Overview load failed:", error);
+                const type = inferSectionErrorType(error);
+                if (type === "forbidden") {
+                    renderForbiddenState(sectionId, "套餐看板无权限", getForbiddenHint("套餐看板"));
+                } else {
+                    renderErrorState(sectionId, "套餐看板加载失败", error.message || "请稍后重试。", "overview");
+                }
+            }
+        }
+
+        async function loadUsersSection() {
+            const sectionId = "usersSection";
+            setSectionLoading(sectionId);
+            try {
+                const [profilesRes, usageRes] = await Promise.all([
+                    sb.from("profiles").select("id,email,plan_tier,plan_status,plan_source,current_period_end,created_at,updated_at,team_id"),
+                    sb.from("usage_counters").select("user_id,period_key,day_key,ai_qa_used,ai_parse_used,rule_check_used_today,updated_at"),
+                ]);
+                if (profilesRes.error) throw profilesRes.error;
+                if (usageRes.error) throw usageRes.error;
+
+                state.profiles = profilesRes.data || [];
+                state.profilesById = Object.fromEntries(state.profiles.map((item) => [item.id, item]));
+                state.latestUsageByUser = computeLatestUsage(usageRes.data || []);
+                renderUsersSection();
+            } catch (error) {
+                console.error("Users load failed:", error);
+                const type = inferSectionErrorType(error);
+                if (type === "forbidden") {
+                    renderForbiddenState(sectionId, "用户列表无权限", getForbiddenHint("用户列表"));
+                } else {
+                    renderErrorState(sectionId, "用户列表加载失败", error.message || "请稍后重试。", "users");
+                }
+            }
+        }
+
+        function getFilteredUsers() {
+            let rows = state.profiles.map((profile) => {
+                const usage = state.latestUsageByUser[profile.id] || null;
+                const totalUsage = Number(usage?.ai_qa_used || 0) + Number(usage?.ai_parse_used || 0);
+                const lastActive = usage?.updated_at || profile.updated_at || profile.created_at;
+                return {
+                    ...profile,
+                    usage,
+                    totalUsage,
+                    lastActive,
+                    daysLeft: daysUntil(profile.current_period_end),
+                };
+            });
+
+            if (state.userFilters.tier) rows = rows.filter((item) => item.plan_tier === state.userFilters.tier);
+            if (state.userFilters.status) rows = rows.filter((item) => item.plan_status === state.userFilters.status);
+            if (state.userFilters.source) rows = rows.filter((item) => item.plan_source === state.userFilters.source);
+            if (state.userFilters.keyword) {
+                const keyword = state.userFilters.keyword.trim().toLowerCase();
+                rows = rows.filter((item) =>
+                    String(item.email || "").toLowerCase().includes(keyword) ||
+                    String(item.id || "").toLowerCase().includes(keyword)
+                );
+            }
+
+            rows.sort((a, b) => compareValues(a[state.userSort.key], b[state.userSort.key], state.userSort.dir));
+            return rows;
+        }
+
+        function renderUsersSection() {
+            const sectionId = "usersSection";
+            const rows = getFilteredUsers();
+            if (!rows.length) {
+                renderEmptyState(
+                    sectionId,
+                    "没有符合条件的用户",
+                    "可以调整套餐、状态或关键字筛选条件后再试。"
+                );
+                bindUsersControls();
+                return;
+            }
+
+            document.getElementById(sectionId).innerHTML = `
+                <div class="filters">
+                    <select class="select" id="userTierFilter">
+                        <option value="">全部套餐</option>
+                        <option value="free">免费版</option>
+                        <option value="pro">专业版</option>
+                        <option value="team">团队版</option>
+                        <option value="enterprise">机构版</option>
+                    </select>
+                    <select class="select" id="userStatusFilter">
+                        <option value="">全部状态</option>
+                        <option value="active">生效中</option>
+                        <option value="trial">试用中</option>
+                        <option value="expired">已过期</option>
+                        <option value="canceled">已取消</option>
+                    </select>
+                    <select class="select" id="userSourceFilter">
+                        <option value="">全部来源</option>
+                        <option value="system">系统默认</option>
+                        <option value="activation_code">激活码</option>
+                        <option value="payment">支付</option>
+                        <option value="admin">管理员开通</option>
+                        <option value="manual">手工开通</option>
+                    </select>
+                    <input class="input" id="userKeywordFilter" placeholder="搜邮箱或用户 ID" value="${escapeHtml(state.userFilters.keyword)}">
+                </div>
+                <div class="table-shell">
+                    <div class="table-scroll" id="usersTableScroll">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th><button class="sort-button" type="button" data-user-sort="email">邮箱 ${buildSortIndicator(state.userSort, "email")}</button></th>
+                                    <th><button class="sort-button" type="button" data-user-sort="plan_tier">套餐 ${buildSortIndicator(state.userSort, "plan_tier")}</button></th>
+                                    <th><button class="sort-button" type="button" data-user-sort="plan_status">状态 ${buildSortIndicator(state.userSort, "plan_status")}</button></th>
+                                    <th><button class="sort-button" type="button" data-user-sort="current_period_end">剩余天数 ${buildSortIndicator(state.userSort, "current_period_end")}</button></th>
+                                    <th><button class="sort-button" type="button" data-user-sort="totalUsage">本月 AI 用量 ${buildSortIndicator(state.userSort, "totalUsage")}</button></th>
+                                    <th><button class="sort-button" type="button" data-user-sort="lastActive">最后活跃 ${buildSortIndicator(state.userSort, "lastActive")}</button></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${rows.map((item) => `
+                                    <tr class="click-row" data-user-id="${escapeHtml(item.id)}">
+                                        <td>
+                                            <div>${escapeHtml(item.email || "未绑定邮箱")}</div>
+                                            <div class="subtle mono">${escapeHtml(String(item.id).slice(0, 8))}…</div>
+                                        </td>
+                                        <td><span class="pill">${escapeHtml(L("plan_tier", item.plan_tier))}</span></td>
+                                        <td><span class="${getStatusPill(item.plan_status)}">${escapeHtml(L("plan_status", item.plan_status))}</span></td>
+                                        <td class="mono">${item.daysLeft == null ? "—" : item.daysLeft < 0 ? "已过期" : `${item.daysLeft} 天`}</td>
+                                        <td class="mono">${fmtNumber(item.totalUsage)}</td>
+                                        <td>${withUtcTitle(fmtDateTime(item.lastActive), item.lastActive)}</td>
+                                    </tr>
+                                `).join("")}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+
+            bindUsersControls();
+            const scroll = document.getElementById("usersTableScroll");
+            setTableOverflowHint(scroll);
+            scroll.addEventListener("scroll", () => setTableOverflowHint(scroll));
+        }
+
+        function bindUsersControls() {
+            const tier = document.getElementById("userTierFilter");
+            const status = document.getElementById("userStatusFilter");
+            const source = document.getElementById("userSourceFilter");
+            const keyword = document.getElementById("userKeywordFilter");
+            if (tier) tier.value = state.userFilters.tier;
+            if (status) status.value = state.userFilters.status;
+            if (source) source.value = state.userFilters.source;
+
+            [tier, status, source].forEach((el) => {
+                if (!el) return;
+                el.onchange = () => {
+                    state.userFilters = {
+                        ...state.userFilters,
+                        tier: tier.value,
+                        status: status.value,
+                        source: source.value,
+                    };
+                    renderUsersSection();
+                };
+            });
+
+            if (keyword) {
+                keyword.oninput = () => {
+                    state.userFilters.keyword = keyword.value;
+                    renderUsersSection();
+                };
+            }
+
+            document.querySelectorAll("[data-user-sort]").forEach((btn) => {
+                btn.onclick = () => {
+                    const key = btn.dataset.userSort;
+                    state.userSort = {
+                        key,
+                        dir: state.userSort.key === key && state.userSort.dir === "asc" ? "desc" : "asc",
+                    };
+                    renderUsersSection();
+                };
+            });
+
+            document.querySelectorAll("[data-user-id]").forEach((row) => {
+                row.onclick = () => openUserDrawer(row.dataset.userId);
+            });
+        }
+
+        async function openUserDrawer(userId) {
+            openDrawer("用户详情", getUserEmail(userId), "订阅历史与最近用量");
+            document.getElementById("drawerEyebrow").textContent = "User";
+            document.getElementById("drawerBody").innerHTML = `
+                <div class="skeleton">
+                    <div class="skeleton-line short"></div>
+                    <div class="skeleton-line long"></div>
+                    <div class="skeleton-line mid"></div>
+                </div>
+            `;
+            try {
+                const [subsRes, usageRes] = await Promise.all([
+                    sb.from("subscriptions")
+                        .select("plan_tier,status,source,started_at,ended_at,external_order_id,meta")
+                        .eq("user_id", userId)
+                        .order("started_at", { ascending: false }),
+                    sb.from("usage_counters")
+                        .select("period_key,day_key,ai_qa_used,ai_parse_used,rule_check_used_today,updated_at")
+                        .eq("user_id", userId)
+                        .order("period_key", { ascending: false })
+                        .limit(6),
+                ]);
+                if (subsRes.error) throw subsRes.error;
+                if (usageRes.error) throw usageRes.error;
+
+                const timeline = (subsRes.data || []).length
+                    ? `
+                        <div class="subpanel">
+                            <h3>订阅时间轴</h3>
+                            <div class="timeline">
+                                ${(subsRes.data || []).map((item) => `
+                                    <div class="timeline-item">
+                                        <div><strong>${escapeHtml(L("plan_tier", item.plan_tier))}</strong> · ${escapeHtml(L("plan_status", item.status))}</div>
+                                        <div class="subtle">${escapeHtml(L("plan_source", item.source))}</div>
+                                        <div class="subtle">${escapeHtml(fmtDateTime(item.started_at))} → ${escapeHtml(fmtDateTime(item.ended_at))}</div>
+                                        <div class="subtle">订单：${escapeHtml(item.external_order_id || "无")}</div>
+                                    </div>
+                                `).join("")}
+                            </div>
+                        </div>
+                    `
+                    : `
+                        <div class="subpanel">
+                            <h3>订阅时间轴</h3>
+                            <div class="subtle">暂无订阅记录。</div>
+                        </div>
+                    `;
+
+                const usageHtml = (usageRes.data || []).length
+                    ? `
+                        <div class="subpanel">
+                            <h3>最近 6 个周期用量</h3>
+                            <ul class="list-tight">
+                                ${(usageRes.data || []).map((item) => `
+                                    <li>
+                                        <div>
+                                            <div>周期 ${escapeHtml(item.period_key || "—")}</div>
+                                            <div class="subtle">规则检查 ${fmtNumber(item.rule_check_used_today)}</div>
+                                        </div>
+                                        <div class="mono">QA ${fmtNumber(item.ai_qa_used)} / 解析 ${fmtNumber(item.ai_parse_used)}</div>
+                                    </li>
+                                `).join("")}
+                            </ul>
+                        </div>
+                    `
+                    : `
+                        <div class="subpanel">
+                            <h3>最近 6 个周期用量</h3>
+                            <div class="subtle">暂无用量数据。</div>
+                        </div>
+                    `;
+
+                document.getElementById("drawerBody").innerHTML = `${timeline}${usageHtml}`;
+            } catch (error) {
+                console.error("Open user drawer failed:", error);
+                document.getElementById("drawerBody").innerHTML = `
+                    <div class="state-card error-state">
+                        <div class="state-title">用户详情加载失败</div>
+                        <p>${escapeHtml(error.message || "请稍后重试。")}</p>
+                    </div>
+                `;
+            }
+        }
+
+        async function loadCodesSection() {
+            const sectionId = "codesSection";
+            setSectionLoading(sectionId);
+            try {
+                const { data, error } = await sb
+                    .from("activation_codes")
+                    .select("code,plan_tier,duration_days,max_redemptions,redeemed_count,expires_at,created_at,created_by")
+                    .order("created_at", { ascending: false });
+                if (error) throw error;
+                state.activationCodes = data || [];
+                renderCodesSection();
+            } catch (error) {
+                console.error("Codes load failed:", error);
+                const type = inferSectionErrorType(error);
+                if (type === "forbidden") {
+                    renderForbiddenState(sectionId, "激活码列表无权限", getForbiddenHint("激活码列表"));
+                } else {
+                    renderErrorState(sectionId, "激活码加载失败", error.message || "请稍后重试。", "codes");
+                }
+            }
+        }
+
+        function getSortedCodes() {
+            const rows = [...state.activationCodes];
+            rows.sort((a, b) => compareValues(a[state.codeSort.key], b[state.codeSort.key], state.codeSort.dir));
+            return rows;
+        }
+
+        function renderCodesSection() {
+            const sectionId = "codesSection";
+            const rows = getSortedCodes();
+            if (!rows.length) {
+                renderEmptyState(
+                    sectionId,
+                    "还没有激活码",
+                    "可以直接从这里创建第一批运营激活码。",
+                    '<button class="button button-primary" type="button" id="emptyCreateCodeBtn">生成激活码</button>'
+                );
+                document.getElementById("emptyCreateCodeBtn").onclick = openActivationModal;
+                return;
+            }
+
+            document.getElementById(sectionId).innerHTML = `
+                <div class="table-shell">
+                    <div class="table-scroll" id="codesTableScroll">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th><button class="sort-button" type="button" data-code-sort="code">激活码 ${buildSortIndicator(state.codeSort, "code")}</button></th>
+                                    <th><button class="sort-button" type="button" data-code-sort="plan_tier">套餐 ${buildSortIndicator(state.codeSort, "plan_tier")}</button></th>
+                                    <th><button class="sort-button" type="button" data-code-sort="duration_days">时长 ${buildSortIndicator(state.codeSort, "duration_days")}</button></th>
+                                    <th><button class="sort-button" type="button" data-code-sort="redeemed_count">兑换 ${buildSortIndicator(state.codeSort, "redeemed_count")}</button></th>
+                                    <th><button class="sort-button" type="button" data-code-sort="expires_at">到期 ${buildSortIndicator(state.codeSort, "expires_at")}</button></th>
+                                    <th><button class="sort-button" type="button" data-code-sort="created_at">创建时间 ${buildSortIndicator(state.codeSort, "created_at")}</button></th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${rows.map((item) => `
+                                    <tr class="click-row" data-code-id="${escapeHtml(item.code)}">
+                                        <td class="mono">${escapeHtml(item.code)}</td>
+                                        <td><span class="pill">${escapeHtml(L("plan_tier", item.plan_tier))}</span></td>
+                                        <td class="mono">${fmtNumber(item.duration_days)} 天</td>
+                                        <td class="mono">${fmtNumber(item.redeemed_count)} / ${fmtNumber(item.max_redemptions)}</td>
+                                        <td>${withUtcTitle(fmtDateTime(item.expires_at), item.expires_at)}</td>
+                                        <td>${withUtcTitle(fmtDateTime(item.created_at), item.created_at)}</td>
+                                        <td>
+                                            ${Number(item.redeemed_count || 0) === 0 ? `
+                                                <button
+                                                    class="button button-danger"
+                                                    type="button"
+                                                    data-delete-code="${escapeHtml(item.code)}"
+                                                    ${state.deletingCode === item.code ? "disabled" : ""}
+                                                >${state.deletingCode === item.code ? "删除中..." : "删除"}</button>
+                                            ` : '<span class="subtle">已兑换</span>'}
+                                        </td>
+                                    </tr>
+                                `).join("")}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+
+            document.querySelectorAll("[data-code-sort]").forEach((btn) => {
+                btn.onclick = () => {
+                    const key = btn.dataset.codeSort;
+                    state.codeSort = {
+                        key,
+                        dir: state.codeSort.key === key && state.codeSort.dir === "asc" ? "desc" : "asc",
+                    };
+                    renderCodesSection();
+                };
+            });
+
+            document.querySelectorAll("[data-code-id]").forEach((row) => {
+                row.onclick = () => openActivationDrawer(row.dataset.codeId);
+            });
+
+            document.querySelectorAll("[data-delete-code]").forEach((btn) => {
+                btn.onclick = (event) => {
+                    event.stopPropagation();
+                    deleteActivationCode(btn.dataset.deleteCode);
+                };
+            });
+
+            const scroll = document.getElementById("codesTableScroll");
+            setTableOverflowHint(scroll);
+            scroll.addEventListener("scroll", () => setTableOverflowHint(scroll));
+        }
+
+        async function deleteActivationCode(code) {
+            const target = state.activationCodes.find((item) => item.code === code);
+            if (!target) {
+                toast("未找到要删除的激活码。", "error");
+                return;
+            }
+            if (Number(target.redeemed_count || 0) > 0) {
+                toast("已兑换的激活码不能删除。", "error");
+                return;
+            }
+            if (!confirm(`确定删除激活码 ${code} 吗？未兑换码删除后不可恢复。`)) return;
+
+            state.deletingCode = code;
+            renderCodesSection();
+            try {
+                const { error } = await sb
+                    .from("activation_codes")
+                    .delete()
+                    .eq("code", code)
+                    .eq("redeemed_count", 0);
+                if (error) throw error;
+                state.activationCodes = state.activationCodes.filter((item) => item.code !== code);
+                renderCodesSection();
+                toast(`激活码已删除：${code}`, "success");
+                if (document.getElementById("drawerTitle").textContent === "激活码详情") {
+                    closeDrawer();
+                }
+            } catch (error) {
+                console.error("Delete activation code failed:", error);
+                toast(`删除失败：${error.message || "未知错误"}`, "error");
             } finally {
-                btn.innerHTML = '🔄';
+                state.deletingCode = null;
+                renderCodesSection();
             }
         }
 
-        async function loadTableCounts() {
-            const tables = [
-                { name: 'profiles', label: '用户（profiles）', idCount: 'dbUserCount' },
-                { name: 'documents', label: '文档（documents）', idCount: 'dbDocCount' },
-                { name: 'templates', label: '模板（templates）' },
-                { name: 'token_logs', label: 'Token 日志（token_logs）', idCount: 'dbLogCount' },
-                { name: 'user_settings', label: '用户设置（user_settings）' },
-            ];
-            const rows = [];
-            for (const t of tables) {
-                try {
-                    const { count, error } = await sb.from(t.name).select('*', { count: 'exact', head: true });
-                    const c = error ? '—' : count;
-                    if (t.idCount) set(t.idCount, fmt(c));
-                    rows.push(`<tr><td>${t.label}</td><td>${fmt(c)}</td><td><span class="status-indicator status-online"></span>正常</td></tr>`);
-                } catch {
-                    rows.push(`<tr><td>${t.label}</td><td>—</td><td><span class="status-indicator status-warning"></span>查询失败</td></tr>`);
-                }
-            }
-            document.getElementById('tableStatsBody').innerHTML = rows.join('');
-        }
-
-        async function loadUserStats() {
-            // 尝试 admin_user_stats 视图
+        async function openActivationDrawer(code) {
+            openDrawer("激活码详情", code, "查看关联订阅与兑换情况");
+            document.getElementById("drawerEyebrow").textContent = "Code";
+            document.getElementById("drawerBody").innerHTML = `
+                <div class="skeleton">
+                    <div class="skeleton-line short"></div>
+                    <div class="skeleton-line long"></div>
+                    <div class="skeleton-line mid"></div>
+                </div>
+            `;
             try {
-                const { data, error } = await sb.from('admin_user_stats').select('*').single();
-                if (!error && data) {
-                    set('userTotal', fmt(data.total_users ?? data.total ?? null));
-                    set('userActiveToday', fmt(data.active_today ?? data.active_today_count ?? null));
-                    set('userActiveWeek', fmt(data.active_week ?? data.active_this_week ?? null));
-                    set('userNewToday', fmt(data.new_today ?? data.new_users_today ?? null));
-                    return;
-                }
-            } catch {}
-            // 降级：直接 count profiles
-            try {
-                const { count } = await sb.from('profiles').select('*', { count: 'exact', head: true });
-                set('userTotal', fmt(count));
-                const today = new Date().toISOString().slice(0, 10);
-                const { count: newToday } = await sb.from('profiles').select('*', { count: 'exact', head: true }).gte('created_at', today);
-                set('userNewToday', fmt(newToday));
-            } catch {}
-        }
-
-        async function loadTokenStats() {
-            const now = new Date();
-            const todayStr = now.toISOString().slice(0, 10);
-            const weekAgo = new Date(now - 7 * 86400000).toISOString();
-            const monthAgo = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-
-            // 尝试 admin_token_daily_stats 视图
-            try {
-                const { data, error } = await sb.from('admin_token_daily_stats').select('*').order('stat_date', { ascending: false }).limit(30);
-                if (!error && data && data.length) {
-                    const today = data.find(r => r.stat_date === todayStr);
-                    set('tokenToday', fmt(today?.total_tokens ?? today?.tokens ?? 0));
-                    set('tokenTodayUsers', fmt(today?.user_count ?? today?.active_users ?? 0));
-                    const weekTotal = data.filter(r => r.stat_date >= weekAgo.slice(0,10)).reduce((s, r) => s + (r.total_tokens ?? r.tokens ?? 0), 0);
-                    const monthTotal = data.reduce((s, r) => s + (r.total_tokens ?? r.tokens ?? 0), 0);
-                    set('tokenWeek', fmt(weekTotal));
-                    set('tokenMonth', fmt(monthTotal));
-                    return;
-                }
-            } catch {}
-            // 降级：直接聚合 token_logs
-            try {
-                const { data: todayLogs } = await sb.from('token_logs').select('usage_amount,user_id').gte('created_at', todayStr);
-                const { data: weekLogs } = await sb.from('token_logs').select('usage_amount').gte('created_at', weekAgo);
-                const { data: monthLogs } = await sb.from('token_logs').select('usage_amount').gte('created_at', monthAgo);
-                const sum = arr => (arr || []).reduce((s, r) => s + (r.usage_amount ?? 0), 0);
-                set('tokenToday', fmt(sum(todayLogs)));
-                set('tokenWeek', fmt(sum(weekLogs)));
-                set('tokenMonth', fmt(sum(monthLogs)));
-                const todayUsers = new Set((todayLogs || []).map(r => r.user_id)).size;
-                set('tokenTodayUsers', fmt(todayUsers));
-            } catch {}
-        }
-
-        async function loadLogs() {
-            try {
-                const { data, error } = await sb.from('token_logs')
-                    .select('created_at, user_id, purpose, usage_amount, model')
-                    .order('created_at', { ascending: false })
-                    .limit(50);
-                if (error || !data) throw error;
-                if (data.length === 0) {
-                    document.getElementById('logsTableBody').innerHTML =
-                        '<tr><td colspan="5" style="text-align:center;color:#6c6c70;padding:20px">暂无日志记录</td></tr>';
-                    return;
-                }
-                const rows = data.map(r => `<tr>
-                    <td>${fmtTime(r.created_at)}</td>
-                    <td style="font-family:monospace;font-size:11px">${(r.user_id||'').slice(0,8)}…</td>
-                    <td>${r.purpose || '—'}</td>
-                    <td>${fmt(r.usage_amount)}</td>
-                    <td style="color:#6c6c70;font-size:12px">${r.model || '—'}</td>
-                </tr>`);
-                document.getElementById('logsTableBody').innerHTML = rows.join('');
-            } catch (e) {
-                document.getElementById('logsTableBody').innerHTML =
-                    `<tr><td colspan="5" style="text-align:center;color:#FF3B30;padding:20px">日志加载失败（${e?.message || '权限不足'}）</td></tr>`;
+                const { data, error } = await sb
+                    .from("subscriptions")
+                    .select("user_id,plan_tier,status,source,started_at,ended_at,meta")
+                    .contains("meta", { activation_code: code })
+                    .order("started_at", { ascending: false });
+                if (error) throw error;
+                document.getElementById("drawerBody").innerHTML = `
+                    <div class="subpanel">
+                        <h3>关联订阅</h3>
+                        ${(data || []).length ? `
+                            <ul class="list-tight">
+                                ${(data || []).map((item) => `
+                                    <li>
+                                        <div>
+                                            <div>${escapeHtml(getUserEmail(item.user_id))}</div>
+                                            <div class="subtle">${escapeHtml(L("plan_tier", item.plan_tier))} · ${escapeHtml(L("plan_status", item.status))}</div>
+                                        </div>
+                                        <div class="subtle">${escapeHtml(fmtDateTime(item.started_at))}</div>
+                                    </li>
+                                `).join("")}
+                            </ul>
+                        ` : '<div class="subtle">当前还没有用户兑换这条激活码。</div>'}
+                    </div>
+                `;
+            } catch (error) {
+                console.error("Open code drawer failed:", error);
+                document.getElementById("drawerBody").innerHTML = `
+                    <div class="state-card error-state">
+                        <div class="state-title">激活码详情加载失败</div>
+                        <p>${escapeHtml(error.message || "请稍后重试。")}</p>
+                    </div>
+                `;
             }
         }
 
-        // ── 操作 ──
-        function refreshData() { loadDashboardData(); }
+        async function loadTokensSection() {
+            const sectionId = "tokensSection";
+            setSectionLoading(sectionId);
+            try {
+                const [trendRes, logsRes, profilesRes] = await Promise.all([
+                    sb.from("admin_token_daily_stats").select("date,total_tokens,total_requests,active_users,purpose").order("date", { ascending: false }).limit(90),
+                    fetchTokenLogs(),
+                    state.profiles.length
+                        ? Promise.resolve({ data: state.profiles, error: null })
+                        : sb.from("profiles").select("id,email"),
+                ]);
+                if (trendRes.error) throw trendRes.error;
+                if (logsRes.error) throw logsRes.error;
+                if (profilesRes.error) throw profilesRes.error;
+
+                if (!state.profiles.length) {
+                    state.profiles = profilesRes.data || [];
+                    state.profilesById = Object.fromEntries(state.profiles.map((item) => [item.id, item]));
+                }
+                state.tokenDaily = aggregateTokenDaily(trendRes.data || []);
+                state.tokenLogs = logsRes.data || [];
+                state.tokenLogsTotal = logsRes.count || 0;
+                renderTokensSection();
+            } catch (error) {
+                console.error("Tokens load failed:", error);
+                const type = inferSectionErrorType(error);
+                if (type === "forbidden") {
+                    renderForbiddenState(sectionId, "Token 用量区无权限", getForbiddenHint("Token 日志"));
+                } else {
+                    renderErrorState(sectionId, "Token 区加载失败", error.message || "请稍后重试。", "tokens");
+                }
+            }
+        }
+
+        async function fetchTokenLogs() {
+            const filters = state.tokenFilters;
+            let query = sb.from("token_logs").select("created_at,user_id,purpose,usage_amount,model", { count: "exact" });
+            if (filters.start) query = query.gte("created_at", `${filters.start}T00:00:00`);
+            if (filters.end) query = query.lte("created_at", `${filters.end}T23:59:59`);
+            if (filters.model) query = query.eq("model", filters.model);
+            query = query.order("created_at", { ascending: false });
+            const from = (filters.page - 1) * Number(filters.pageSize);
+            const to = from + Number(filters.pageSize) - 1;
+            return query.range(from, to);
+        }
+
+        function getFilteredRenderedLogs() {
+            let rows = state.tokenLogs.map((item) => ({
+                ...item,
+                email: getUserEmail(item.user_id),
+            }));
+            if (state.tokenFilters.keyword) {
+                const keyword = state.tokenFilters.keyword.toLowerCase();
+                rows = rows.filter((item) =>
+                    String(item.email || "").toLowerCase().includes(keyword) ||
+                    String(item.user_id || "").toLowerCase().includes(keyword)
+                );
+            }
+            rows.sort((a, b) => compareValues(a[state.tokenSort.key], b[state.tokenSort.key], state.tokenSort.dir));
+            return rows;
+        }
+
+        function renderTokensSection() {
+            const sectionId = "tokensSection";
+            const totalTokens = state.tokenDaily.reduce((sum, item) => sum + Number(item.total_tokens || 0), 0);
+            const maxTokens = Math.max(...state.tokenDaily.map((item) => Number(item.total_tokens || 0)), 1);
+            const logs = getFilteredRenderedLogs();
+
+            const totalsByUser = {};
+            for (const item of state.tokenLogs) {
+                totalsByUser[item.user_id] = (totalsByUser[item.user_id] || 0) + Number(item.usage_amount || 0);
+            }
+            const topUsers = Object.entries(totalsByUser)
+                .map(([userId, total]) => ({ userId, total, email: getUserEmail(userId) }))
+                .sort((a, b) => b.total - a.total)
+                .slice(0, 10);
+            const maxUserToken = Math.max(...topUsers.map((item) => item.total), 1);
+
+            const labels = state.tokenDaily.filter((_, idx) => idx % 5 === 0 || idx === state.tokenDaily.length - 1)
+                .map((item) => `<div>${escapeHtml(fmtDateOnly(item.stat_date).slice(5))}</div>`)
+                .join("");
+
+            document.getElementById(sectionId).innerHTML = `
+                <div class="dual-grid">
+                    <div class="subpanel trend-grid">
+                        <h3>近 30 天 Token 趋势</h3>
+                        <div class="metric-row">
+                            <span>30 天累计</span>
+                            <span class="mono">${fmtNumber(totalTokens)}</span>
+                        </div>
+                        <div class="trend-bars">
+                            ${state.tokenDaily.map((item, idx) => {
+                                const height = Math.max(8, Math.round((Number(item.total_tokens || 0) / maxTokens) * 150));
+                                const colorClass = idx % 4 === 0 ? "blue" : idx % 4 === 1 ? "green" : idx % 4 === 2 ? "orange" : "black";
+                                return `<div class="trend-bar ${colorClass}" style="height:${height}px" title="${escapeHtml(`${fmtDateOnly(item.stat_date)}：${fmtNumber(item.total_tokens)} token / ${fmtNumber(item.active_users)} 活跃用户 / ${fmtNumber(item.total_requests)} 请求`)}"></div>`;
+                            }).join("")}
+                        </div>
+                        <div class="trend-labels">${labels}</div>
+                    </div>
+                    <div class="subpanel">
+                        <h3>Token Top10 用户</h3>
+                        <div class="stack">
+                            ${topUsers.length ? topUsers.map((item) => `
+                                <div class="stack">
+                                    <div class="metric-row">
+                                        <span>${escapeHtml(item.email)}</span>
+                                        <span class="mono">${fmtNumber(item.total)}</span>
+                                    </div>
+                                    <div class="bar-track">
+                                        <span class="bar-segment payment" style="width:${(item.total / maxUserToken) * 100}%"></span>
+                                    </div>
+                                </div>
+                            `).join("") : '<div class="subtle">暂无 token 消耗记录。</div>'}
+                        </div>
+                    </div>
+                </div>
+                <div style="height:16px"></div>
+                <div class="filters">
+                    <input class="input" type="date" id="tokenStartFilter" value="${escapeHtml(state.tokenFilters.start)}">
+                    <input class="input" type="date" id="tokenEndFilter" value="${escapeHtml(state.tokenFilters.end)}">
+                    <select class="select" id="tokenModelFilter">
+                        <option value="">全部模型</option>
+                        ${Array.from(new Set(state.tokenLogs.map((item) => item.model).filter(Boolean))).sort().map((model) => `
+                            <option value="${escapeHtml(model)}">${escapeHtml(model)}</option>
+                        `).join("")}
+                    </select>
+                    <input class="input" id="tokenKeywordFilter" placeholder="搜邮箱或用户 ID" value="${escapeHtml(state.tokenFilters.keyword)}">
+                    <select class="select" id="tokenPageSizeFilter">
+                        <option value="50">每页 50 条</option>
+                        <option value="100">每页 100 条</option>
+                        <option value="200">每页 200 条</option>
+                    </select>
+                    <button class="button button-ghost" type="button" id="applyTokenFiltersBtn">应用筛选</button>
+                </div>
+                ${logs.length ? `
+                    <div class="table-shell">
+                        <div class="table-scroll" id="tokensTableScroll">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th><button class="sort-button" type="button" data-token-sort="created_at">时间 ${buildSortIndicator(state.tokenSort, "created_at")}</button></th>
+                                        <th><button class="sort-button" type="button" data-token-sort="email">用户 ${buildSortIndicator(state.tokenSort, "email")}</button></th>
+                                        <th><button class="sort-button" type="button" data-token-sort="purpose">用途 ${buildSortIndicator(state.tokenSort, "purpose")}</button></th>
+                                        <th><button class="sort-button" type="button" data-token-sort="usage_amount">Token 消耗 ${buildSortIndicator(state.tokenSort, "usage_amount")}</button></th>
+                                        <th><button class="sort-button" type="button" data-token-sort="model">模型 ${buildSortIndicator(state.tokenSort, "model")}</button></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${logs.map((item) => `
+                                        <tr>
+                                            <td>${withUtcTitle(fmtDateTime(item.created_at), item.created_at)}</td>
+                                            <td>
+                                                <div>${escapeHtml(item.email)}</div>
+                                                <div class="subtle mono">${escapeHtml(String(item.user_id || "").slice(0, 8))}…</div>
+                                            </td>
+                                            <td>${escapeHtml(L("purpose", item.purpose))}</td>
+                                            <td class="mono">${fmtNumber(item.usage_amount)}</td>
+                                            <td>${escapeHtml(item.model || "—")}</td>
+                                        </tr>
+                                    `).join("")}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="status-row" style="margin-top:12px">
+                        <div class="status-left">
+                            <span>当前第 ${fmtNumber(state.tokenFilters.page)} 页</span>
+                            <span>后端返回总数 ${fmtNumber(state.tokenLogsTotal)}</span>
+                        </div>
+                        <div class="toolbar">
+                            <button class="button button-ghost" type="button" id="tokenPrevPageBtn" ${state.tokenFilters.page <= 1 ? "disabled" : ""}>上一页</button>
+                            <button class="button button-ghost" type="button" id="tokenNextPageBtn" ${(state.tokenFilters.page * Number(state.tokenFilters.pageSize)) >= state.tokenLogsTotal ? "disabled" : ""}>下一页</button>
+                        </div>
+                    </div>
+                ` : `
+                    <div class="state-card empty-state">
+                        <div class="state-title">当前筛选下没有日志</div>
+                        <p>可以调整日期、模型或关键字后重试。</p>
+                    </div>
+                `}
+            `;
+
+            bindTokenControls();
+            const modelSelect = document.getElementById("tokenModelFilter");
+            if (modelSelect) modelSelect.value = state.tokenFilters.model;
+            const pageSizeSelect = document.getElementById("tokenPageSizeFilter");
+            if (pageSizeSelect) pageSizeSelect.value = String(state.tokenFilters.pageSize);
+            const scroll = document.getElementById("tokensTableScroll");
+            if (scroll) {
+                setTableOverflowHint(scroll);
+                scroll.addEventListener("scroll", () => setTableOverflowHint(scroll));
+            }
+        }
+
+        function bindTokenControls() {
+            const apply = document.getElementById("applyTokenFiltersBtn");
+            if (apply) {
+                apply.onclick = async () => {
+                    state.tokenFilters.start = document.getElementById("tokenStartFilter").value;
+                    state.tokenFilters.end = document.getElementById("tokenEndFilter").value;
+                    state.tokenFilters.model = document.getElementById("tokenModelFilter").value;
+                    state.tokenFilters.keyword = document.getElementById("tokenKeywordFilter").value;
+                    state.tokenFilters.pageSize = Number(document.getElementById("tokenPageSizeFilter").value);
+                    state.tokenFilters.page = 1;
+                    await loadTokensSection();
+                };
+            }
+            const prev = document.getElementById("tokenPrevPageBtn");
+            const next = document.getElementById("tokenNextPageBtn");
+            if (prev) {
+                prev.onclick = async () => {
+                    state.tokenFilters.page = Math.max(1, state.tokenFilters.page - 1);
+                    await loadTokensSection();
+                };
+            }
+            if (next) {
+                next.onclick = async () => {
+                    state.tokenFilters.page += 1;
+                    await loadTokensSection();
+                };
+            }
+            document.querySelectorAll("[data-token-sort]").forEach((btn) => {
+                btn.onclick = () => {
+                    const key = btn.dataset.tokenSort;
+                    state.tokenSort = {
+                        key,
+                        dir: state.tokenSort.key === key && state.tokenSort.dir === "asc" ? "desc" : "asc",
+                    };
+                    renderTokensSection();
+                };
+            });
+        }
+
+        async function loadContentSection() {
+            const sectionId = "contentSection";
+            setSectionLoading(sectionId);
+            try {
+                const [documentsRes, templatesRes] = await Promise.all([
+                    sb.from("documents").select("id", { count: "exact", head: true }),
+                    sb.from("templates").select("id", { count: "exact", head: true }),
+                ]);
+                if (documentsRes.error) throw documentsRes.error;
+                if (templatesRes.error) throw templatesRes.error;
+
+                state.contentCounts.documents = documentsRes.count;
+                state.contentCounts.templates = templatesRes.count;
+                state.teams = [];
+                state.teamMembers = [];
+                renderContentSection();
+            } catch (error) {
+                console.error("Content load failed:", error);
+                const type = inferSectionErrorType(error);
+                if (type === "forbidden") {
+                    renderForbiddenState(sectionId, "内容与团队区无权限", getForbiddenHint("内容与团队"));
+                } else {
+                    renderErrorState(sectionId, "内容与团队加载失败", error.message || "请稍后重试。", "content");
+                }
+            }
+        }
+
+        function renderContentSection() {
+            const sectionId = "contentSection";
+
+            document.getElementById(sectionId).innerHTML = `
+                <div class="dual-grid">
+                    <div class="subpanel">
+                        <h3>内容概览</h3>
+                        <div class="stack">
+                            <div class="metric-row"><span>文档总量</span><span class="mono">${fmtNumber(state.contentCounts.documents)}</span></div>
+                            <div class="metric-row"><span>模板总量</span><span class="mono">${fmtNumber(state.contentCounts.templates)}</span></div>
+                        </div>
+                    </div>
+                    <div class="subpanel">
+                        <h3>团队能力</h3>
+                        <div class="state-card empty-state">
+                            <div class="state-title">Batch 17B 尚未启动</div>
+                            <p>当前管理后台只验收 17A 的套餐、激活码和用量闭环。团队席位、共享规则和批量工作流会在 17B 单独接入。</p>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        async function openTeamDrawer(teamId) {
+            const team = state.teams.find((item) => item.id === teamId);
+            openDrawer("团队详情", team?.name || "未命名团队", "查看成员与角色");
+            document.getElementById("drawerEyebrow").textContent = "Team";
+            const members = state.teamMembers.filter((item) => item.team_id === teamId);
+            document.getElementById("drawerBody").innerHTML = `
+                <div class="subpanel">
+                    <h3>成员列表</h3>
+                    ${members.length ? `
+                        <ul class="list-tight">
+                            ${members.map((item) => `
+                                <li>
+                                    <div>
+                                        <div>${escapeHtml(getUserEmail(item.user_id))}</div>
+                                        <div class="subtle">${escapeHtml(L("team_role", item.role))}</div>
+                                    </div>
+                                    <div class="subtle">${escapeHtml(fmtDateTime(item.joined_at))}</div>
+                                </li>
+                            `).join("")}
+                        </ul>
+                    ` : '<div class="subtle">该团队还没有成员。</div>'}
+                </div>
+            `;
+        }
+
+        function openDrawer(title, subtitle, helper) {
+            document.getElementById("drawerTitle").textContent = title;
+            document.getElementById("drawerSubtitle").textContent = `${subtitle} · ${helper}`;
+            document.getElementById("detailDrawer").classList.add("open");
+            document.getElementById("drawerBackdrop").classList.add("open");
+            document.body.classList.add("drawer-open");
+        }
+
+        function closeDrawer() {
+            document.getElementById("detailDrawer").classList.remove("open");
+            document.getElementById("drawerBackdrop").classList.remove("open");
+            document.body.classList.remove("drawer-open");
+        }
+
+        function openActivationModal() {
+            document.getElementById("activationModal").classList.add("open");
+            document.getElementById("modalBackdrop").classList.add("open");
+            document.body.classList.add("modal-open");
+        }
+
+        function closeActivationModal() {
+            document.getElementById("activationModal").classList.remove("open");
+            document.getElementById("modalBackdrop").classList.remove("open");
+            document.body.classList.remove("modal-open");
+        }
+
+        async function submitActivationCode(event) {
+            event.preventDefault();
+            const submit = document.getElementById("submitActivationBtn");
+            submit.disabled = true;
+            const formEl = event.currentTarget;
+            const form = new FormData(formEl);
+            const payload = {
+                code: randomCode(),
+                plan_tier: form.get("plan_tier"),
+                duration_days: Number(form.get("duration_days")),
+                max_redemptions: Number(form.get("max_redemptions")),
+                expires_at: form.get("expires_at") ? new Date(form.get("expires_at")).toISOString() : null,
+                created_by: state.user?.id || null,
+            };
+            try {
+                const { error } = await sb.from("activation_codes").insert(payload);
+                if (error) throw error;
+                toast(`激活码已生成：${payload.code}`, "success");
+                closeActivationModal();
+                formEl.reset();
+                document.getElementById("activationDuration").value = 30;
+                document.getElementById("activationMax").value = 1;
+                await loadCodesSection();
+            } catch (error) {
+                console.error("Create activation code failed:", error);
+                toast(`生成失败：${error.message || "未知错误"}`, "error");
+            } finally {
+                submit.disabled = false;
+            }
+        }
+
+        async function exportLogsCsv() {
+            if (!state.tokenLogs.length) {
+                toast("当前没有可导出的日志。", "info");
+                return;
+            }
+            const rows = getFilteredRenderedLogs();
+            const header = ["时间", "用户", "用途", "Token 消耗", "模型"];
+            const body = rows.map((item) => [
+                fmtDateTime(item.created_at),
+                item.email,
+                L("purpose", item.purpose),
+                item.usage_amount,
+                item.model || "",
+            ]);
+            const csv = [header, ...body]
+                .map((line) => line.map((cell) => `"${String(cell ?? "").replace(/"/g, '""')}"`).join(","))
+                .join("\n");
+            const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8;" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `token_logs_${new Date().toISOString().slice(0, 10)}.csv`;
+            a.click();
+            URL.revokeObjectURL(url);
+            toast("CSV 已导出。", "success");
+        }
 
         async function handleLogout() {
             try {
                 await sb.auth.signOut();
-                showToast('登出成功');
-                setTimeout(() => { window.location.href = 'wordcraft_landing.html'; }, 1000);
-            } catch { showToast('登出失败'); }
+            } catch (error) {
+                console.warn("Logout failed:", error);
+            } finally {
+                window.location.href = "wordcraft_landing.html";
+            }
         }
 
-        function showToast(message) {
-            const toast = document.createElement('div');
-            toast.style.cssText = 'position:fixed;top:20px;right:20px;background:rgba(0,122,255,0.9);color:white;padding:12px 24px;border-radius:8px;box-shadow:0 4px 12px rgba(0,122,255,0.3);z-index:1000;animation:slideIn 0.3s ease';
-            toast.textContent = message;
-            document.body.appendChild(toast);
-            setTimeout(() => { toast.style.animation = 'slideOut 0.3s ease forwards'; setTimeout(() => toast.remove(), 300); }, 2000);
+        function bindRefreshButtons() {
+            document.querySelectorAll("[data-refresh]").forEach((button) => {
+                button.onclick = async () => {
+                    const key = button.dataset.refresh;
+                    button.disabled = true;
+                    try {
+                        if (key === "overview") await loadOverviewSection();
+                        if (key === "users") await loadUsersSection();
+                        if (key === "codes") await loadCodesSection();
+                        if (key === "tokens") await loadTokensSection();
+                        if (key === "content") await loadContentSection();
+                        state.lastRefreshAt = new Date().toISOString();
+                        state.lastSuccessAt = state.lastRefreshAt;
+                        syncRefreshMeta();
+                        toast("分区已刷新。", "success");
+                    } finally {
+                        button.disabled = false;
+                    }
+                };
+            });
         }
 
-        const style = document.createElement('style');
-        style.textContent = '@keyframes slideIn{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}@keyframes slideOut{from{transform:translateX(0);opacity:1}to{transform:translateX(100%);opacity:0}}';
-        document.head.appendChild(style);
+        function startPolling() {
+            stopPolling();
+            state.pollingTimer = window.setInterval(async () => {
+                try {
+                    await loadAllSections();
+                } catch (error) {
+                    console.warn("Polling refresh failed:", error);
+                    setSystemStatus("自动刷新失败，请手动重试。", false);
+                }
+            }, 30000);
+        }
 
-        window.onload = function() { loadDashboardData(); };
+        function stopPolling() {
+            if (state.pollingTimer) {
+                window.clearInterval(state.pollingTimer);
+                state.pollingTimer = null;
+            }
+        }
+
+        function bindGlobalEvents() {
+            document.getElementById("refreshAllBtn").onclick = async () => {
+                await loadAllSections();
+                toast("管理后台已刷新。", "success");
+            };
+            document.getElementById("logoutBtn").onclick = handleLogout;
+            document.getElementById("closeDrawerBtn").onclick = closeDrawer;
+            document.getElementById("drawerBackdrop").onclick = closeDrawer;
+            document.getElementById("openActivationModalBtn").onclick = openActivationModal;
+            document.getElementById("closeActivationModalBtn").onclick = closeActivationModal;
+            document.getElementById("modalBackdrop").onclick = closeActivationModal;
+            document.getElementById("activationForm").addEventListener("submit", submitActivationCode);
+            document.getElementById("exportLogsBtn").onclick = exportLogsCsv;
+            bindRefreshButtons();
+            window.addEventListener("beforeunload", stopPolling);
+        }
+
+        bindGlobalEvents();
+        syncRefreshMeta();
+        checkSessionAndBoot();
+
+        window.handleLogout = handleLogout;
     </script>
 </body>
 </html>

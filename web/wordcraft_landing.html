@@ -902,9 +902,9 @@
     <div style="text-align:center;margin-bottom:24px">
       <div style="display:flex;align-items:center;justify-content:center;gap:10px;font-size:18px;font-weight:600;margin-bottom:8px">
         <div style="width:32px;height:32px;background:var(--accent-soft);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;color:#fff">W</div>
-        WordCraft Pro
+        <span id="authModalTitle">WordCraft Pro</span>
       </div>
-      <p style="font-size:14px;color:var(--text-muted)">登录后进入应用</p>
+      <p id="authModalSubtitle" style="font-size:14px;color:var(--text-muted)">登录后进入应用</p>
     </div>
     <div style="margin-bottom:20px">
       <label style="display:block;font-size:13px;color:var(--text);margin-bottom:6px">邮箱地址</label>
@@ -914,10 +914,14 @@
       <label style="display:block;font-size:13px;color:var(--text);margin-bottom:6px">密码</label>
       <input type="password" id="loginPassword" style="width:100%;padding:12px 16px;background:var(--surface-alt);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px" placeholder="请输入密码">
     </div>
-    <button onclick="login()" style="width:100%;padding:12px;background:var(--accent);color:var(--bg);border:none;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;transition:all .3s">登录</button>
+    <div id="confirmPasswordWrap" style="margin-bottom:24px;display:none">
+      <label style="display:block;font-size:13px;color:var(--text);margin-bottom:6px">确认密码</label>
+      <input type="password" id="loginPasswordConfirm" style="width:100%;padding:12px 16px;background:var(--surface-alt);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px" placeholder="请再次输入密码">
+    </div>
+    <button id="authSubmitBtn" onclick="handleAuthSubmit()" style="width:100%;padding:12px;background:var(--accent);color:var(--bg);border:none;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;transition:all .3s">登录</button>
     <button onclick="closeLoginModal()" style="width:100%;margin-top:12px;padding:12px;background:transparent;color:var(--text-muted);border:1px solid var(--border);border-radius:8px;font-size:14px;cursor:pointer;transition:all .3s">取消</button>
-    <div style="text-align:center;margin-top:16px;font-size:13px;color:var(--text-subtle)">
-      还没有账号？<a href="#" style="color:var(--text);text-decoration:underline">注册</a>
+    <div id="authSwitchRow" style="text-align:center;margin-top:16px;font-size:13px;color:var(--text-subtle)">
+      还没有账号？<a href="#" onclick="setAuthMode('register'); return false;" style="color:var(--text);text-decoration:underline">注册</a>
     </div>
   </div>
 </div>
@@ -968,12 +972,35 @@
   })();
 
   // Modal and login functions
-  function openLoginModal(){
+  let authMode = 'login';
+
+  function setAuthMode(mode){
+    authMode = mode === 'register' ? 'register' : 'login';
+    const isRegister = authMode === 'register';
+    document.getElementById('authModalTitle').textContent = isRegister ? '创建 WordCraft Pro 账号' : 'WordCraft Pro';
+    document.getElementById('authModalSubtitle').textContent = isRegister ? '注册后进入应用' : '登录后进入应用';
+    document.getElementById('authSubmitBtn').textContent = isRegister ? '注册' : '登录';
+    document.getElementById('confirmPasswordWrap').style.display = isRegister ? 'block' : 'none';
+    document.getElementById('authSwitchRow').innerHTML = isRegister
+      ? '已有账号？<a href="#" onclick="setAuthMode(\'login\'); return false;" style="color:var(--text);text-decoration:underline">登录</a>'
+      : '还没有账号？<a href="#" onclick="setAuthMode(\'register\'); return false;" style="color:var(--text);text-decoration:underline">注册</a>';
+  }
+
+  function resetAuthForm() {
+    document.getElementById('loginEmail').value = '';
+    document.getElementById('loginPassword').value = '';
+    document.getElementById('loginPasswordConfirm').value = '';
+  }
+
+  function openLoginModal(mode){
+    setAuthMode(mode || 'login');
     document.getElementById('loginModal').style.display = 'flex';
   }
   
   function closeLoginModal(){
     document.getElementById('loginModal').style.display = 'none';
+    resetAuthForm();
+    setAuthMode('login');
   }
   
   function showToast(message,isError=false){
@@ -1038,6 +1065,62 @@
       showToast('登录失败，请重试', true);
       console.error('Login error:', error);
     }
+  }
+
+  async function register() {
+    const email = document.getElementById('loginEmail').value.trim();
+    const password = document.getElementById('loginPassword').value;
+    const confirm = document.getElementById('loginPasswordConfirm').value;
+
+    if (!email || !password || !confirm) {
+      showToast('请填写完整注册信息', true);
+      return;
+    }
+    if (password.length < 6) {
+      showToast('密码至少需要 6 位', true);
+      return;
+    }
+    if (password !== confirm) {
+      showToast('两次输入的密码不一致', true);
+      return;
+    }
+
+    try {
+      showToast('正在注册...');
+      const { data, error } = await window.supabaseClient.auth.signUp({
+        email: email,
+        password: password,
+      });
+
+      if (error) {
+        showToast('注册失败: ' + (error.message || '未知错误'), true);
+        return;
+      }
+
+      if (data.session && data.user) {
+        showToast('注册成功，正在进入应用...');
+        setTimeout(function() {
+          window.location.href = 'index.html';
+        }, 1000);
+        return;
+      }
+
+      showToast('注册成功，请登录新账号');
+      setAuthMode('login');
+      document.getElementById('loginPassword').value = '';
+      document.getElementById('loginPasswordConfirm').value = '';
+    } catch (error) {
+      showToast('注册失败，请重试', true);
+      console.error('Register error:', error);
+    }
+  }
+
+  function handleAuthSubmit() {
+    if (authMode === 'register') {
+      register();
+      return;
+    }
+    login();
   }
   
   // 点击模态框外部关闭

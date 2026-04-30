@@ -1,6 +1,6 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
 ## 中盘阶段执行策略（gstack + superpowers）
 
 1. 新批次先 `/office-hours`，明确范围、非目标与规则层/AI层边界。
@@ -13,6 +13,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Current status
 
 第十五批（含 run 样式修复）+ 第十四批（含 Phase 3 E2E）+ 第十三批已完成（2026-04-27）。
+
+- 2026-04-28：已完成一轮交叉引用修复收口：
+  - 后端贯通 `scan_index`，引用结果按正文扫描顺序输出
+  - 前端交叉引用列表改为按 `scan_index` 展示，并合并连续多引用（如 `[1][2]`、`[2][3][6][7]`）
+  - `TargetScanner` 已恢复章节目标识别，`tests/test_phase5.py` 由 5 failed 修复至 **32 passed**
+  - 当前新增跳转定位修复：交叉引用点击从“按第几个同号引用猜测”改为“结合段落上下文定位”
 
 - Batch14 全量测试通过：`tests/test_format_checker.py`（23）+ `tests/test_batch_regression.py`（27）+ `tests/e2e/test_format_qa_workflow.py`（3）= **53 tests passed**。
 
@@ -28,6 +34,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **待办 1：第十五批后续优化与稳定性收口（优先）**
 - 现状：第十四批 Phase 3 E2E 已闭环（3/3 通过），第十五批核心能力已完成。
 - 目标：继续围绕格式规则解析精度、回归稳定性与交互体验做增量优化。
+- 当前收口重点：继续观察交叉引用点击跳转在重复引用号场景下的稳定性，必要时补充更强的段落唯一标识。
 - 计划链接：`PLANS/batch15_ai_format_parser_improvement.md`
 
 ---

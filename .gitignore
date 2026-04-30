@@ -36,11 +36,16 @@ logs/
 # Temp files
 *.tmp
 wordcraft-cache/
+artifacts/
+tests/artifacts/
 
 # Secrets (never commit real keys)
 .env
 .env.local
 secrets.yaml
+
+# Local agent/editor settings
+.claude/
 
 # User-provided QA dictionaries (project-specific, do not share)
 core/data/user_typos.tsv
