@@ -8,6 +8,7 @@ import os
 import json
 import logging
 from typing import Optional
+from datetime import datetime, timedelta, timezone
 from supabase import create_client, Client
 
 logger = logging.getLogger(__name__)
@@ -117,6 +118,287 @@ class SupabaseClient:
     # ------------------------------------------------------------------
     #  Token 管理
     # ------------------------------------------------------------------
+
+    def get_user_plan(self, user_id: str) -> dict:
+        profile = self.get_profile(user_id) or {}
+        return {
+            "plan_tier": profile.get("plan_tier") or "free",
+            "plan_status": profile.get("plan_status") or "active",
+            "plan_source": profile.get("plan_source") or "system",
+            "current_period_start": profile.get("current_period_start"),
+            "current_period_end": profile.get("current_period_end"),
+            "team_id": profile.get("team_id"),
+            "feature_flags": profile.get("feature_flags") or {},
+            "token_quota": profile.get("token_quota", 100000),
+            "token_used": profile.get("token_used", 0),
+        }
+
+    def get_or_create_usage_counter(self, user_id: str, period_key: str, day_key: str | None = None) -> dict:
+        try:
+            result = (
+                self.client.table("usage_counters")
+                .select("*")
+                .eq("user_id", user_id)
+                .eq("period_key", period_key)
+                .limit(1)
+                .execute()
+            )
+            row = result.data[0] if result.data else None
+            if row:
+                if day_key and row.get("day_key") != day_key:
+                    row = {**row, "day_key": day_key, "rule_check_used_today": 0}
+                    self.client.table("usage_counters").update({
+                        "day_key": day_key,
+                        "rule_check_used_today": 0,
+                    }).eq("id", row["id"]).execute()
+                return row
+
+            row = {
+                "user_id": user_id,
+                "period_key": period_key,
+                "day_key": day_key,
+                "ai_qa_used": 0,
+                "ai_parse_used": 0,
+                "rule_check_used_today": 0,
+            }
+            created = self.client.table("usage_counters").insert(row).execute()
+            return created.data[0] if created.data else row
+        except Exception as e:
+            logger.error("获取使用计数失败: %s", e)
+            return {
+                "user_id": user_id,
+                "period_key": period_key,
+                "day_key": day_key,
+                "ai_qa_used": 0,
+                "ai_parse_used": 0,
+                "rule_check_used_today": 0,
+            }
+
+    def increment_usage_counter(self, user_id: str, counter_name: str, amount: int = 1,
+                                period_key: str | None = None, day_key: str | None = None) -> dict:
+        from core.entitlements import current_day_key, current_period_key
+
+        allowed = {"ai_qa_used", "ai_parse_used", "rule_check_used_today"}
+        if counter_name not in allowed:
+            raise ValueError(f"Unsupported usage counter: {counter_name}")
+        period_key = period_key or current_period_key()
+        day_key = day_key or current_day_key()
+        row = self.get_or_create_usage_counter(user_id, period_key, day_key)
+        new_value = int(row.get(counter_name) or 0) + int(amount)
+        updates = {counter_name: new_value, "updated_at": datetime.now(timezone.utc).isoformat()}
+        if counter_name == "rule_check_used_today":
+            updates["day_key"] = day_key
+        try:
+            if row.get("id"):
+                result = self.client.table("usage_counters").update(updates).eq("id", row["id"]).execute()
+            else:
+                result = self.client.table("usage_counters").upsert({
+                    **row,
+                    **updates,
+                }, on_conflict="user_id,period_key").execute()
+            return result.data[0] if result.data else {**row, **updates}
+        except Exception as e:
+            logger.error("更新使用计数失败: %s", e)
+            return {**row, **updates}
+
+    def get_user_entitlements(self, user_id: str) -> dict:
+        from core.entitlements import build_entitlements, current_day_key, current_period_key
+
+        profile = self.get_user_plan(user_id)
+        usage = self.get_or_create_usage_counter(user_id, current_period_key(), current_day_key())
+        return build_entitlements(profile, usage)
+
+    def get_team(self, team_id: str) -> Optional[dict]:
+        try:
+            result = self.client.table("teams").select("*").eq("id", team_id).limit(1).execute()
+            return result.data[0] if result.data else None
+        except Exception as e:
+            logger.error("获取团队失败: %s", e)
+            return None
+
+    def get_team_members(self, team_id: str) -> list:
+        try:
+            result = (
+                self.client.table("team_members")
+                .select("*")
+                .eq("team_id", team_id)
+                .order("joined_at")
+                .execute()
+            )
+            return result.data or []
+        except Exception as e:
+            logger.error("获取团队成员失败: %s", e)
+            return []
+
+    def get_team_format_rules(self, team_id: str) -> dict:
+        try:
+            result = (
+                self.client.table("team_format_rules")
+                .select("rules_json, updated_at")
+                .eq("team_id", team_id)
+                .limit(1)
+                .execute()
+            )
+            if result.data:
+                return {"rules": result.data[0].get("rules_json"), "storage": "supabase"}
+            return {"rules": None, "storage": "supabase"}
+        except Exception as e:
+            logger.error("读取团队规则库失败: %s", e)
+            return {"rules": None, "storage": "supabase", "error": str(e)}
+
+    def save_team_format_rules(self, team_id: str, updated_by: str, rules: dict) -> dict:
+        try:
+            self.client.table("team_format_rules").upsert({
+                "team_id": team_id,
+                "rules_json": rules,
+                "updated_by": updated_by,
+            }, on_conflict="team_id").execute()
+            return {"success": True, "storage": "supabase"}
+        except Exception as e:
+            logger.error("保存团队规则库失败: %s", e)
+            return {"success": False, "storage": "supabase", "error": str(e)}
+
+    def get_user_team_workspace(self, user_id: str) -> dict:
+        profile = self.get_profile(user_id) or {}
+        team_id = profile.get("team_id")
+        if not team_id:
+            return {"team": None, "members": [], "rules": None, "team_id": None}
+
+        team = self.get_team(team_id)
+        members = self.get_team_members(team_id)
+        rules = self.get_team_format_rules(team_id).get("rules")
+        return {"team": team, "members": members, "rules": rules, "team_id": team_id}
+
+    def create_team_workspace(self, user_id: str, name: str, seat_limit: int = 5) -> dict:
+        try:
+            try:
+                rpc_result = self.client.rpc("create_team_workspace", {
+                    "p_name": name,
+                    "p_seat_limit": int(seat_limit),
+                }).execute()
+                if rpc_result.data:
+                    payload = rpc_result.data
+                    if isinstance(payload, dict) and payload.get("success") is not False:
+                        team_id = payload.get("team_id") or payload.get("id")
+                        return {
+                            "success": True,
+                            "team": self.get_team(team_id) if team_id else payload.get("team"),
+                            "members": self.get_team_members(team_id) if team_id else [],
+                            "rules": None,
+                            "team_id": team_id,
+                        }
+            except Exception as rpc_error:
+                logger.warning("RPC 创建团队失败，尝试兼容路径: %s", rpc_error)
+
+            result = self.client.table("teams").insert({
+                "name": name,
+                "owner_user_id": user_id,
+                "seat_limit": int(seat_limit),
+                "status": "active",
+            }).execute()
+            if not result.data:
+                return {"success": False, "error": "创建团队失败"}
+            team = result.data[0]
+            team_id = team["id"]
+            self.client.table("team_members").upsert({
+                "team_id": team_id,
+                "user_id": user_id,
+                "role": "owner",
+            }, on_conflict="team_id,user_id").execute()
+            self.client.table("profiles").update({"team_id": team_id}).eq("id", user_id).execute()
+            return {
+                "success": True,
+                "team": self.get_team(team_id) or team,
+                "members": self.get_team_members(team_id),
+                "rules": None,
+                "team_id": team_id,
+            }
+        except Exception as e:
+            logger.error("创建团队失败: %s", e)
+            return {"success": False, "error": str(e)}
+
+    def add_team_member_by_email(self, user_id: str, team_id: str, email: str, role: str = "member") -> dict:
+        try:
+            rpc_result = self.client.rpc("add_team_member_by_email", {
+                "p_team_id": team_id,
+                "p_email": email,
+                "p_role": role,
+            }).execute()
+            payload = rpc_result.data
+            if isinstance(payload, dict):
+                return payload
+            if payload:
+                return {"success": True, "added_member": payload}
+            return {"success": False, "error": "添加成员失败"}
+        except Exception as e:
+            logger.error("按邮箱添加团队成员失败: %s", e)
+            return {"success": False, "error": str(e)}
+
+    def redeem_activation_code(self, user_id: str, code: str) -> dict:
+        code = (code or "").strip().upper()
+        if not code:
+            return {"success": False, "error": "激活码不能为空", "error_code": "EMPTY_CODE"}
+        try:
+            try:
+                rpc_result = self.client.rpc("redeem_activation_code", {"p_code": code}).execute()
+                if rpc_result.data:
+                    return rpc_result.data
+            except Exception as rpc_error:
+                logger.warning("RPC 兑换激活码失败，尝试兼容路径: %s", rpc_error)
+
+            res = (
+                self.client.table("activation_codes")
+                .select("*")
+                .eq("code", code)
+                .limit(1)
+                .execute()
+            )
+            if not res.data:
+                return {"success": False, "error": "激活码不存在", "error_code": "CODE_NOT_FOUND"}
+            row = res.data[0]
+            expires_at = row.get("expires_at")
+            if expires_at:
+                exp = datetime.fromisoformat(str(expires_at).replace("Z", "+00:00"))
+                if exp < datetime.now(timezone.utc):
+                    return {"success": False, "error": "激活码已过期", "error_code": "CODE_EXPIRED"}
+            max_redemptions = int(row.get("max_redemptions") or 1)
+            redeemed_count = int(row.get("redeemed_count") or 0)
+            if redeemed_count >= max_redemptions:
+                return {"success": False, "error": "激活码已被用完", "error_code": "CODE_EXHAUSTED"}
+
+            tier = row.get("plan_tier") or "pro"
+            duration_days = int(row.get("duration_days") or 30)
+            now = datetime.now(timezone.utc)
+            ended_at = now + timedelta(days=duration_days)
+            profile_updates = {
+                "plan_tier": tier,
+                "plan_status": "active",
+                "plan_source": "activation_code",
+                "current_period_start": now.isoformat(),
+                "current_period_end": ended_at.isoformat(),
+            }
+            self.client.table("profiles").update(profile_updates).eq("id", user_id).execute()
+            self.client.table("activation_codes").update({
+                "redeemed_count": redeemed_count + 1,
+                "updated_at": now.isoformat(),
+            }).eq("code", code).execute()
+            self.client.table("subscriptions").insert({
+                "user_id": user_id,
+                "plan_tier": tier,
+                "status": "active",
+                "source": "activation_code",
+                "started_at": now.isoformat(),
+                "ended_at": ended_at.isoformat(),
+                "meta": {"activation_code": code},
+            }).execute()
+            return {
+                "success": True,
+                "plan_tier": tier,
+                "current_period_end": ended_at.isoformat(),
+            }
+        except Exception as e:
+            logger.error("兑换激活码失败: %s", e)
+            return {"success": False, "error": str(e), "error_code": "REDEEM_FAILED"}
 
     def get_token_usage(self, user_id: str) -> dict:
         """获取用户 Token 用量"""

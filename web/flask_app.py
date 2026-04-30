@@ -15,6 +15,17 @@ CORS(app)  # 启用CORS
 api = Api()
 
 
+@app.before_request
+def sync_api_session_from_bearer():
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        return
+    token = auth_header.split(" ", 1)[1].strip()
+    if not token:
+        return
+    api.sync_session_from_access_token(token)
+
+
 @app.route("/")
 def root():
     """5000 端口仅提供 /api/*；直接打开根路径会 404，这里给出说明。"""
@@ -82,6 +93,44 @@ def logout():
 @app.route('/api/getTokenUsage', methods=['GET'])
 def get_token_usage():
     result = api.getTokenUsage()
+    return result
+
+@app.route('/api/getCurrentPlan', methods=['GET', 'POST'])
+def get_current_plan():
+    result = api.getCurrentPlan()
+    return result
+
+@app.route('/api/getUsageAndPlan', methods=['GET', 'POST'])
+def get_usage_and_plan():
+    result = api.getUsageAndPlan()
+    return result
+
+@app.route('/api/getTeamWorkspace', methods=['GET', 'POST'])
+def get_team_workspace():
+    result = api.getTeamWorkspace()
+    return result
+
+@app.route('/api/createTeamWorkspace', methods=['POST'])
+def create_team_workspace():
+    data = request.json or {}
+    name = data.get('name', '')
+    seat_limit = data.get('seat_limit', 5)
+    result = api.createTeamWorkspace(name, seat_limit)
+    return result
+
+@app.route('/api/addTeamMemberByEmail', methods=['POST'])
+def add_team_member_by_email():
+    data = request.json or {}
+    email = data.get('email', '')
+    role = data.get('role', 'member')
+    result = api.addTeamMemberByEmail(email, role)
+    return result
+
+@app.route('/api/redeemActivationCode', methods=['POST'])
+def redeem_activation_code():
+    data = request.json or {}
+    code = data.get('code', '')
+    result = api.redeemActivationCode(code)
     return result
 
 @app.route('/api/getUserTemplates', methods=['GET'])
@@ -180,7 +229,7 @@ def run_xref():
     # 第十八批：透传结构化 elements（含 metadata.structure_role）让 XRef 跳过目录条目
     elements = data.get('elements')
     elements_str = _json.dumps(elements) if elements is not None else None
-    result = api.runXRef(content, fielded_refs, elements_json=elements_str)
+    result = api.runXRef(content, fielded_refs, elements_json=elements_str, deep=bool(data.get('deep_xref')))
     return result
 
 @app.route('/api/applyFormat', methods=['POST'])
@@ -229,15 +278,28 @@ def refresh_docx_fields():
 
 @app.route('/api/saveFormatRequirements', methods=['POST'])
 def save_format_requirements():
-    data = request.json
+    data = request.json or {}
     rules = data.get('rules', {})
+    scope = data.get('scope', 'personal')
     import json as _json
-    result = api.saveFormatRequirements(_json.dumps(rules))
+    result = api.saveFormatRequirements(_json.dumps(rules), scope)
     return result
 
 @app.route('/api/loadFormatRequirements', methods=['POST'])
 def load_format_requirements():
-    result = api.loadFormatRequirements()
+    data = request.json or {}
+    scope = data.get('scope', 'personal')
+    result = api.loadFormatRequirements(scope)
+    return result
+
+@app.route('/api/runBatchQA', methods=['POST'])
+def run_batch_qa():
+    import json as _json
+    data = request.json or {}
+    files = data.get('files', [])
+    categories = data.get('categories')
+    cats_str = _json.dumps(categories) if isinstance(categories, list) else (categories or '["typo","consistency","logic","format","crossref"]')
+    result = api.runBatchQA(_json.dumps(files), cats_str)
     return result
 
 @app.route('/api/updateDocument', methods=['POST'])

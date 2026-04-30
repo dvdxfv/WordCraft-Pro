@@ -50,6 +50,17 @@ class Api:
         self._qa_autofix_attempted = False
         self._qa_autofix_attempted_at = 0
         self._qa_last_aggressive_retry_at = 0
+        self._local_usage_counters: dict[str, dict] = {}
+        self._local_activation_codes: dict[str, dict] = {
+            "PRO-LOCAL": {"plan_tier": "pro", "duration_days": 30, "redeemed": False},
+        }
+        self._local_known_users: dict[str, dict] = {
+            "mock-user-001": {"id": "mock-user-001", "email": "test@example.com", "nickname": "test"},
+            "team-member-001": {"id": "team-member-001", "email": "member@example.com", "nickname": "member"},
+            "team-member-002": {"id": "team-member-002", "email": "editor@example.com", "nickname": "editor"},
+        }
+        self._local_teams: dict[str, dict] = {}
+        self._local_team_rules: dict[str, dict] = {}
         self._qa_install_state: dict = {
             "status": "idle",
             "message": "",
@@ -265,6 +276,331 @@ class Api:
     #  文件操作
     # ------------------------------------------------------------------
 
+    def _local_user_id(self) -> str:
+        return (self._session or {}).get("user_id") or "mock-user-001"
+
+    def _local_profile(self) -> dict:
+        user = dict((self._session or {}).get("user_info") or {})
+        user.setdefault("id", self._local_user_id())
+        user.setdefault("plan_tier", "free")
+        user.setdefault("plan_status", "active")
+        user.setdefault("plan_source", "local")
+        user.setdefault("team_id", None)
+        user.setdefault("feature_flags", {})
+        return user
+
+    def _get_usage_counter(self, user_id: str | None = None) -> dict:
+        from core.entitlements import current_day_key, current_period_key
+
+        user_id = user_id or self._local_user_id()
+        period_key = current_period_key()
+        day_key = current_day_key()
+        if self._supabase and user_id:
+            return self._supabase.get_or_create_usage_counter(user_id, period_key, day_key)
+        key = f"{user_id}:{period_key}"
+        row = self._local_usage_counters.setdefault(key, {
+            "user_id": user_id,
+            "period_key": period_key,
+            "day_key": day_key,
+            "ai_qa_used": 0,
+            "ai_parse_used": 0,
+            "rule_check_used_today": 0,
+        })
+        if row.get("day_key") != day_key:
+            row["day_key"] = day_key
+            row["rule_check_used_today"] = 0
+        return row
+
+    def _increment_usage(self, counter_name: str, amount: int = 1) -> dict:
+        user_id = self._local_user_id()
+        if self._supabase and self._session.get("user_id"):
+            return self._supabase.increment_usage_counter(user_id, counter_name, amount)
+        row = self._get_usage_counter(user_id)
+        row[counter_name] = int(row.get(counter_name) or 0) + int(amount)
+        return row
+
+    def _current_entitlements(self) -> dict:
+        from core.entitlements import build_entitlements
+
+        self._ensure_supabase_initialized()
+        uid = self._session.get("user_id") if self._session else None
+        if self._supabase and uid:
+            return self._supabase.get_user_entitlements(uid)
+        return build_entitlements(self._local_profile(), self._get_usage_counter())
+
+    def _current_team_id(self) -> str | None:
+        user_info = (self._session or {}).get("user_info") or {}
+        team_id = user_info.get("team_id")
+        return str(team_id).strip() if team_id else None
+
+    def _current_user_id(self) -> str:
+        return (self._session or {}).get("user_id") or self._local_user_id()
+
+    def _team_workspace_payload(self, team: dict | None = None, members: list | None = None, rules: dict | None = None) -> dict:
+        return {
+            "team": team,
+            "members": members or [],
+            "rules": rules,
+            "team_id": (team or {}).get("id") if isinstance(team, dict) else self._current_team_id(),
+        }
+
+    @staticmethod
+    def _team_gate(reason_code: str, message: str) -> dict:
+        return {
+            "allowed": False,
+            "reason_code": reason_code,
+            "feature": "team_rule_share",
+            "upgrade_target": "team",
+            "message": message,
+        }
+
+    def _current_local_team(self) -> dict | None:
+        team_id = self._current_team_id()
+        return self._local_teams.get(team_id) if team_id else None
+
+    def _is_local_team_owner(self, team: dict | None) -> bool:
+        return bool(team) and team.get("owner_user_id") == self._current_user_id()
+
+    def _ensure_local_known_user(self, email: str) -> dict:
+        normalized = (email or "").strip().lower()
+        for user in self._local_known_users.values():
+            if str(user.get("email", "")).strip().lower() == normalized:
+                return user
+        user_id = f"local-user-{len(self._local_known_users) + 1:03d}"
+        user = {
+            "id": user_id,
+            "email": normalized,
+            "nickname": normalized.split("@")[0] if "@" in normalized else normalized,
+        }
+        self._local_known_users[user_id] = user
+        return user
+
+    def _resolve_session_role(self, access_token: str | None) -> str | None:
+        if not (self._supabase and access_token):
+            return None
+        try:
+            auth_user = self._supabase.client.auth.get_user(access_token)
+            user = getattr(auth_user, "user", None)
+            app_metadata = getattr(user, "app_metadata", None) or getattr(user, "raw_app_meta_data", None) or {}
+            if isinstance(app_metadata, dict):
+                role = app_metadata.get("role")
+                return str(role).strip() if role else None
+        except Exception as exc:
+            logger.warning("failed to resolve auth role from session: %s", exc)
+        return None
+
+    def sync_session_from_access_token(self, access_token: str | None) -> None:
+        if not access_token:
+            return
+        self._ensure_supabase_initialized()
+        if not self._supabase:
+            return
+        try:
+            auth_user = self._supabase.client.auth.get_user(access_token)
+            user = getattr(auth_user, "user", None)
+            if not user or not getattr(user, "id", None):
+                return
+            profile = self._supabase.get_user_plan(user.id)
+            user_info = {
+                "id": user.id,
+                "email": getattr(user, "email", None),
+                "nickname": (
+                    (getattr(user, "user_metadata", None) or {}).get("nickname")
+                    or (getattr(user, "email", "") or "").split("@")[0]
+                ),
+                "plan_tier": profile.get("plan_tier", "free"),
+                "plan_status": profile.get("plan_status", "active"),
+                "plan_source": profile.get("plan_source", "system"),
+                "current_period_start": profile.get("current_period_start"),
+                "current_period_end": profile.get("current_period_end"),
+                "team_id": profile.get("team_id"),
+                "feature_flags": profile.get("feature_flags", {}) if profile else {},
+            }
+            app_role = self._resolve_session_role(access_token)
+            if app_role:
+                user_info["role"] = app_role
+            self._session = {
+                "user_id": user.id,
+                "access_token": access_token,
+                "user_info": user_info,
+            }
+        except Exception as exc:
+            logger.warning("failed to sync session from access token: %s", exc)
+
+    @staticmethod
+    def _deny_json(gate: dict) -> str:
+        return json.dumps({
+            "success": False,
+            "error_code": gate.get("reason_code", "FEATURE_LOCKED"),
+            "error": gate.get("message", "当前套餐不可使用该功能"),
+            "feature": gate.get("feature"),
+            "upgrade_target": gate.get("upgrade_target"),
+            "entitlement_denied": True,
+        }, ensure_ascii=False)
+
+    def _check_feature_gate(self, feature: str, quota: str | None = None) -> dict:
+        from core.entitlements import check_feature_access, check_quota_available
+
+        entitlements = self._current_entitlements()
+        gate = check_feature_access(entitlements, feature)
+        if not gate.get("allowed"):
+            return gate
+        if quota:
+            return check_quota_available(entitlements, quota)
+        return gate
+
+    def getCurrentPlan(self) -> str:
+        try:
+            return json.dumps({"success": True, "plan": self._current_entitlements()}, ensure_ascii=False)
+        except Exception as exc:
+            return json.dumps({"success": False, "error": str(exc)}, ensure_ascii=False)
+
+    def getUsageAndPlan(self) -> str:
+        return self.getCurrentPlan()
+
+    def getTeamWorkspace(self) -> str:
+        try:
+            gate = self._check_feature_gate("team_rule_share")
+            if not gate.get("allowed"):
+                return self._deny_json(gate)
+
+            uid = self._session.get("user_id") if self._session else None
+            if self._supabase and uid:
+                workspace = self._supabase.get_user_team_workspace(uid)
+                return json.dumps({"success": True, **workspace}, ensure_ascii=False)
+
+            team_id = self._current_team_id()
+            if not team_id:
+                return json.dumps({"success": True, **self._team_workspace_payload()}, ensure_ascii=False)
+            team = self._local_teams.get(team_id)
+            rules = self._local_team_rules.get(team_id)
+            return json.dumps({"success": True, **self._team_workspace_payload(team, team.get("members") if team else [], rules)}, ensure_ascii=False)
+        except Exception as exc:
+            return json.dumps({"success": False, "error": str(exc)}, ensure_ascii=False)
+
+    def createTeamWorkspace(self, name: str, seat_limit: int = 5) -> str:
+        try:
+            gate = self._check_feature_gate("team_rule_share")
+            if not gate.get("allowed"):
+                return self._deny_json(gate)
+
+            team_name = (name or "").strip()
+            if not team_name:
+                return json.dumps({"success": False, "error": "团队名称不能为空", "error_code": "TEAM_NAME_REQUIRED"}, ensure_ascii=False)
+
+            seat_limit = max(int(seat_limit or 5), 1)
+            uid = self._session.get("user_id") if self._session else self._local_user_id()
+            if self._supabase and uid:
+                result = self._supabase.create_team_workspace(uid, team_name, seat_limit)
+                if result.get("success") and result.get("team"):
+                    self._session.setdefault("user_info", {})["team_id"] = result["team"].get("id")
+                return json.dumps(result, ensure_ascii=False)
+
+            team_id = f"team-local-{len(self._local_teams) + 1:03d}"
+            user_info = self._session.setdefault("user_info", self._local_profile())
+            member = {
+                "team_id": team_id,
+                "user_id": uid,
+                "role": "owner",
+                "joined_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            }
+            team = {
+                "id": team_id,
+                "name": team_name,
+                "owner_user_id": uid,
+                "seat_limit": seat_limit,
+                "status": "active",
+                "created_at": member["joined_at"],
+                "members": [member],
+            }
+            self._local_teams[team_id] = team
+            user_info["team_id"] = team_id
+            self._session["user_id"] = uid
+            return json.dumps({"success": True, **self._team_workspace_payload(team, team["members"], self._local_team_rules.get(team_id))}, ensure_ascii=False)
+        except Exception as exc:
+            return json.dumps({"success": False, "error": str(exc)}, ensure_ascii=False)
+
+    def addTeamMemberByEmail(self, email: str, role: str = "member") -> str:
+        try:
+            gate = self._check_feature_gate("team_rule_share")
+            if not gate.get("allowed"):
+                return self._deny_json(gate)
+
+            team_id = self._current_team_id()
+            if not team_id:
+                return self._deny_json(self._team_gate("TEAM_REQUIRED", "当前账号尚未加入团队，无法添加成员。"))
+
+            normalized_email = (email or "").strip().lower()
+            if not normalized_email:
+                return json.dumps({"success": False, "error": "成员邮箱不能为空", "error_code": "MEMBER_EMAIL_REQUIRED"}, ensure_ascii=False)
+            member_role = "owner" if str(role or "").strip().lower() == "owner" else "member"
+            uid = self._current_user_id()
+
+            if self._supabase and uid:
+                result = self._supabase.add_team_member_by_email(uid, team_id, normalized_email, member_role)
+                if result.get("success"):
+                    workspace = self._supabase.get_user_team_workspace(uid)
+                    return json.dumps({"success": True, "added_member": result.get("added_member"), **workspace}, ensure_ascii=False)
+                return json.dumps(result, ensure_ascii=False)
+
+            team = self._current_local_team()
+            if not team:
+                return self._deny_json(self._team_gate("TEAM_REQUIRED", "当前账号尚未加入团队，无法添加成员。"))
+            if not self._is_local_team_owner(team):
+                return self._deny_json(self._team_gate("TEAM_OWNER_REQUIRED", "只有团队所有者可以录入成员。"))
+
+            user = self._ensure_local_known_user(normalized_email)
+            members = team.setdefault("members", [])
+            if any(m.get("user_id") == user["id"] for m in members):
+                return json.dumps({"success": False, "error": "该成员已在团队中", "error_code": "TEAM_MEMBER_EXISTS"}, ensure_ascii=False)
+            if len(members) >= int(team.get("seat_limit") or 0):
+                return json.dumps({"success": False, "error": "团队席位已满", "error_code": "TEAM_SEAT_LIMIT_REACHED"}, ensure_ascii=False)
+
+            member = {
+                "team_id": team_id,
+                "user_id": user["id"],
+                "email": user["email"],
+                "role": member_role,
+                "joined_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            }
+            members.append(member)
+            return json.dumps({
+                "success": True,
+                "added_member": member,
+                **self._team_workspace_payload(team, members, self._local_team_rules.get(team_id)),
+            }, ensure_ascii=False)
+        except Exception as exc:
+            return json.dumps({"success": False, "error": str(exc)}, ensure_ascii=False)
+
+    def redeemActivationCode(self, code: str) -> str:
+        try:
+            self._ensure_supabase_initialized()
+            normalized_code = (code or "").strip().upper()
+            uid = self._session.get("user_id") if self._session else None
+            if self._supabase and uid:
+                result = self._supabase.redeem_activation_code(uid, normalized_code)
+                if result.get("success"):
+                    profile = self._supabase.get_user_plan(uid)
+                    self._session.setdefault("user_info", {}).update(profile)
+                    result["plan"] = self._current_entitlements()
+                return json.dumps(result, ensure_ascii=False)
+
+            code_key = normalized_code
+            local_code = self._local_activation_codes.get(code_key)
+            if not local_code or local_code.get("redeemed"):
+                return json.dumps({"success": False, "error": "激活码无效或已使用", "error_code": "CODE_INVALID"}, ensure_ascii=False)
+            local_code["redeemed"] = True
+            user_info = self._session.setdefault("user_info", self._local_profile())
+            user_info.update({
+                "plan_tier": local_code.get("plan_tier", "pro"),
+                "plan_status": "active",
+                "plan_source": "activation_code",
+            })
+            self._session["user_id"] = user_info.get("id", self._local_user_id())
+            return json.dumps({"success": True, "plan": self._current_entitlements()}, ensure_ascii=False)
+        except Exception as exc:
+            return json.dumps({"success": False, "error": str(exc)}, ensure_ascii=False)
+
     def openFile(self, file_content: str = None, file_name: str = None) -> str:
         if not file_content or not file_name:
             return json.dumps({"cancelled": True, "error": "请提供文件内容和文件名"})
@@ -294,6 +630,18 @@ class Api:
 
         if size > 100 * 1024 * 1024:
             return json.dumps({"success": False, "error": "文件过大（超过100MB）", "error_code": "FILE_TOO_LARGE"})
+
+        try:
+            from core.entitlements import check_file_size_allowed
+            gate = check_file_size_allowed(self._current_entitlements(), size)
+            if not gate.get("allowed"):
+                try:
+                    os.unlink(path)
+                except Exception:
+                    pass
+                return self._deny_json(gate)
+        except Exception as gate_err:
+            logger.warning("file size entitlement check failed: %s", gate_err)
 
         sections = []
         styles_meta: dict = {}
@@ -495,14 +843,26 @@ class Api:
                         "avatar_url": profile.get("avatar_url", "") if profile else "",
                         "token_quota": profile.get("token_quota", 100000) if profile else 100000,
                         "token_used": profile.get("token_used", 0) if profile else 0,
+                        "plan_tier": profile.get("plan_tier", "free") if profile else "free",
+                        "plan_status": profile.get("plan_status", "active") if profile else "active",
+                        "plan_source": profile.get("plan_source", "system") if profile else "system",
+                        "current_period_start": profile.get("current_period_start") if profile else None,
+                        "current_period_end": profile.get("current_period_end") if profile else None,
+                        "team_id": profile.get("team_id") if profile else None,
+                        "feature_flags": profile.get("feature_flags", {}) if profile else {},
                     }
+                    app_role = self._resolve_session_role(result.get("access_token"))
+                    if app_role:
+                        user_info["role"] = app_role
                     self._session = {"user_id": result["user_id"], "access_token": result.get("access_token"), "user_info": user_info}
                     return json.dumps({"success": True, "user": user_info, "token": result.get("access_token")}, ensure_ascii=False)
                 else:
                     return json.dumps({"success": False, "error": result.get("error", "登录失败")}, ensure_ascii=False)
             else:
                 mock_user = {"id": "mock-user-001", "email": email, "nickname": email.split("@")[0],
-                             "avatar_url": "", "token_quota": 100000, "token_used": 12345}
+                             "avatar_url": "", "token_quota": 100000, "token_used": 12345,
+                             "plan_tier": "free", "plan_status": "active", "plan_source": "local",
+                             "feature_flags": {}, "role": "user"}
                 self._session = {"user_id": "mock-user-001", "user_info": mock_user}
                 return json.dumps({"success": True, "user": mock_user, "token": "mock-jwt-token"}, ensure_ascii=False)
         except Exception as exc:
@@ -526,6 +886,7 @@ class Api:
         try:
             if self._supabase and self._session.get("user_id"):
                 usage = self._supabase.get_token_usage(self._session["user_id"])
+                usage["plan"] = self._current_entitlements()
                 return json.dumps(usage, ensure_ascii=False)
             else:
                 from core.token_tracker import TokenTracker
@@ -535,10 +896,12 @@ class Api:
                     "token_remaining": usage.get('remaining', 100000),
                     "usage_percentage": usage.get('usage_percentage', 0),
                     "today_usage": 0, "month_usage": usage.get('used', 0),
+                    "plan": self._current_entitlements(),
                 }, ensure_ascii=False)
         except Exception:
             return json.dumps({"token_quota": 100000, "token_used": 0, "token_remaining": 100000,
-                               "usage_percentage": 0, "today_usage": 0, "month_usage": 0}, ensure_ascii=False)
+                               "usage_percentage": 0, "today_usage": 0, "month_usage": 0,
+                               "plan": self._current_entitlements()}, ensure_ascii=False)
 
     # ------------------------------------------------------------------
     #  模板管理
@@ -727,12 +1090,37 @@ class Api:
 
     _FORMAT_RULES_FILE = os.path.join(os.path.dirname(__file__), "web", "format_rules.json")
 
-    def saveFormatRequirements(self, rules_json: str) -> str:
+    def saveFormatRequirements(self, rules_json: str, scope: str = "personal") -> str:
         """Save user format rules — Supabase primary, local JSON fallback."""
         try:
             rules = json.loads(rules_json) if isinstance(rules_json, str) else rules_json
             if isinstance(rules, dict):
                 rules["savedByUser"] = True
+
+            scope = str(scope or "personal").strip().lower()
+            if scope not in {"personal", "team"}:
+                scope = "personal"
+            gate_feature = "team_rule_share" if scope == "team" else "personal_rule_library"
+            gate = self._check_feature_gate(gate_feature)
+            if not gate.get("allowed"):
+                return self._deny_json(gate)
+
+            if scope == "team":
+                team_id = self._current_team_id()
+                if not team_id:
+                    return self._deny_json(self._team_gate("TEAM_REQUIRED", "当前账号尚未加入团队，无法保存团队规则库。"))
+                uid = self._session.get("user_id") if self._session else None
+                if self._supabase and uid:
+                    result = self._supabase.save_team_format_rules(team_id, uid, rules)
+                    return json.dumps({
+                        "success": result.get("success", False),
+                        "storage": result.get("storage", "supabase"),
+                        "scope": "team",
+                        "team_id": team_id,
+                        "error": result.get("error"),
+                    }, ensure_ascii=False)
+                self._local_team_rules[team_id] = rules
+                return json.dumps({"success": True, "storage": "local", "scope": "team", "team_id": team_id}, ensure_ascii=False)
 
             # ── Supabase（已登录时） ──
             uid = self._session.get("user_id") if self._session else None
@@ -746,20 +1134,48 @@ class Api:
                     # 同步本地文件作为离线缓存
                     with open(self._FORMAT_RULES_FILE, "w", encoding="utf-8") as f:
                         json.dump(rules, f, ensure_ascii=False, indent=2)
-                    return json.dumps({"success": True, "storage": "supabase"}, ensure_ascii=False)
+                    return json.dumps({"success": True, "storage": "supabase", "scope": "personal"}, ensure_ascii=False)
                 except Exception as sb_err:
                     print(f"[FormatRules] Supabase save failed, falling back to local: {sb_err}")
 
             # ── 本地 JSON 兜底 ──
             with open(self._FORMAT_RULES_FILE, "w", encoding="utf-8") as f:
                 json.dump(rules, f, ensure_ascii=False, indent=2)
-            return json.dumps({"success": True, "storage": "local"}, ensure_ascii=False)
+            return json.dumps({"success": True, "storage": "local", "scope": "personal"}, ensure_ascii=False)
         except Exception as exc:
             return json.dumps({"success": False, "error": str(exc)}, ensure_ascii=False)
 
-    def loadFormatRequirements(self) -> str:
+    def loadFormatRequirements(self, scope: str = "personal") -> str:
         """Load saved format rules — Supabase primary, local JSON fallback."""
         try:
+            scope = str(scope or "personal").strip().lower()
+            if scope not in {"personal", "team"}:
+                scope = "personal"
+            if scope == "team":
+                gate = self._check_feature_gate("team_rule_share")
+                if not gate.get("allowed"):
+                    return self._deny_json(gate)
+                team_id = self._current_team_id()
+                if not team_id:
+                    return self._deny_json(self._team_gate("TEAM_REQUIRED", "当前账号尚未加入团队，无法读取团队规则库。"))
+                uid = self._session.get("user_id") if self._session else None
+                if self._supabase and uid:
+                    result = self._supabase.get_team_format_rules(team_id)
+                    return json.dumps({
+                        "success": True,
+                        "rules": result.get("rules"),
+                        "storage": result.get("storage", "supabase"),
+                        "scope": "team",
+                        "team_id": team_id,
+                    }, ensure_ascii=False)
+                return json.dumps({
+                    "success": True,
+                    "rules": self._local_team_rules.get(team_id),
+                    "storage": "local",
+                    "scope": "team",
+                    "team_id": team_id,
+                }, ensure_ascii=False)
+
             # ── Supabase（已登录时） ──
             uid = self._session.get("user_id") if self._session else None
             if self._supabase and uid:
@@ -778,7 +1194,7 @@ class Api:
                         with open(self._FORMAT_RULES_FILE, "w", encoding="utf-8") as f:
                             json.dump(rules, f, ensure_ascii=False, indent=2)
                         return json.dumps({"success": True, "rules": rules,
-                                           "storage": "supabase"}, ensure_ascii=False)
+                                           "storage": "supabase", "scope": "personal"}, ensure_ascii=False)
                 except Exception as sb_err:
                     print(f"[FormatRules] Supabase load failed, falling back to local: {sb_err}")
 
@@ -787,8 +1203,34 @@ class Api:
                 with open(self._FORMAT_RULES_FILE, "r", encoding="utf-8") as f:
                     rules = json.load(f)
                 return json.dumps({"success": True, "rules": rules,
-                                   "storage": "local"}, ensure_ascii=False)
-            return json.dumps({"success": True, "rules": None}, ensure_ascii=False)
+                                   "storage": "local", "scope": "personal"}, ensure_ascii=False)
+            return json.dumps({"success": True, "rules": None, "scope": "personal"}, ensure_ascii=False)
+        except Exception as exc:
+            return json.dumps({"success": False, "error": str(exc)}, ensure_ascii=False)
+
+    def runBatchQA(self, files_json: str, categories_str: str = '["typo", "consistency", "logic", "format", "crossref"]') -> str:
+        try:
+            gate = self._check_feature_gate("batch_check")
+            if not gate.get("allowed"):
+                return self._deny_json(gate)
+
+            files = json.loads(files_json) if isinstance(files_json, str) else (files_json or [])
+            categories = json.loads(categories_str) if isinstance(categories_str, str) else categories_str
+            results = []
+            for item in files:
+                content = (item or {}).get("content", "")
+                name = (item or {}).get("name") or "untitled"
+                elements = (item or {}).get("elements")
+                result = self.runQA(
+                    content,
+                    json.dumps(categories or ["typo", "consistency", "logic", "format", "crossref"], ensure_ascii=False),
+                    elements_json=json.dumps(elements, ensure_ascii=False) if elements is not None else None,
+                )
+                results.append({
+                    "name": name,
+                    "result": json.loads(result) if isinstance(result, str) else result,
+                })
+            return json.dumps({"success": True, "results": results, "count": len(results)}, ensure_ascii=False)
         except Exception as exc:
             return json.dumps({"success": False, "error": str(exc)}, ensure_ascii=False)
 
@@ -799,6 +1241,11 @@ class Api:
     def runQA(self, content: str, categories_str: str = '["typo", "consistency", "logic", "format", "crossref"]',
               elements_json: str = None) -> str:
         try:
+            from core.entitlements import check_quota_available
+            gate = check_quota_available(self._current_entitlements(), "rule_check")
+            if not gate.get("allowed"):
+                return self._deny_json(gate)
+
             qa_health = self._warmup_qa_capabilities(force=False)
             if not qa_health.get("ready", False):
                 # 用户刚完成依赖安装时，给一次强制重检机会，避免必须重启后端。
@@ -920,6 +1367,7 @@ class Api:
 
             engine = QAEngine(config=self._qa_runtime_config)
             report = engine.check(doc, categories, format_rules=format_rules)
+            self._increment_usage("rule_check_used_today")
             return json.dumps({
                 "success": True,
                 "issues": [
@@ -967,8 +1415,13 @@ class Api:
     #  交叉引用
     # ------------------------------------------------------------------
 
-    def runXRef(self, content: str, fielded_refs: list = None, elements_json=None) -> str:
+    def runXRef(self, content: str, fielded_refs: list = None, elements_json=None, deep: bool = False) -> str:
         try:
+            if deep:
+                gate = self._check_feature_gate("deep_xref")
+                if not gate.get("allowed"):
+                    return self._deny_json(gate)
+
             from core.document_model import DocumentModel, DocElement, ElementType
             from core.crossref_engine import TargetScanner, RefPointScanner, CrossRefMatcher
             from core.crossref_models import CrossRefStatus
@@ -1210,6 +1663,13 @@ class Api:
                 config = json.loads(config_str) if isinstance(config_str, str) else config_str
             except Exception:
                 pass
+        purpose = str(config.get("purpose") or "ai_parse").strip()
+        if purpose not in ("ai_qa", "ai_parse"):
+            purpose = "ai_parse"
+        charge_quota = bool(config.get("charge_quota", True))
+        gate = self._check_feature_gate(purpose, purpose if charge_quota else None)
+        if not gate.get("allowed"):
+            return self._deny_json(gate)
 
         model = str(config.get("model", "deepseek-v4-flash")).strip()
         if (not model) or (not model.lower().startswith("deepseek-")):
@@ -1251,6 +1711,11 @@ class Api:
             resp = client.chat.completions.create(**req)
             content = (resp.choices[0].message.content or "").strip()
             usage = getattr(resp, "usage", None)
+            if charge_quota:
+                if purpose == "ai_qa":
+                    self._increment_usage("ai_qa_used")
+                else:
+                    self._increment_usage("ai_parse_used")
             return json.dumps({"content": content, "usage": usage.model_dump() if usage else {}}, ensure_ascii=False)
         except Exception as exc:
             return json.dumps({"error": str(exc)}, ensure_ascii=False)

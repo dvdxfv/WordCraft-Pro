@@ -106,8 +106,12 @@
       return { success: !error, error: error?.message };
     },
     async refreshDocxFields(docx_b64) { return this._request('refreshDocxFields', { docx_b64 }); },
-    async saveFormatRequirements(rules) { return this._request('saveFormatRequirements', { rules }); },
-    async loadFormatRequirements() { return this._request('loadFormatRequirements', {}); },
+    async saveFormatRequirements(rules, scope='personal') { return this._request('saveFormatRequirements', { rules, scope }); },
+    async loadFormatRequirements(scope='personal') { return this._request('loadFormatRequirements', { scope }); },
+    async getTeamWorkspace() { return this._request('getTeamWorkspace', {}); },
+    async createTeamWorkspace(name, seat_limit=5) { return this._request('createTeamWorkspace', { name, seat_limit }); },
+    async addTeamMemberByEmail(email, role='member') { return this._request('addTeamMemberByEmail', { email, role }); },
+    async runBatchQA(files, categories) { return this._request('runBatchQA', { files, categories }); },
     async uploadTemplate(file_content, name, file_name) { return this._request('uploadTemplate', { file_content, name, file_name }); },
     async deleteTemplate(template_id) {
       const userId = await this._sbUserId();
@@ -957,6 +961,9 @@ html,body{height:100%;font-family:-apple-system,'SF Pro Text','PingFang SC','Mic
 
   <div class="tb-spacer"></div>
 
+  <button class="tbtn" id="btnActivationCode" onclick="openActivationRedeemModal()">
+    <svg viewBox="0 0 24 24"><path d="M4 7a2 2 0 012-2h3v2H6v3H4V7zm10-2h4a2 2 0 012 2v3h-2V7h-4V5zM4 14h2v3h3v2H6a2 2 0 01-2-2v-3zm14 0h2v3a2 2 0 01-2 2h-4v-2h4v-3zM8 12a4 4 0 118 0 4 4 0 01-8 0zm2 0a2 2 0 104 0 2 2 0 00-4 0z"/></svg>激活码
+  </button>
   <button class="tbtn" id="btnTheme" onclick="toggleTheme()">
     <svg viewBox="0 0 24 24" id="themeIcon"><path d="M12 3c-4.97 0-9 4.03-9 9s4.03 9 9 9 9-4.03 9-9c0-.46-.04-.92-.1-1.36-.98 1.37-2.58 2.26-4.4 2.26-2.98 0-5.4-2.42-5.4-5.4 0-1.81.89-3.42 2.26-4.4-.44-.06-.9-.1-1.36-.1z"/></svg>主题
   </button>
@@ -1147,6 +1154,25 @@ html,body{height:100%;font-family:-apple-system,'SF Pro Text','PingFang SC','Mic
           <div id="formatRulesSavedHint" style="display:none;font-size:11px;color:#22a665;margin-top:4px">✓ 已保存规范，QA 检查时自动校验</div>
         </div>
 
+        <div id="teamWorkspacePanel" style="margin-top:8px;padding:8px;border:1px solid var(--line);border-radius:10px;background:#fafafa">
+          <div style="font-size:12px;font-weight:600;margin-bottom:6px">团队工作区（17B）</div>
+          <div class="fr"><label>团队名</label><input id="teamWorkspaceName" placeholder="例如：编辑部"></div>
+          <div class="fr"><label>席位</label><input id="teamWorkspaceSeatLimit" type="number" value="5" min="1" max="200"></div>
+          <div class="fr"><button class="fbtn" id="btnCreateTeamWorkspace" onclick="createTeamWorkspace()">创建团队</button></div>
+          <div class="fr"><label>成员邮箱</label><input id="teamMemberEmail" placeholder="member@example.com"></div>
+          <div class="fr"><button class="fbtn" id="btnAddTeamMember" onclick="addTeamMemberByEmail()">录入成员</button><button class="fbtn" id="btnSaveTeamFormatRules" onclick="saveTeamFormatRequirements()">保存团队规则</button></div>
+          <div id="teamWorkspaceSummary" style="font-size:11px;color:#666;margin-top:6px">尚未加载团队信息</div>
+        </div>
+
+        <div id="teamWorkspaceActions" style="margin-top:8px;padding:8px;border:1px dashed var(--line);border-radius:10px;background:#fff">
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="fbtn" id="btnLoadTeamFormatRules" onclick="loadTeamFormatRequirements()">加载团队规则</button>
+            <button class="fbtn" id="btnRunTeamBatchQA" onclick="runTeamBatchQA()">批量检查已打开文档</button>
+          </div>
+          <div id="teamWorkspaceMembers" style="font-size:11px;color:#444;margin-top:6px"></div>
+          <div id="teamBatchQAResult" style="font-size:11px;color:#444;margin-top:6px"></div>
+        </div>
+
         <div class="format-panel" id="fp-ai">
           <div class="ai-hint">上传参考模板或用中文描述排版需求，AI 自动解析为排版规则。</div>
           <div class="upload-zone" id="uploadZone" onclick="document.getElementById('templateFileInput').click()">
@@ -1284,6 +1310,24 @@ html,body{height:100%;font-family:-apple-system,'SF Pro Text','PingFang SC','Mic
 </div>
 
 </div><!-- /app -->
+
+<!-- ACTIVATION CODE MODAL -->
+<div class="modal-overlay" id="activationRedeemModal" onclick="if(event.target===this)closeActivationRedeemModal()">
+  <div class="modal-box" style="width:420px;max-width:96vw">
+    <div class="modal-hd"><h3>激活套餐</h3><button class="modal-close" onclick="closeActivationRedeemModal()">×</button></div>
+    <div class="modal-body">
+      <div class="setting-group">
+        <label class="setting-label" for="activationCodeInput">激活码</label>
+        <input id="activationCodeInput" type="text" placeholder="WCPR-XXXX-XXXX-XXXX" autocomplete="off" spellcheck="false" style="text-transform:uppercase">
+        <div class="setting-hint">输入管理员生成的激活码后，系统会立即刷新当前套餐。</div>
+      </div>
+    </div>
+    <div class="modal-ft">
+      <button class="fbtn secondary" style="width:auto;padding:8px 18px" onclick="closeActivationRedeemModal()">取消</button>
+      <button class="fbtn primary" style="width:auto;padding:8px 18px" onclick="submitActivationRedeem()" id="btnSubmitActivationRedeem">立即激活</button>
+    </div>
+  </div>
+</div>
 
 <!-- SETTINGS MODAL -->
 <div class="modal-overlay" id="settingsModal" onclick="if(event.target===this)closeSettings()">
@@ -1514,6 +1558,80 @@ async function loadFormatRequirementsFromBackend(){
   }
 }
 
+function openActivationRedeemModal(){
+  const modal=document.getElementById('activationRedeemModal');
+  const input=document.getElementById('activationCodeInput');
+  if(!modal||!input)return;
+  modal.classList.add('show');
+  input.value='';
+  setTimeout(()=>{input.focus();input.select();},0);
+}
+
+function closeActivationRedeemModal(){
+  document.getElementById('activationRedeemModal')?.classList.remove('show');
+}
+
+function _planTierLabel(tier){
+  return {
+    free:'免费版',
+    pro:'专业版',
+    team:'团队版',
+    enterprise:'企业版'
+  }[String(tier||'free').toLowerCase()]||String(tier||'免费版');
+}
+
+async function loadCurrentPlanBadge(){
+  const el=document.getElementById('tokenUsage');
+  if(!el)return;
+  el.style.cursor='pointer';
+  el.title='点击输入激活码升级套餐';
+  el.onclick=openActivationRedeemModal;
+  try{
+    if(!window.supabaseClient){el.textContent='套餐状态不可用';return;}
+    const { data: sessionData } = await window.supabaseClient.auth.getSession();
+    const userId = sessionData?.session?.user?.id;
+    if(!userId){el.textContent='未登录';return;}
+    const { data, error } = await window.supabaseClient
+      .from('profiles')
+      .select('plan_tier,plan_status,current_period_end')
+      .eq('id', userId)
+      .single();
+    if(error || !data){el.textContent='免费版';return;}
+    const status = data.plan_status==='expired' ? '（已过期）' : '';
+    el.textContent = _planTierLabel(data.plan_tier)+status;
+  }catch(e){
+    el.textContent='免费版';
+  }
+}
+
+async function submitActivationRedeem(){
+  const input=document.getElementById('activationCodeInput');
+  const btn=document.getElementById('btnSubmitActivationRedeem');
+  const code=(input?.value||'').trim().toUpperCase();
+  if(!code){showToast('请输入激活码');input&&input.focus();return;}
+  if(!window.supabaseClient){showToast('激活失败：Supabase 未初始化');return;}
+  if(btn)btn.disabled=true;
+  try{
+    const { data: sessionData } = await window.supabaseClient.auth.getSession();
+    const userId = sessionData?.session?.user?.id;
+    if(!userId){showToast('请先登录后再激活');return;}
+    const rpcResp = await window.supabaseClient.rpc('redeem_activation_code', { p_code: code });
+    if(rpcResp.error) throw rpcResp.error;
+    const result = Array.isArray(rpcResp.data) ? rpcResp.data[0] : rpcResp.data;
+    if(result && result.success){
+      closeActivationRedeemModal();
+      await loadCurrentPlanBadge();
+      showToast('激活成功，套餐已刷新');
+      return;
+    }
+    showToast('激活失败：'+(result?.error||'激活码无效'));
+  }catch(e){
+    showToast('激活失败：'+(e?.message||String(e)));
+  }finally{
+    if(btn)btn.disabled=false;
+  }
+}
+
 function init(){
   setTheme(getTheme());
   renderFileTree();
@@ -1522,6 +1640,7 @@ function init(){
   document.getElementById('versionLabel').addEventListener('click',handleVersionClick);
   loadCloudUserSettings();
   loadUserTemplates();
+  loadTeamWorkspace();
   loadCloudDocuments();
   checkOnlineStatus();
   setInterval(checkOnlineStatus,30000);
@@ -1529,6 +1648,11 @@ function init(){
   setupRealtimeDocSync();
   _checkQAHealthGate();
   loadFormatRequirementsFromBackend();
+  loadCurrentPlanBadge();
+  document.getElementById('activationCodeInput')?.addEventListener('keydown',e=>{
+    if(e.key==='Enter'){e.preventDefault();submitActivationRedeem();}
+    if(e.key==='Escape'){e.preventDefault();closeActivationRedeemModal();}
+  });
 }
 let _vc=0,_vt=null;
 function handleVersionClick(){_vc++;clearTimeout(_vt);_vt=setTimeout(()=>_vc=0,2000);if(_vc>=5){_vc=0;openDashboard();}}
@@ -1938,19 +2062,147 @@ async function saveDefaultFormat(){
 }
 
 async function saveFormatRequirements(){
+  return _saveFormatRequirementsWithScope('personal');
+}
+
+async function saveTeamFormatRequirements(){
+  return _saveFormatRequirementsWithScope('team');
+}
+
+async function _saveFormatRequirementsWithScope(scope){
   const rules=_collectFormatRules();
   rules.savedByUser=true;
   _savedFormatRules=rules;
   try{localStorage.setItem('wc_format_rules',JSON.stringify(rules));}catch(e){}
   try{
-    const resp=await fetch('/api/saveFormatRequirements',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rules:JSON.stringify(rules)})});
-    if(!resp.ok)throw new Error(`HTTP ${resp.status}`);
+    const data=await window.WC_API.saveFormatRequirements(rules, scope);
+    if(!data?.success)throw new Error(data?.error||'save failed');
   }catch(e){
     console.warn('Backend save failed, using local only:',e);
+    if(scope==='team'){
+      showToast('团队规则库保存失败，请先确认已加入团队套餐');
+      return;
+    }
   }
   const h=document.getElementById('formatRulesSavedHint');
   if(h)h.style.display='block';
   showToast('格式规范已保存，QA 检查时自动校验');
+}
+
+function _renderTeamWorkspaceSummary(data){
+  const el=document.getElementById('teamWorkspaceSummary');
+  const membersEl=document.getElementById('teamWorkspaceMembers');
+  if(!el)return;
+  if(!data?.team){
+    el.textContent='当前还没有团队，可先创建团队后再共享规则与录入成员';
+    if(membersEl)membersEl.textContent='';
+    return;
+  }
+  const members=Array.isArray(data.members)?data.members:[];
+  const seatLimit=data.team.seat_limit||0;
+  const teamName=data.team.name||'未命名团队';
+  const ruleState=data.rules?'已配置团队规则':'未配置团队规则';
+  const memberEmails=members.map(m=>m.email||m.user_id).filter(Boolean).join('、');
+  el.textContent=`${teamName} | 成员 ${members.length}/${seatLimit} | ${ruleState}${memberEmails?` | ${memberEmails}`:''}`;
+  if(membersEl){
+    membersEl.innerHTML=members.length
+      ? `成员列表：${members.map(m=>`${m.email||m.user_id} (${m.role||'member'})`).join('；')}`
+      : '成员列表：当前只有团队所有者';
+  }
+}
+
+async function loadTeamWorkspace(){
+  const panel=document.getElementById('teamWorkspacePanel');
+  if(!panel)return;
+  try{
+    const data=await window.WC_API.getTeamWorkspace();
+    if(data?.success){
+      _renderTeamWorkspaceSummary(data);
+      return;
+    }
+    _renderTeamWorkspaceSummary(null);
+  }catch(e){
+    console.warn('loadTeamWorkspace failed:',e);
+    _renderTeamWorkspaceSummary(null);
+  }
+}
+
+async function createTeamWorkspace(){
+  const name=(document.getElementById('teamWorkspaceName')?.value||'').trim();
+  const seatLimit=parseInt(document.getElementById('teamWorkspaceSeatLimit')?.value||'5',10)||5;
+  if(!name){showToast('请先输入团队名称');return;}
+  try{
+    const data=await window.WC_API.createTeamWorkspace(name, seatLimit);
+    if(!data?.success)throw new Error(data?.error||'create failed');
+    _renderTeamWorkspaceSummary(data);
+    showToast('团队已创建');
+    await loadCurrentPlanBadge();
+  }catch(e){
+    showToast('创建团队失败：'+(e?.message||String(e)));
+  }
+}
+
+async function addTeamMemberByEmail(){
+  const email=(document.getElementById('teamMemberEmail')?.value||'').trim();
+  if(!email){showToast('请先输入成员邮箱');return;}
+  try{
+    const data=await window.WC_API.addTeamMemberByEmail(email,'member');
+    if(!data?.success)throw new Error(data?.error||'add member failed');
+    _renderTeamWorkspaceSummary(data);
+    const input=document.getElementById('teamMemberEmail');
+    if(input)input.value='';
+    showToast('团队成员已录入');
+  }catch(e){
+    showToast('录入成员失败：'+(e?.message||String(e)));
+  }
+}
+
+async function loadTeamFormatRequirements(){
+  try{
+    const data=await window.WC_API.loadFormatRequirements('team');
+    if(!data?.success)throw new Error(data?.error||'load failed');
+    if(data.rules){
+      _savedFormatRules=data.rules;
+      if(typeof applyTemplateFields==='function')applyTemplateFields(data.rules);
+      showToast('团队规则已加载到当前面板');
+    }else{
+      showToast('团队规则库为空');
+    }
+    await loadTeamWorkspace();
+  }catch(e){
+    showToast('加载团队规则失败：'+(e?.message||String(e)));
+  }
+}
+
+function _elementsToPlainText(elements){
+  return (elements||[]).map(el=>(el&&el.text)||'').join('\n');
+}
+
+async function runTeamBatchQA(){
+  const resultEl=document.getElementById('teamBatchQAResult');
+  const files=openTabs.map(tab=>({
+    name:tab.name,
+    content:_buildQAHtml(tab.name)||_elementsToPlainText(docContents[tab.name]||[]),
+    elements:docContents[tab.name]||[],
+  })).filter(item=>(item.content||'').trim());
+  if(!files.length){
+    showToast('当前没有可批量检查的已打开文档');
+    return;
+  }
+  if(resultEl)resultEl.textContent='批量检查中...';
+  try{
+    const data=await window.WC_API.runBatchQA(files, ['typo','consistency','logic','format','crossref']);
+    if(!data?.success)throw new Error(data?.error||'batch qa failed');
+    const summaries=(data.results||[]).map(item=>{
+      const count=Array.isArray(item.result?.issues)?item.result.issues.length:0;
+      return `${item.name}: ${count} 条`;
+    });
+    if(resultEl)resultEl.textContent=`批量检查完成，共 ${data.count||0} 份：${summaries.join('；')}`;
+    showToast('团队批量检查已完成');
+  }catch(e){
+    if(resultEl)resultEl.textContent='批量检查失败';
+    showToast('批量检查失败：'+(e?.message||String(e)));
+  }
 }
 
 function _collectFormatRules(){
@@ -2345,8 +2597,8 @@ function saveAIFormatRequirements(){
   try{localStorage.setItem('wc_format_rules',JSON.stringify(rules));}catch(e){}
   (async ()=>{
     try{
-      const resp=await fetch('/api/saveFormatRequirements',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rules:JSON.stringify(rules)})});
-      if(!resp.ok)throw new Error(`HTTP ${resp.status}`);
+      const data=await window.WC_API.saveFormatRequirements(rules, 'personal');
+      if(!data?.success)throw new Error(data?.error||'save failed');
     }catch(e){
       console.warn('Backend save failed, using local only:',e);
     }
