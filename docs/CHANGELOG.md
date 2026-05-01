@@ -8,7 +8,160 @@ git log --all --oneline
 git show <commit-hash>:CLAUDE.md  # 查看特定提交时的完整历史
 ```
 
-## Recent fixes (2026-04-27) — 第十四批 Phase 3：格式规范 E2E 测试 + 后端持久化集成
+## Recent fixes (2026-04-30) - 第十七批 17A：Free / Pro 分层闭环 + 激活码开通链路
+
+> 依据 `PLANS/batch17_user_segmentation_engineering_plan.md` 对齐记录。本批先完成 17A，不进入 Team 完整协作闭环。
+
+### A. 统一 entitlement 层落地
+
+**新增文件**: `core/entitlements.py`
+
+- 定义统一套餐模型：`free / pro / team / enterprise`
+- 统一输出契约：`tier / status / limits / features / usage`
+- 提供门禁函数：
+  - `check_feature_access()`
+  - `check_quota_available()`
+  - `check_file_size_allowed()`
+- 明确免费版限制：
+  - 文件大小 5MB
+  - 规则检查 10 次/天
+  - AI Parse 3 次/月
+  - AI 深度检查 3 次/月
+
+### B. Supabase 计划与用量数据层补齐
+
+**迁移文件**: `supabase/migrations/20260429_batch17_user_plans.sql`
+
+- 扩展 `profiles`：
+  - `plan_tier`
+  - `plan_status`
+  - `plan_source`
+  - `current_period_start`
+  - `current_period_end`
+  - `team_id`
+  - `feature_flags`
+- 新增表：
+  - `usage_counters`
+  - `activation_codes`
+  - `subscriptions`
+  - `teams`
+  - `team_members`
+- 增加 RLS 基础策略
+- 新增 `public.redeem_activation_code(p_code text)` RPC，使用 `security definer`，避免让普通用户直接改写自己的 `profiles.plan_tier`
+
+### C. 后端硬门禁接入
+
+**改动文件**: `app.py`, `core/supabase_client.py`, `web/flask_app.py`
+
+- `app.py` 新增：
+  - `getCurrentPlan()`
+  - `getUsageAndPlan()`
+  - `redeemActivationCode()`
+- `openFile()` 接入套餐文件大小限制
+- `runQA()` 接入免费版规则检查日额度，并在成功后累计 `rule_check_used_today`
+- `callAI()` 接入 `ai_parse` / `ai_qa` 月额度限制
+- `callAI()` 新增 `charge_quota` 开关，修复长文 AI QA 分块被重复扣次的风险
+- `saveFormatRequirements()` 接入个人规则库权限门禁
+- `runXRef()` 保持原基础链路兼容，仅在 `deep=True` 时启用 Pro 门禁，避免破坏既有交叉引用回归
+- `core/supabase_client.py` 新增：
+  - `get_user_plan()`
+  - `get_user_entitlements()`
+  - `get_or_create_usage_counter()`
+  - `increment_usage_counter()`
+  - `redeem_activation_code()`
+
+### D. 前端套餐展示与升级入口
+
+**改动文件**: `web/index.html`
+
+- 顶部状态区增加当前套餐与 AI 剩余额度展示
+- 增加激活码输入入口，兑换成功后立即刷新权益状态
+- AI Parse、AI 深度、深度 XRef、个人规则库保存都接入前端提示
+- 上传前增加文件大小前置提示
+- `runXRef()` 改为显式请求 deep 模式，和后端门禁语义对齐
+
+### E. 手工开通工具链
+
+**新增文件**: `tools/generate_activation_code.py`
+
+- 生成可直接粘贴到 Supabase SQL Editor 的 `insert into public.activation_codes ...` 语句
+- 支持：
+  - 指定套餐
+  - 指定有效天数
+  - 指定兑换次数
+  - 指定过期时间策略
+  - 指定备注
+
+### F. 测试与回归
+
+**新增测试**:
+
+- `tests/test_entitlements.py`
+- `tests/test_plan_gating.py`
+- `tests/test_activation_code_tool.py`
+- `tests/test_supabase_plan_migration.py`
+
+**已验证通过**:
+
+- `tests/test_batch_regression.py`
+- `tests/test_format_checker.py`
+- 上述新增测试
+
+**当前汇总结果**: **85 passed**
+
+### G. 当前状态
+
+- 第十七批 17A：**核心实现完成，自动化回归通过，待真实 Supabase 环境迁移与链路验收**
+- 第十七批 17B：**最小闭环已落地，待 UI 收口与真实团队账号验收**（已完成团队工作区基础能力、共享规则与批量检查入口）
+
+## Recent fixes (2026-05-01) - 第十九批：管理员仪表盘闭环验收完成
+
+> 依据 `PLANS/batch19_admin_dashboard_enhancement.md` 对齐记录。本批已完成代码实施、真实 Supabase 迁移应用与管理员实登验收。
+
+### A. 管理后台页面重写完成
+
+**改动文件**: `web/dashboard.html`
+
+- 旧版“后端监控页”已重写为 5 分区管理员后台
+- 实现 admin 角色门控与非 admin 全屏占位页
+- 增加中文 `LABELS` 映射层，避免套餐/用途/来源英文裸值直出
+- 增加分区级 loading / empty / forbidden / error / data 状态
+- 增加用户详情抽屉、团队成员抽屉、激活码生成弹窗
+- 增加 Token 30 天趋势、日志筛选/分页/CSV 导出、30s polling、表头粘性与排序
+
+### B. Supabase 管理员读策略与运营动作补齐
+
+**新增文件**: `supabase/migrations/20260501_admin_role_read_plan_tables.sql`
+
+- 补齐 admin 对以下对象的全局读取能力：
+  - `profiles`
+  - `usage_counters`
+  - `activation_codes`
+  - `subscriptions`
+  - `teams`
+  - `team_members`
+- 额外补齐 `activation_codes` 的 admin `insert` 策略
+- 支撑管理后台直接生成激活码，无需再走 SQL 控制台
+
+### C. 自动化验证结果
+
+- `tests/test_batch_regression.py`：46 passed
+- `tests/test_format_checker.py`：23 passed
+- `tests/test_document_structure.py`：26 passed
+- `web/dashboard.html` inline script 语法校验：OK
+
+### D. 真实环境验收结果
+
+- `admin@wordcraft.com` 实登管理页：通过
+- Supabase 已应用新增 RLS 迁移：通过
+- “生成激活码 → 普通账号兑换 → redeemed_count +1”链路：通过
+
+### E. 当前状态
+
+- 第十九批：**已闭环完成**
+- `docs/supabase-现状.md` 中“管理员 UI 还没做最终实登验收”已可标记为完成
+
+## Recent fixes (2026-04-27) - 第十四批 Phase 3：格式规范 E2E 测试 + 后端持久化集成
 
 > 完成 Batch 14 Phase 3 端到端测试与后端集成，确保格式规范可被持久化到 Supabase 并在页面重载后恢复。
 

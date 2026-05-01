@@ -1,62 +1,157 @@
 # Supabase 现状同步（通俗版）
 
-> 更新时间：2026-04-22  
-> 这份文档用于说明“现在项目里 Supabase 实际在做什么”。
+> 更新时间：2026-05-01
+> 本文用于说明当前项目里 Supabase 实际承担的职责，以及今天已经落地到真实项目的状态。
 
 ## 一句话总结
 
-现在 Supabase 已经不只是“建表完成”，而是已经接入到日常功能里：  
-**登录、会话、云端文档、模板、用户设置、Token 统计、AI 代理**都在用。
+Supabase 现在不只是“已经接入”，而是已经承载：
 
-## 现在能用的 Supabase 功能（按用户视角）
+- 认证与会话
+- 用户档案与套餐
+- 文档/模板/用户设置存储
+- Token 使用统计
+- Batch 17A 的套餐、额度、激活码和团队基础 schema
 
-1. **账号登录/注册**
-   - 登录页直接走 Supabase Auth（邮箱密码登录）。
-   - 已登录用户可直接进入编辑页；未登录会被引导回落地页/登录流程。
+## 今天新增落地
 
-2. **会话状态管理**
-   - 页面会检查当前登录态（session）。
-   - 会话存在就继续用，不存在就跳转，避免“明明没登录却还能操作”。
+### 1. Batch 17A schema 已落到真实 Supabase
 
-3. **用户文档云保存**
-   - 文档可保存到 `documents` 表。
-   - 支持读取文档列表、加载指定文档、更新文档内容。
+`profiles` 已新增：
 
-4. **模板管理**
-   - 模板元数据在 `templates` 表。
-   - 模板文件走 Supabase Storage（`templates` bucket）。
-   - 支持查询模板、上传模板、删除模板。
+- `plan_tier`
+- `plan_status`
+- `plan_source`
+- `current_period_start`
+- `current_period_end`
+- `team_id`
+- `feature_flags`
 
-5. **用户设置持久化**
-   - 设置存到 `user_settings` 表（如主题、默认排版参数、AI 模型偏好等）。
-   - 用户下次打开仍可拿到自己的设置。
+已新增新表：
 
-6. **Token 使用统计**
-   - 从 `profiles` 与 `token_logs` 读取额度和用量。
-   - 前端可以展示已用、剩余、当天使用量。
+- `usage_counters`
+- `activation_codes`
+- `subscriptions`
+- `teams`
+- `team_members`
 
-7. **AI 调用通道（Supabase 边缘函数）**
-   - `callAI` 走 Supabase Functions 的代理通道（`ai-proxy`）。
-   - 仓库里还有 `supabase/functions/qa-summary`，但当前主流程主要通过 `callAI` 代理。
+### 2. 激活码兑换 RPC 已上线
 
-## 当前依赖的核心表/存储
+- `public.redeem_activation_code(text)` 已存在
+- 该函数为 `SECURITY DEFINER`
+- `anon` 已不能执行该函数
+- `authenticated` 可以执行该函数
 
-- `profiles`：用户额度等扩展信息
-- `documents`：用户文档
-- `token_logs`：Token 消耗日志
-- `user_settings`：用户个性化配置
-- `templates`：模板记录
-- Storage `templates` bucket：模板文件本体
+### 3. 套餐字段安全收口已完成
 
-## 运行模式（你最关心的）
+- 普通登录用户已不能直接更新 `profiles.plan_tier`
+- `profiles` 的可更新列已收紧到基础档案字段：
+  - `email`
+  - `phone`
+  - `nickname`
+  - `avatar_url`
+  - `updated_at`
 
-- **有 Supabase 时**：走真实云端数据（正式模式）。
-- **Supabase 异常时**：后端和部分前端有兜底逻辑（本地/默认数据），应用不会直接崩。
+### 4. 两个 admin 统计 view 的 Critical 已消除
 
-## 这份旧文档里已不再适合保留的内容
+已处理对象：
 
-- 不再建议在文档里保存明文账号密码。
-- 不再建议在文档里长期粘贴完整 key（尤其是会被误当“永久配置”时）。
-- “只写建表已完成”的状态已经过时，当前重点是“功能是否真实跑通、权限是否安全”。
+- `public.admin_user_stats`
+- `public.admin_token_daily_stats`
 
+处理结果：
 
+- 两个 view 都已改为 `security_invoker=true`
+- 已去掉对 `anon/authenticated` 的宽放行
+- Supabase Advisor 里之前这两个 `Security Definer View` Critical 已消失
+
+### 5. 管理员读路径已补齐
+
+已新增 admin 只读策略，使带有 `auth.jwt()->>'role' = 'admin'` 的登录用户可读取管理看板需要的全局统计路径。
+
+当前已补齐的 admin 全局读取对象包括：
+
+- `profiles`
+- `usage_counters`
+- `activation_codes`
+- `subscriptions`
+- `teams`
+- `team_members`
+- `token_logs`
+- `documents`
+- `templates`
+- `user_settings`
+- `admin_user_stats`
+- `admin_token_daily_stats`
+
+其中，Batch 19 补充的真实迁移文件为：
+
+- `supabase/migrations/20260501_admin_role_read_plan_tables.sql`
+
+该迁移同时补齐了 `activation_codes` 的 admin `insert` 策略，用于后台直接生成激活码。
+
+## 当前两账号状态
+
+### 开发者账号
+
+- 邮箱：`13513645422@163.com`
+- 当前 `plan_tier = enterprise`
+- 当前 `plan_source = admin`
+- 用途：开发者全功能账号，直接拥有全部产品能力
+
+### 管理员账号
+
+- 邮箱：`admin@wordcraft.com`
+- `auth.users.raw_app_meta_data.role = admin`
+- 当前 `profiles.plan_tier = free`
+- 用途：管理员模式账号，重点是后台/管理权限，不与产品套餐强耦合
+
+## 当前代码与 Supabase 的关系
+
+### 已经真实依赖 Supabase 的能力
+
+- 登录/注册：Supabase Auth
+- 用户 session：前端和后端都在用
+- 用户文档：`documents`
+- 模板：`templates` + Storage `templates` bucket
+- 用户设置：`user_settings`
+- Token 统计：`profiles` + `token_logs`
+- AI 代理：Supabase Edge Function 通道
+- Batch 17A 套餐能力：`profiles` + `usage_counters` + `subscriptions` + `activation_codes`
+
+### 当前仍保留的兜底
+
+当 Supabase 不可用时，后端仍保留本地 fallback，应用不会直接崩溃。但套餐、激活码、管理员权限的真实行为现在应以 Supabase 项目状态为准。
+
+## 已完成验收
+
+### 1. 真实激活码链路验收已完成
+
+已完成真实链路确认：
+
+`admin 后台生成激活码 -> 普通账号兑换 -> 套餐升级/权益刷新 -> dashboard redeemed_count +1`
+
+### 2. 管理员 UI 最终实登验收已完成
+
+已确认：
+
+- `admin@wordcraft.com` 可正常进入管理页
+- 管理页各分区可正常读取 Supabase 统计与业务数据
+- 新增 admin RLS 迁移在真实环境已应用生效
+
+## 仍未完成
+
+### 1. Team 闭环仍未最终收口
+
+`teams / team_members`、`team_format_rules` 以及团队工作区相关 RPC 已落地，17B 的最小工作区能力已经进入实现阶段。
+
+当前未完成的是：
+
+- 真实团队账号端到端验收
+- 完整团队状态页与更细的批量结果展示
+- 邀请邮件、多管理员、审计日志、复杂角色等延后能力
+
+## 备注
+
+- 文档中不再保留明文密码或长期有效 key
+- 真实安全边界现在重点看：RLS、列级权限、RPC 执行权限、JWT 角色透传

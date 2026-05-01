@@ -1445,7 +1445,7 @@
 
                 document.getElementById("identityEmail").textContent = data.session.user?.email || "admin@wordcraft.com";
                 document.getElementById("identityBadge").textContent = L("jwt_role", state.role);
-                document.getElementById("identityMeta").textContent = "可查看套餐分布、激活码与全局 Token 趋势；团队闭环将在 17B 接入";
+                document.getElementById("identityMeta").textContent = "可查看套餐分布、激活码、全局 Token 趋势与 17B 团队工作区当前进度";
                 document.getElementById("forbiddenPage").classList.add("hidden");
                 document.getElementById("dashboardPage").classList.remove("hidden");
                 document.body.dataset.role = "admin";
@@ -2369,8 +2369,8 @@
                     <div class="subpanel">
                         <h3>团队能力</h3>
                         <div class="state-card empty-state">
-                            <div class="state-title">Batch 17B 尚未启动</div>
-                            <p>当前管理后台只验收 17A 的套餐、激活码和用量闭环。团队席位、共享规则和批量工作流会在 17B 单独接入。</p>
+                            <div class="state-title">Batch 17B 已接入最小闭环</div>
+                            <p>当前已具备团队席位、共享规则和批量检查入口的最小工作区能力；真实团队账号端到端验收与完整状态页仍在后续收口范围内。</p>
                         </div>
                     </div>
                 </div>
