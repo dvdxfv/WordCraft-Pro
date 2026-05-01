@@ -341,6 +341,7 @@ class Api:
             "team": team,
             "members": members or [],
             "rules": rules,
+            "invitations": [],
             "team_id": (team or {}).get("id") if isinstance(team, dict) else self._current_team_id(),
         }
 
@@ -374,6 +375,24 @@ class Api:
         }
         self._local_known_users[user_id] = user
         return user
+
+    def _local_pending_team_invitations(self, user_id: str) -> list[dict]:
+        invitations: list[dict] = []
+        for team in self._local_teams.values():
+            for member in team.get("members", []):
+                if member.get("user_id") == user_id and member.get("status") == "pending":
+                    invitations.append({**member, "team": {k: v for k, v in team.items() if k != "members"}})
+        return invitations
+
+    def _can_access_team_workspace(self) -> bool:
+        gate = self._check_feature_gate("team_rule_share")
+        if gate.get("allowed"):
+            return True
+        uid = self._current_user_id()
+        if self._supabase and uid:
+            workspace = self._supabase.get_user_team_workspace(uid)
+            return bool(workspace.get("invitations"))
+        return bool(self._local_pending_team_invitations(uid))
 
     def _resolve_session_role(self, access_token: str | None) -> str | None:
         if not (self._supabase and access_token):
@@ -460,21 +479,26 @@ class Api:
 
     def getTeamWorkspace(self) -> str:
         try:
+            uid = self._session.get("user_id") if self._session else None
             gate = self._check_feature_gate("team_rule_share")
             if not gate.get("allowed"):
-                return self._deny_json(gate)
-
-            uid = self._session.get("user_id") if self._session else None
+                if not self._can_access_team_workspace():
+                    return self._deny_json(gate)
             if self._supabase and uid:
                 workspace = self._supabase.get_user_team_workspace(uid)
                 return json.dumps({"success": True, **workspace}, ensure_ascii=False)
 
             team_id = self._current_team_id()
+            invitations = self._local_pending_team_invitations(self._current_user_id())
             if not team_id:
-                return json.dumps({"success": True, **self._team_workspace_payload()}, ensure_ascii=False)
+                payload = self._team_workspace_payload()
+                payload["invitations"] = invitations
+                return json.dumps({"success": True, **payload}, ensure_ascii=False)
             team = self._local_teams.get(team_id)
             rules = self._local_team_rules.get(team_id)
-            return json.dumps({"success": True, **self._team_workspace_payload(team, team.get("members") if team else [], rules)}, ensure_ascii=False)
+            payload = self._team_workspace_payload(team, team.get("members") if team else [], rules)
+            payload["invitations"] = invitations
+            return json.dumps({"success": True, **payload}, ensure_ascii=False)
         except Exception as exc:
             return json.dumps({"success": False, "error": str(exc)}, ensure_ascii=False)
 
@@ -502,7 +526,9 @@ class Api:
                 "team_id": team_id,
                 "user_id": uid,
                 "role": "owner",
+                "status": "active",
                 "joined_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "accepted_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             }
             team = {
                 "id": team_id,
@@ -561,13 +587,93 @@ class Api:
                 "user_id": user["id"],
                 "email": user["email"],
                 "role": member_role,
-                "joined_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "status": "pending",
+                "invite_email": user["email"],
+                "invited_by": uid,
+                "invited_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "joined_at": None,
+                "accepted_at": None,
             }
             members.append(member)
             return json.dumps({
                 "success": True,
                 "added_member": member,
                 **self._team_workspace_payload(team, members, self._local_team_rules.get(team_id)),
+            }, ensure_ascii=False)
+        except Exception as exc:
+            return json.dumps({"success": False, "error": str(exc)}, ensure_ascii=False)
+
+    def acceptTeamInvite(self, team_id: str) -> str:
+        try:
+            normalized_team_id = str(team_id or "").strip()
+            if not normalized_team_id:
+                return json.dumps({"success": False, "error": "团队邀请不存在", "error_code": "TEAM_INVITE_NOT_FOUND"}, ensure_ascii=False)
+
+            uid = self._current_user_id()
+            if self._supabase and uid:
+                result = self._supabase.accept_team_invite(uid, normalized_team_id)
+                if result.get("success"):
+                    self._session.setdefault("user_info", {})["team_id"] = normalized_team_id
+                    self._session["user_info"]["plan_tier"] = "team"
+                return json.dumps(result, ensure_ascii=False)
+
+            team = self._local_teams.get(normalized_team_id)
+            if not team:
+                return json.dumps({"success": False, "error": "团队不存在", "error_code": "TEAM_NOT_FOUND"}, ensure_ascii=False)
+            members = team.get("members", [])
+            invite = next((m for m in members if m.get("user_id") == uid and m.get("status") == "pending"), None)
+            if not invite:
+                return json.dumps({"success": False, "error": "待接受邀请不存在", "error_code": "TEAM_INVITE_NOT_FOUND"}, ensure_ascii=False)
+
+            now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            invite["status"] = "active"
+            invite["accepted_at"] = now
+            invite["joined_at"] = invite.get("joined_at") or now
+            user_info = self._session.setdefault("user_info", self._local_profile())
+            user_info["team_id"] = normalized_team_id
+            user_info["plan_tier"] = "team"
+            payload = self._team_workspace_payload(team, members, self._local_team_rules.get(normalized_team_id))
+            payload["invitations"] = self._local_pending_team_invitations(uid)
+            return json.dumps({"success": True, **payload}, ensure_ascii=False)
+        except Exception as exc:
+            return json.dumps({"success": False, "error": str(exc)}, ensure_ascii=False)
+
+    def cancelTeamInvite(self, team_id: str, email: str) -> str:
+        try:
+            normalized_team_id = str(team_id or "").strip()
+            normalized_email = str(email or "").strip().lower()
+            if not normalized_team_id:
+                return json.dumps({"success": False, "error": "Team invite was not found.", "error_code": "TEAM_INVITE_NOT_FOUND"}, ensure_ascii=False)
+            if not normalized_email:
+                return json.dumps({"success": False, "error": "Member email is required.", "error_code": "MEMBER_EMAIL_REQUIRED"}, ensure_ascii=False)
+
+            uid = self._current_user_id()
+            if self._supabase and uid:
+                result = self._supabase.cancel_team_invite(uid, normalized_team_id, normalized_email)
+                if result.get("success"):
+                    workspace = self._supabase.get_user_team_workspace(uid)
+                    return json.dumps({"success": True, **workspace}, ensure_ascii=False)
+                return json.dumps(result, ensure_ascii=False)
+
+            team = self._local_teams.get(normalized_team_id)
+            if not team:
+                return json.dumps({"success": False, "error": "Team was not found.", "error_code": "TEAM_NOT_FOUND"}, ensure_ascii=False)
+            if not self._is_local_team_owner(team):
+                return self._deny_json(self._team_gate("TEAM_OWNER_REQUIRED", "Only the team owner can cancel pending invites."))
+
+            members = team.get("members", [])
+            pending_index = next((
+                idx for idx, member in enumerate(members)
+                if member.get("status") == "pending"
+                and str(member.get("invite_email") or member.get("email") or "").strip().lower() == normalized_email
+            ), None)
+            if pending_index is None:
+                return json.dumps({"success": False, "error": "Pending invite was not found.", "error_code": "TEAM_INVITE_NOT_FOUND"}, ensure_ascii=False)
+
+            members.pop(pending_index)
+            return json.dumps({
+                "success": True,
+                **self._team_workspace_payload(team, members, self._local_team_rules.get(normalized_team_id)),
             }, ensure_ascii=False)
         except Exception as exc:
             return json.dumps({"success": False, "error": str(exc)}, ensure_ascii=False)
@@ -1377,6 +1483,9 @@ class Api:
                      "title": i.title, "description": i.description,
                      "suggestion": i.suggestion, "confidence": i.confidence,
                      "location_text": (i.location_text or '').strip(),
+                     "element_index": getattr(i, "element_index", -1),
+                     "start_pos": getattr(i, "start_pos", -1),
+                     "end_pos": getattr(i, "end_pos", -1),
                      "rule_id": getattr(i, "rule_id", ""),
                      "checker": getattr(i, "checker", "")}
                     for i in report.issues

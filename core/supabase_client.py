@@ -230,6 +230,26 @@ class SupabaseClient:
             logger.error("获取团队成员失败: %s", e)
             return []
 
+    def get_pending_team_invitations(self, user_id: str) -> list:
+        try:
+            result = (
+                self.client.table("team_members")
+                .select("*")
+                .eq("user_id", user_id)
+                .eq("status", "pending")
+                .order("invited_at")
+                .execute()
+            )
+            invitations = result.data or []
+            for item in invitations:
+                team = self.get_team(item.get("team_id"))
+                if team:
+                    item["team"] = team
+            return invitations
+        except Exception as e:
+            logger.error("获取待接受团队邀请失败: %s", e)
+            return []
+
     def get_team_format_rules(self, team_id: str) -> dict:
         try:
             result = (
@@ -261,13 +281,14 @@ class SupabaseClient:
     def get_user_team_workspace(self, user_id: str) -> dict:
         profile = self.get_profile(user_id) or {}
         team_id = profile.get("team_id")
+        invitations = self.get_pending_team_invitations(user_id)
         if not team_id:
-            return {"team": None, "members": [], "rules": None, "team_id": None}
+            return {"team": None, "members": [], "rules": None, "team_id": None, "invitations": invitations}
 
         team = self.get_team(team_id)
         members = self.get_team_members(team_id)
         rules = self.get_team_format_rules(team_id).get("rules")
-        return {"team": team, "members": members, "rules": rules, "team_id": team_id}
+        return {"team": team, "members": members, "rules": rules, "team_id": team_id, "invitations": invitations}
 
     def create_team_workspace(self, user_id: str, name: str, seat_limit: int = 5) -> dict:
         try:
@@ -332,6 +353,39 @@ class SupabaseClient:
             return {"success": False, "error": "添加成员失败"}
         except Exception as e:
             logger.error("按邮箱添加团队成员失败: %s", e)
+            return {"success": False, "error": str(e)}
+
+    def accept_team_invite(self, user_id: str, team_id: str) -> dict:
+        try:
+            rpc_result = self.client.rpc("accept_team_invite", {
+                "p_team_id": team_id,
+            }).execute()
+            payload = rpc_result.data
+            if isinstance(payload, dict) and payload.get("success"):
+                workspace = self.get_user_team_workspace(user_id)
+                return {"success": True, **workspace}
+            if isinstance(payload, dict):
+                return payload
+            return {"success": False, "error": "接受团队邀请失败"}
+        except Exception as e:
+            logger.error("接受团队邀请失败: %s", e)
+            return {"success": False, "error": str(e)}
+
+    def cancel_team_invite(self, user_id: str, team_id: str, email: str) -> dict:
+        try:
+            rpc_result = self.client.rpc("cancel_team_invite", {
+                "p_team_id": team_id,
+                "p_email": email,
+            }).execute()
+            payload = rpc_result.data
+            if isinstance(payload, dict) and payload.get("success"):
+                workspace = self.get_user_team_workspace(user_id)
+                return {"success": True, **workspace}
+            if isinstance(payload, dict):
+                return payload
+            return {"success": False, "error": "Pending invite was not found."}
+        except Exception as e:
+            logger.error("cancel team invite failed: %s", e)
             return {"success": False, "error": str(e)}
 
     def redeem_activation_code(self, user_id: str, code: str) -> dict:

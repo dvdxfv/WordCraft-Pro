@@ -76,6 +76,18 @@ class TestBatch1RunQAChain:
             assert "rule_id" in issue
             assert "checker" in issue
 
+    def test_runqa_schema_contains_position_fields(self):
+        from app import Api
+        api = Api(supabase_enabled=False)
+        api._qa_health = {"ready": True, "missing": [], "capabilities": {}}
+        api._qa_runtime_config = {}
+        data = json.loads(api.runQA("<p>海温为 28 °C。</p>"))
+        assert data["success"] is True
+        for issue in data["issues"]:
+            assert "element_index" in issue
+            assert "start_pos" in issue
+            assert "end_pos" in issue
+
     def test_runqa_html_content_not_empty_check(self):
         """传入 HTML 内容时 runQA 必须解析出 elements 并执行检查（曾因未解析 HTML 始终返回 0 条）"""
         from app import Api

@@ -111,6 +111,8 @@
     async getTeamWorkspace() { return this._request('getTeamWorkspace', {}); },
     async createTeamWorkspace(name, seat_limit=5) { return this._request('createTeamWorkspace', { name, seat_limit }); },
     async addTeamMemberByEmail(email, role='member') { return this._request('addTeamMemberByEmail', { email, role }); },
+    async acceptTeamInvite(team_id) { return this._request('acceptTeamInvite', { team_id }); },
+    async cancelTeamInvite(team_id, email) { return this._request('cancelTeamInvite', { team_id, email }); },
     async runBatchQA(files, categories) { return this._request('runBatchQA', { files, categories }); },
     async uploadTemplate(file_content, name, file_name) { return this._request('uploadTemplate', { file_content, name, file_name }); },
     async deleteTemplate(template_id) {
@@ -1154,7 +1156,7 @@ html,body{height:100%;font-family:-apple-system,'SF Pro Text','PingFang SC','Mic
           <div id="formatRulesSavedHint" style="display:none;font-size:11px;color:#22a665;margin-top:4px">✓ 已保存规范，QA 检查时自动校验</div>
         </div>
 
-        <div id="teamWorkspacePanel" style="margin-top:8px;padding:8px;border:1px solid var(--line);border-radius:10px;background:#fafafa">
+        <div id="teamWorkspacePanel" style="display:none;margin-top:8px;padding:8px;border:1px solid var(--line);border-radius:10px;background:#fafafa">
           <div style="font-size:12px;font-weight:600;margin-bottom:6px">团队工作区（17B）</div>
           <div class="fr"><label>团队名</label><input id="teamWorkspaceName" placeholder="例如：编辑部"></div>
           <div class="fr"><label>席位</label><input id="teamWorkspaceSeatLimit" type="number" value="5" min="1" max="200"></div>
@@ -1162,15 +1164,19 @@ html,body{height:100%;font-family:-apple-system,'SF Pro Text','PingFang SC','Mic
           <div class="fr"><label>成员邮箱</label><input id="teamMemberEmail" placeholder="member@example.com"></div>
           <div class="fr"><button class="fbtn" id="btnAddTeamMember" onclick="addTeamMemberByEmail()">录入成员</button><button class="fbtn" id="btnSaveTeamFormatRules" onclick="saveTeamFormatRequirements()">保存团队规则</button></div>
           <div id="teamWorkspaceSummary" style="font-size:11px;color:#666;margin-top:6px">尚未加载团队信息</div>
+          <div id="teamWorkspaceStatus" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:6px;margin-top:8px"></div>
+          <div id="teamWorkspaceInvites" style="margin-top:8px"></div>
         </div>
 
-        <div id="teamWorkspaceActions" style="margin-top:8px;padding:8px;border:1px dashed var(--line);border-radius:10px;background:#fff">
+        <div id="teamWorkspaceActions" style="display:none;margin-top:8px;padding:8px;border:1px dashed var(--line);border-radius:10px;background:#fff">
           <div style="display:flex;gap:8px;flex-wrap:wrap">
             <button class="fbtn" id="btnLoadTeamFormatRules" onclick="loadTeamFormatRequirements()">加载团队规则</button>
             <button class="fbtn" id="btnRunTeamBatchQA" onclick="runTeamBatchQA()">批量检查已打开文档</button>
           </div>
+          <div id="teamWorkspaceProgress" style="font-size:11px;color:#666;margin-top:6px">团队工作区待命</div>
           <div id="teamWorkspaceMembers" style="font-size:11px;color:#444;margin-top:6px"></div>
           <div id="teamBatchQAResult" style="font-size:11px;color:#444;margin-top:6px"></div>
+          <div id="teamBatchQADetails" style="margin-top:8px"></div>
         </div>
 
         <div class="format-panel" id="fp-ai">
@@ -1446,6 +1452,20 @@ let _savedFormatRules=null; // user-saved format requirements for QA compliance 
 function _isUserSavedFormatRules(rules){
   return !!(rules && typeof rules==='object' && rules.savedByUser===true);
 }
+function _isExcludedFromQABodyElement(el){
+  if(!el||typeof el!=='object')return false;
+  const meta=(el.metadata&&typeof el.metadata==='object')?el.metadata:null;
+  if(meta&&meta.exclude_from_format_body)return true;
+  const role=String((meta&&meta.structure_role)||'').toLowerCase();
+  return role==='toc'||role==='cover';
+}
+function _collectQAElements(fn){
+  const els=Array.isArray(docContents[fn])?docContents[fn]:[];
+  return els.filter(el=>{
+    const txt=typeof el?.text==='string'?el.text.trim():'';
+    return !!txt&&!_isExcludedFromQABodyElement(el);
+  });
+}
 try{
   const _sfr=localStorage.getItem('wc_format_rules');
   if(_sfr){
@@ -1580,6 +1600,43 @@ function _planTierLabel(tier){
   }[String(tier||'free').toLowerCase()]||String(tier||'免费版');
 }
 
+function _setTeamWorkspaceVisibility(tier){
+  const normalized=String(tier||'free').toLowerCase();
+  const visible=normalized==='team'||normalized==='enterprise';
+  const panel=document.getElementById('teamWorkspacePanel');
+  const actions=document.getElementById('teamWorkspaceActions');
+  if(panel)panel.style.display=visible?'block':'none';
+  if(actions)actions.style.display=visible?'block':'none';
+  return visible;
+}
+
+function _setTeamWorkspaceVisibilityState(visible){
+  const panel=document.getElementById('teamWorkspacePanel');
+  const actions=document.getElementById('teamWorkspaceActions');
+  if(panel)panel.style.display=visible?'block':'none';
+  if(actions)actions.style.display=visible?'block':'none';
+}
+
+async function _refreshTeamWorkspaceAccess(planTier){
+  const tierVisible=_setTeamWorkspaceVisibility(planTier);
+  try{
+    const data=await window.WC_API.getTeamWorkspace();
+    const hasInvite=Array.isArray(data?.invitations)&&data.invitations.length>0;
+    const hasWorkspace=!!data?.team;
+    _setTeamWorkspaceVisibilityState(tierVisible||hasInvite||hasWorkspace);
+    if(tierVisible||hasInvite||hasWorkspace){
+      _renderTeamWorkspaceSummary(data);
+      _setTeamWorkspaceProgress(
+        hasInvite && !hasWorkspace ? '存在待接受的团队邀请' : (hasWorkspace ? '团队工作区已同步' : '当前还没有团队，可先创建团队'),
+        false,
+        false
+      );
+    }
+  }catch(e){
+    _setTeamWorkspaceVisibilityState(tierVisible);
+  }
+}
+
 async function loadCurrentPlanBadge(){
   const el=document.getElementById('tokenUsage');
   if(!el)return;
@@ -1587,20 +1644,22 @@ async function loadCurrentPlanBadge(){
   el.title='点击输入激活码升级套餐';
   el.onclick=openActivationRedeemModal;
   try{
-    if(!window.supabaseClient){el.textContent='套餐状态不可用';return;}
+    if(!window.supabaseClient){el.textContent='套餐状态不可用';await _refreshTeamWorkspaceAccess('free');return;}
     const { data: sessionData } = await window.supabaseClient.auth.getSession();
     const userId = sessionData?.session?.user?.id;
-    if(!userId){el.textContent='未登录';return;}
+    if(!userId){el.textContent='未登录';await _refreshTeamWorkspaceAccess('free');return;}
     const { data, error } = await window.supabaseClient
       .from('profiles')
       .select('plan_tier,plan_status,current_period_end')
       .eq('id', userId)
       .single();
-    if(error || !data){el.textContent='免费版';return;}
+    if(error || !data){el.textContent='免费版';await _refreshTeamWorkspaceAccess('free');return;}
     const status = data.plan_status==='expired' ? '（已过期）' : '';
+    await _refreshTeamWorkspaceAccess(data.plan_tier);
     el.textContent = _planTierLabel(data.plan_tier)+status;
   }catch(e){
     el.textContent='免费版';
+    await _refreshTeamWorkspaceAccess('free');
   }
 }
 
@@ -2074,56 +2133,285 @@ async function _saveFormatRequirementsWithScope(scope){
   rules.savedByUser=true;
   _savedFormatRules=rules;
   try{localStorage.setItem('wc_format_rules',JSON.stringify(rules));}catch(e){}
+  if(scope==='team')_setTeamWorkspaceProgress('正在保存团队规则...',true);
   try{
     const data=await window.WC_API.saveFormatRequirements(rules, scope);
     if(!data?.success)throw new Error(data?.error||'save failed');
   }catch(e){
     console.warn('Backend save failed, using local only:',e);
     if(scope==='team'){
+      _setTeamWorkspaceProgress('团队规则保存失败',false,true);
       showToast('团队规则库保存失败，请先确认已加入团队套餐');
       return;
     }
   }
   const h=document.getElementById('formatRulesSavedHint');
   if(h)h.style.display='block';
+  if(scope==='team'){
+    await loadTeamWorkspace();
+    _setTeamWorkspaceProgress('团队规则已保存',false,false);
+  }
   showToast('格式规范已保存，QA 检查时自动校验');
+}
+
+function _setTeamActionDisabled(disabled){
+  [
+    'btnCreateTeamWorkspace',
+    'btnAddTeamMember',
+    'btnSaveTeamFormatRules',
+    'btnLoadTeamFormatRules',
+    'btnRunTeamBatchQA'
+  ].forEach(id=>{
+    const el=document.getElementById(id);
+    if(el)el.disabled=!!disabled;
+  });
+}
+
+function _setTeamWorkspaceProgress(message, busy=false, isError=false){
+  const el=document.getElementById('teamWorkspaceProgress');
+  if(el){
+    el.textContent=message;
+    el.style.color=isError?'#b42318':busy?'#9a6700':'#666';
+    el.style.fontWeight=busy||isError?'600':'400';
+  }
+  _setTeamActionDisabled(busy);
+}
+
+function _renderTeamWorkspaceStatus(data){
+  const el=document.getElementById('teamWorkspaceStatus');
+  if(!el)return;
+  const team=data?.team||null;
+  const members=Array.isArray(data?.members)?data.members:[];
+  const hasRules=!!data?.rules;
+  const cards=team ? [
+    {label:'团队状态', value:team.status||'active'},
+    {label:'成员席位', value:`${members.length}/${team.seat_limit||0}`},
+    {label:'规则库', value:hasRules?'已配置':'未配置'},
+    {label:'已开文档', value:String(openTabs.length||0)}
+  ] : [
+    {label:'团队状态', value:'未创建'},
+    {label:'成员席位', value:'0/0'},
+    {label:'规则库', value:'未配置'},
+    {label:'已开文档', value:String(openTabs.length||0)}
+  ];
+  el.innerHTML=cards.map(card=>`
+    <div style="border:1px solid var(--line);border-radius:8px;padding:8px;background:#fff">
+      <div style="font-size:11px;color:#666">${escapeHtml(card.label)}</div>
+      <div style="font-size:13px;font-weight:600;margin-top:2px">${escapeHtml(card.value)}</div>
+    </div>
+  `).join('');
+}
+
+function _renderTeamInvitations(invitations){
+  const el=document.getElementById('teamWorkspaceInvites');
+  if(!el)return;
+  const items=Array.isArray(invitations)?invitations:[];
+  if(!items.length){
+    el.innerHTML='';
+    return;
+  }
+  el.innerHTML=`
+    <div style="border:1px solid var(--line);border-radius:8px;padding:8px;background:#fff8e6">
+      <div style="font-size:12px;font-weight:600;margin-bottom:6px">待接受邀请</div>
+      ${items.map(item=>`
+        <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;padding:6px 0;border-top:1px solid rgba(0,0,0,.06)">
+          <div style="font-size:11px;color:#444">
+            <div>${escapeHtml(item.team?.name||'未命名团队')} · ${escapeHtml(item.role||'member')}</div>
+            <div style="color:#666;margin-top:2px">邀请邮箱 ${escapeHtml(item.invite_email||item.email||'')}</div>
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
+            <button class="fbtn" onclick="acceptTeamInvite('${escapeHtml(item.team_id||'')}')">接受邀请</button>
+            <button class="fbtn" onclick="copyTeamInviteMessage('${escapeHtml(item.team_id||'')}','${escapeHtml(item.invite_email||item.email||'')}','${escapeHtml(item.role||'member')}')">复制文案</button>
+            <button class="fbtn" onclick="openTeamInviteDraft('${escapeHtml(item.team_id||'')}','${escapeHtml(item.invite_email||item.email||'')}','${escapeHtml(item.role||'member')}')">邮件草稿</button>
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+function _getTeamInviteMessage(teamId, inviteEmail, role='member'){
+  const summary=document.getElementById('teamWorkspaceSummary')?.textContent||'';
+  const activeTeamName=(summary.split('|')[0]||'').trim();
+  const teamName=activeTeamName||'WordCraft 团队';
+  return [
+    `你已被邀请加入 ${teamName}。`,
+    `角色：${role==='owner'?'owner':'member'}`,
+    `受邀邮箱：${inviteEmail||'未提供'}`,
+    `操作说明：登录当前 WordCraft 账号后，在右侧“团队工作区（17B）”中接受邀请。`,
+    `团队标识：${teamId||'未知'}`
+  ].join('\n');
+}
+
+async function copyTeamInviteMessage(teamId, inviteEmail, role='member'){
+  const text=_getTeamInviteMessage(teamId, inviteEmail, role);
+  try{
+    if(navigator.clipboard?.writeText){
+      await navigator.clipboard.writeText(text);
+      showToast('邀请文案已复制');
+      return;
+    }
+  }catch(e){}
+  const ta=document.createElement('textarea');
+  ta.value=text;
+  ta.style.position='fixed';
+  ta.style.opacity='0';
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  try{
+    document.execCommand('copy');
+    showToast('邀请文案已复制');
+  }catch(e){
+    showToast('复制失败，请手动复制');
+  }finally{
+    ta.remove();
+  }
+}
+
+function openTeamInviteDraft(teamId, inviteEmail, role='member'){
+  const subject=encodeURIComponent('WordCraft 团队邀请');
+  const body=encodeURIComponent(_getTeamInviteMessage(teamId, inviteEmail, role));
+  const email=encodeURIComponent(inviteEmail||'');
+  window.location.href=`mailto:${email}?subject=${subject}&body=${body}`;
 }
 
 function _renderTeamWorkspaceSummary(data){
   const el=document.getElementById('teamWorkspaceSummary');
-  const membersEl=document.getElementById('teamWorkspaceMembers');
   if(!el)return;
+  _renderTeamWorkspaceStatus(data);
+  _renderTeamInvitations(data?.invitations||[]);
   if(!data?.team){
-    el.textContent='当前还没有团队，可先创建团队后再共享规则与录入成员';
-    if(membersEl)membersEl.textContent='';
+    el.textContent=(Array.isArray(data?.invitations)&&data.invitations.length)
+      ? '当前账号有待接受的团队邀请，接受后即可进入团队工作区'
+      : '当前还没有团队，可先创建团队后再共享规则与录入成员';
+    _renderTeamMembers(null, []);
     return;
   }
   const members=Array.isArray(data.members)?data.members:[];
   const seatLimit=data.team.seat_limit||0;
   const teamName=data.team.name||'未命名团队';
   const ruleState=data.rules?'已配置团队规则':'未配置团队规则';
-  const memberEmails=members.map(m=>m.email||m.user_id).filter(Boolean).join('、');
-  el.textContent=`${teamName} | 成员 ${members.length}/${seatLimit} | ${ruleState}${memberEmails?` | ${memberEmails}`:''}`;
+  const activeMembers=members.filter(m=>m.status!=='pending');
+  const pendingMembers=members.filter(m=>m.status==='pending');
+  const memberEmails=activeMembers.map(m=>m.email||m.user_id).filter(Boolean).join('、');
+  el.textContent=`${teamName} | 生效成员 ${activeMembers.length}/${seatLimit} | 待接受 ${pendingMembers.length} | ${ruleState}${memberEmails?` | ${memberEmails}`:''}`;
   if(membersEl){
     membersEl.innerHTML=members.length
-      ? `成员列表：${members.map(m=>`${m.email||m.user_id} (${m.role||'member'})`).join('；')}`
+      ? `成员列表：${members.map(m=>`${m.email||m.invite_email||m.user_id} (${m.role||'member'}${m.status==='pending'?'，待接受':''})`).join('；')}`
       : '成员列表：当前只有团队所有者';
   }
 }
 
-async function loadTeamWorkspace(){
+function _renderTeamMembers(teamId, members){
+  const membersEl=document.getElementById('teamWorkspaceMembers');
+  if(!membersEl)return;
+  const items=Array.isArray(members)?members:[];
+  if(!items.length){
+    membersEl.textContent='';
+    return;
+  }
+  membersEl.innerHTML=items.map(member=>{
+    const email=escapeHtml(member.email||member.invite_email||member.user_id||'');
+    const role=escapeHtml(member.role||'member');
+    const isPending=member.status==='pending';
+    return `
+      <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;padding:6px 0;border-top:1px solid rgba(0,0,0,.06)">
+        <div style="font-size:11px;color:#444">
+          <span>${email}</span>
+          <span style="color:#666"> (${role}${isPending?' / pending':''})</span>
+        </div>
+        ${isPending ? `<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
+          <button class="fbtn" onclick="resendTeamInvite('${escapeHtml(teamId||'')}','${escapeHtml(member.invite_email||member.email||'')}','${escapeHtml(member.role||'member')}')">重新发送</button>
+          <button class="fbtn" onclick="cancelTeamInvite('${escapeHtml(teamId||'')}','${escapeHtml(member.invite_email||member.email||'')}')">撤销邀请</button>
+        </div>` : ''}
+      </div>
+    `;
+  }).join('');
+}
+
+async function resendTeamInvite(teamId, inviteEmail, role='member'){
+  await copyTeamInviteMessage(teamId, inviteEmail, role);
+}
+
+function _renderTeamWorkspaceSummary(data){
+  const el=document.getElementById('teamWorkspaceSummary');
+  if(!el)return;
+  _renderTeamWorkspaceStatus(data);
+  _renderTeamInvitations(data?.invitations||[]);
+  if(!data?.team){
+    el.textContent=(Array.isArray(data?.invitations)&&data.invitations.length)
+      ? '你有待接受的团队邀请，接受后即可进入团队工作区。'
+      : '当前还没有团队工作区，创建团队后可共享团队规则并发起批量检查。';
+    _renderTeamMembers(null, []);
+    return;
+  }
+  const members=Array.isArray(data.members)?data.members:[];
+  const seatLimit=data.team.seat_limit||0;
+  const teamName=data.team.name||'WordCraft 团队';
+  const ruleState=data.rules?'已保存团队规则':'尚未保存团队规则';
+  const activeMembers=members.filter(m=>m.status!=='pending');
+  const pendingMembers=members.filter(m=>m.status==='pending');
+  const memberEmails=activeMembers.map(m=>m.email||m.user_id).filter(Boolean).join(' / ');
+  el.textContent=`${teamName} | 成员 ${activeMembers.length}/${seatLimit} | 待接受邀请 ${pendingMembers.length} | ${ruleState}${memberEmails?` | ${memberEmails}`:''}`;
+  _renderTeamMembers(data.team?.id, members);
+}
+
+async function loadTeamWorkspace(force=false){
   const panel=document.getElementById('teamWorkspacePanel');
   if(!panel)return;
+  if(panel.style.display==='none' && !force)return;
   try{
     const data=await window.WC_API.getTeamWorkspace();
     if(data?.success){
       _renderTeamWorkspaceSummary(data);
+      _setTeamWorkspaceProgress(
+        Array.isArray(data?.invitations)&&data.invitations.length&&!data?.team
+          ? '存在待接受的团队邀请'
+          : (data?.team?'团队工作区已同步':'当前还没有团队，可先创建团队'),
+        false,
+        false
+      );
       return;
     }
     _renderTeamWorkspaceSummary(null);
+    _setTeamWorkspaceProgress('团队工作区同步失败',false,true);
   }catch(e){
     console.warn('loadTeamWorkspace failed:',e);
     _renderTeamWorkspaceSummary(null);
+    _setTeamWorkspaceProgress('团队工作区同步失败',false,true);
+  }
+}
+
+async function acceptTeamInvite(teamId){
+  if(!teamId){showToast('团队邀请不存在');return;}
+  _setTeamWorkspaceProgress('正在接受团队邀请...',true);
+  try{
+    const data=await window.WC_API.acceptTeamInvite(teamId);
+    if(!data?.success)throw new Error(data?.error||'accept invite failed');
+    _setTeamWorkspaceVisibilityState(true);
+    _renderTeamWorkspaceSummary(data);
+    _setTeamWorkspaceProgress('团队邀请已接受',false,false);
+    await loadCurrentPlanBadge();
+    showToast('团队邀请已接受');
+  }catch(e){
+    _setTeamWorkspaceProgress('接受团队邀请失败',false,true);
+    showToast('接受团队邀请失败：'+(e?.message||String(e)));
+  }
+}
+
+async function cancelTeamInvite(teamId, email){
+  if(!teamId||!email){showToast('缺少待撤销的邀请信息');return;}
+  _setTeamWorkspaceProgress('正在撤销团队邀请...',true);
+  try{
+    const data=await window.WC_API.cancelTeamInvite(teamId, email);
+    if(!data?.success)throw new Error(data?.error||'cancel invite failed');
+    _renderTeamWorkspaceSummary(data);
+    _setTeamWorkspaceProgress('团队邀请已撤销',false,false);
+    showToast('团队邀请已撤销');
+  }catch(e){
+    _setTeamWorkspaceProgress('撤销团队邀请失败',false,true);
+    showToast('撤销团队邀请失败：'+(e?.message||String(e)));
   }
 }
 
@@ -2131,13 +2419,16 @@ async function createTeamWorkspace(){
   const name=(document.getElementById('teamWorkspaceName')?.value||'').trim();
   const seatLimit=parseInt(document.getElementById('teamWorkspaceSeatLimit')?.value||'5',10)||5;
   if(!name){showToast('请先输入团队名称');return;}
+  _setTeamWorkspaceProgress('正在创建团队...',true);
   try{
     const data=await window.WC_API.createTeamWorkspace(name, seatLimit);
     if(!data?.success)throw new Error(data?.error||'create failed');
     _renderTeamWorkspaceSummary(data);
+    _setTeamWorkspaceProgress('团队已创建，可继续录入成员或保存团队规则',false,false);
     showToast('团队已创建');
     await loadCurrentPlanBadge();
   }catch(e){
+    _setTeamWorkspaceProgress('创建团队失败',false,true);
     showToast('创建团队失败：'+(e?.message||String(e)));
   }
 }
@@ -2145,33 +2436,70 @@ async function createTeamWorkspace(){
 async function addTeamMemberByEmail(){
   const email=(document.getElementById('teamMemberEmail')?.value||'').trim();
   if(!email){showToast('请先输入成员邮箱');return;}
+  _setTeamWorkspaceProgress('正在录入团队成员...',true);
   try{
     const data=await window.WC_API.addTeamMemberByEmail(email,'member');
     if(!data?.success)throw new Error(data?.error||'add member failed');
     _renderTeamWorkspaceSummary(data);
     const input=document.getElementById('teamMemberEmail');
     if(input)input.value='';
+    _setTeamWorkspaceProgress('团队成员已录入',false,false);
     showToast('团队成员已录入');
   }catch(e){
+    _setTeamWorkspaceProgress('录入成员失败',false,true);
     showToast('录入成员失败：'+(e?.message||String(e)));
   }
 }
 
 async function loadTeamFormatRequirements(){
+  _setTeamWorkspaceProgress('正在加载团队规则...',true);
   try{
     const data=await window.WC_API.loadFormatRequirements('team');
     if(!data?.success)throw new Error(data?.error||'load failed');
     if(data.rules){
       _savedFormatRules=data.rules;
       if(typeof applyTemplateFields==='function')applyTemplateFields(data.rules);
+      _setTeamWorkspaceProgress('团队规则已加载到当前面板',false,false);
       showToast('团队规则已加载到当前面板');
     }else{
+      _setTeamWorkspaceProgress('团队规则库为空',false,false);
       showToast('团队规则库为空');
     }
     await loadTeamWorkspace();
   }catch(e){
+    _setTeamWorkspaceProgress('加载团队规则失败',false,true);
     showToast('加载团队规则失败：'+(e?.message||String(e)));
   }
+}
+
+function _renderTeamBatchQADetails(data){
+  const el=document.getElementById('teamBatchQADetails');
+  if(!el)return;
+  const results=Array.isArray(data?.results)?data.results:[];
+  if(!results.length){
+    el.innerHTML='';
+    return;
+  }
+  el.innerHTML=results.map(item=>{
+    const issues=Array.isArray(item.result?.issues)?item.result.issues:[];
+    const counts={error:0,warn:0,info:0};
+    issues.forEach(issue=>{
+      const level=String(issue.severity||issue.level||'info').toLowerCase();
+      if(level==='error')counts.error+=1;
+      else if(level==='warn'||level==='warning')counts.warn+=1;
+      else counts.info+=1;
+    });
+    const samples=issues.slice(0,5).map(issue=>`
+      <li>${escapeHtml(issue.message||issue.title||issue.rule_id||'未命名问题')}</li>
+    `).join('');
+    return `
+      <details style="border:1px solid var(--line);border-radius:8px;padding:8px;background:#fafafa;margin-top:6px">
+        <summary style="cursor:pointer;font-weight:600">${escapeHtml(item.name||'untitled')} · ${issues.length} 条</summary>
+        <div style="font-size:11px;color:#666;margin-top:6px">错误 ${counts.error} · 警告 ${counts.warn} · 提示 ${counts.info}</div>
+        ${samples?`<ul style="margin:6px 0 0 18px;padding:0">${samples}</ul>`:'<div style="font-size:11px;color:#666;margin-top:6px">未发现问题</div>'}
+      </details>
+    `;
+  }).join('');
 }
 
 function _elementsToPlainText(elements){
@@ -2189,6 +2517,7 @@ async function runTeamBatchQA(){
     showToast('当前没有可批量检查的已打开文档');
     return;
   }
+  _setTeamWorkspaceProgress(`正在批量检查 ${files.length} 份文档...`,true);
   if(resultEl)resultEl.textContent='批量检查中...';
   try{
     const data=await window.WC_API.runBatchQA(files, ['typo','consistency','logic','format','crossref']);
@@ -2198,9 +2527,13 @@ async function runTeamBatchQA(){
       return `${item.name}: ${count} 条`;
     });
     if(resultEl)resultEl.textContent=`批量检查完成，共 ${data.count||0} 份：${summaries.join('；')}`;
+    _renderTeamBatchQADetails(data);
+    _setTeamWorkspaceProgress(`批量检查已完成，共处理 ${data.count||0} 份文档`,false,false);
     showToast('团队批量检查已完成');
   }catch(e){
     if(resultEl)resultEl.textContent='批量检查失败';
+    _renderTeamBatchQADetails(null);
+    _setTeamWorkspaceProgress('批量检查失败',false,true);
     showToast('批量检查失败：'+(e?.message||String(e)));
   }
 }
@@ -2244,7 +2577,7 @@ function _getDominantFontSize(runs){
 function _checkFormatCompliance(fn){
   const rules=_savedFormatRules;
   if(!_isUserSavedFormatRules(rules))return [];
-  const elements=docContents[fn];
+  const elements=_collectQAElements(fn);
   if(!elements||!elements.length)return [];
   const hasRuns=elements.some(el=>el&&el.runs&&el.runs.length);
   if(!hasRuns)return [];
@@ -2259,7 +2592,7 @@ function _checkFormatCompliance(fn){
   const fontCounts={},sizeCounts={},totalFontMismatch={};
   const MAX=2;
 
-  elements.forEach(el=>{
+  elements.forEach((el,idx)=>{
     const t=el.type||'p';
     if(!typeRules[t])return;
     const rule=typeRules[t];
@@ -2278,7 +2611,7 @@ function _checkFormatCompliance(fn){
           title:`${rule.label}字体不符规范`,
           desc:`规范要求 ${rule.font}，实际为 ${aFont}`,
           suggestion:`将"${txt}"的字体改为 ${rule.font}`,
-          hlText:txt,hlClass:'hl-warn'});
+          hlText:txt,hlClass:'hl-warn',elementIndex:idx});
       }
     }
     if(aSize&&rule.size&&Math.abs(aSize-rule.size)>0.5){
@@ -2289,7 +2622,7 @@ function _checkFormatCompliance(fn){
           title:`${rule.label}字号不符规范`,
           desc:`规范要求 ${rule.size}pt，实际为 ${aSize}pt`,
           suggestion:`将"${txt}"的字号改为 ${rule.size}pt`,
-          hlText:txt,hlClass:'hl-warn'});
+          hlText:txt,hlClass:'hl-warn',elementIndex:idx});
       }
     }
   });
@@ -2614,15 +2947,11 @@ function saveAIFormatRequirements(){
 // 第十八批：metadata.structure_role 为 toc/cover 时降级为 <p>，避免目录条目
 // 与封面行被当作正文标题参与格式/交叉引用检查（视觉上 docx-preview 仍按原样渲染）。
 function _buildQAHtml(fn){
-  const els=docContents[fn];
+  const els=_collectQAElements(fn);
   if(!els||!els.length)return null;
-  const hasText=els.some(e=>e&&e.text&&e.text.trim());
-  if(!hasText)return null;
   return els.map(e=>{
     const txt=(e.text||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     if(!txt.trim())return '';
-    const role=(e.metadata&&e.metadata.structure_role)||'body';
-    if(role==='toc'||role==='cover')return `<p>${txt}</p>`;
     const t=e.type||'p';
     if(t==='h1')return `<h1>${txt}</h1>`;
     if(t==='h2')return `<h2>${txt}</h2>`;
@@ -2656,7 +2985,7 @@ async function runQA(){
   try{
     const categories=['typo','consistency','logic','format','crossref'];
     // 传结构化 elements（含 runs 字体信息），让后端 FormatChecker 能实际检查字体/字号
-    const elementsForQA = fn ? (docContents[fn] || null) : null;
+    const elementsForQA = fn ? (_collectQAElements(fn) || null) : null;
     const resp=await window.WC_API.runQA(content,categories,elementsForQA);
     if(resp&&resp.success&&Array.isArray(resp.issues)){
       const sevMap={error:'error',warning:'warn',info:'info'};
@@ -2672,6 +3001,9 @@ async function runQA(){
           suggestion:it.suggestion||'',
           hlText:it.location_text||'',
           hlClass:clsMap[sev]||'hl-info',
+          elementIndex:Number.isInteger(it.element_index)?it.element_index:-1,
+          startPos:Number.isInteger(it.start_pos)?it.start_pos:-1,
+          endPos:Number.isInteger(it.end_pos)?it.end_pos:-1,
         };
       });
     }else if(resp&&resp.error){
@@ -2728,6 +3060,68 @@ function filterQA(){
     el.style.display=(sev==='all'||el.dataset.sev===sev)&&(cat==='all'||el.dataset.cat===cat)?'':'none';
   });
 }
+function _locateIssueTextPrecisely(search){
+  const page=document.getElementById('docPage');
+  if(!page||!search)return false;
+  const viewport=document.getElementById('docViewport')||page;
+  const textNodes=node=>{
+    const out=[];
+    if(node.nodeType===3){out.push(node);return out;}
+    node.childNodes.forEach(child=>out.push(...textNodes(child)));
+    return out;
+  };
+  const candidates=Array.from(page.querySelectorAll('p,li,td,th,h1,h2,h3,h4'))
+    .filter(el=>(el.innerText||'').includes(search))
+    .sort((a,b)=>(a.innerText||'').length-(b.innerText||'').length);
+  for(const candidate of candidates){
+    const nodes=textNodes(candidate);
+    let full='';
+    const offsets=nodes.map(node=>{
+      const start=full.length;
+      full+=node.textContent||'';
+      return {node,start};
+    });
+    const startIdx=full.indexOf(search);
+    if(startIdx<0)continue;
+    const endIdx=startIdx+search.length;
+    let startNode,startOffset,endNode,endOffset;
+    for(const {node,start} of offsets){
+      const end=start+(node.textContent||'').length;
+      if(!startNode&&startIdx<end){
+        startNode=node;
+        startOffset=startIdx-start;
+      }
+      if(startNode&&endIdx<=end){
+        endNode=node;
+        endOffset=endIdx-start;
+        break;
+      }
+    }
+    if(!startNode||!endNode)continue;
+    try{
+      const range=document.createRange();
+      range.setStart(startNode,startOffset);
+      range.setEnd(endNode,endOffset);
+      const span=document.createElement('span');
+      span.style.cssText='background:rgba(255,220,0,0.75);padding:0 2px;border-radius:2px;outline:2px solid rgba(200,150,0,0.6)';
+      range.surroundContents(span);
+      const rect=span.getBoundingClientRect();
+      const vpRect=viewport.getBoundingClientRect();
+      viewport.scrollTop+=rect.top-vpRect.top-(vpRect.height/2)+(rect.height/2);
+      setTimeout(()=>{
+        if(span.parentNode){
+          const parent=span.parentNode;
+          const frag=document.createDocumentFragment();
+          while(span.firstChild)frag.appendChild(span.firstChild);
+          parent.replaceChild(frag,span);
+          parent.normalize();
+        }
+      },2000);
+      return true;
+    }catch(e){}
+  }
+  return false;
+}
 function locateIssue(i){
   const q=window.currentQAData[i];if(!q)return;
   const hl=document.querySelector(`[data-issue-id="${i}"]`);
@@ -2736,6 +3130,8 @@ function locateIssue(i){
     hl.style.outline='2px solid var(--accent)';
     setTimeout(()=>hl.style.outline='',2000);
   } else if(q.hlText){
+    const search=(q.hlText||'').trim().replace(/\.{3,}$/,'').trim();
+    if(_locateIssueTextPrecisely(search))return;
     // Fallback: highlight span not in DOM (applyHighlights failed to insert span).
     // Search by innerText across all block elements — no leaf-only restriction,
     // because docx-preview paragraphs always have <span> children.

@@ -154,7 +154,80 @@ def test_team_owner_can_add_member_by_email_locally():
 
     assert data["success"] is True
     assert data["added_member"]["email"] == "member@example.com"
+    assert data["added_member"]["status"] == "pending"
     assert len(data["members"]) == 2
+
+
+def test_invited_local_member_can_accept_team_invite():
+    owner_api = Api(supabase_enabled=False)
+    owner_api._session = {
+        "user_id": "team-user-001",
+        "user_info": {
+            "id": "team-user-001",
+            "email": "team@example.com",
+            "plan_tier": "team",
+            "plan_status": "active",
+            "plan_source": "admin",
+            "feature_flags": {},
+        },
+    }
+    created = _json(owner_api.createTeamWorkspace("编辑部", 2))
+    team_id = created["team"]["id"]
+    _json(owner_api.addTeamMemberByEmail("member@example.com"))
+
+    invited_api = Api(supabase_enabled=False)
+    invited_api._local_teams = owner_api._local_teams
+    invited_api._local_team_rules = owner_api._local_team_rules
+    invited_api._local_known_users = owner_api._local_known_users
+    invited_api._session = {
+        "user_id": "team-member-001",
+        "user_info": {
+            "id": "team-member-001",
+            "email": "member@example.com",
+            "plan_tier": "free",
+            "plan_status": "active",
+            "plan_source": "system",
+            "feature_flags": {},
+        },
+    }
+
+    workspace = _json(invited_api.getTeamWorkspace())
+    accepted = _json(invited_api.acceptTeamInvite(team_id))
+    plan = _json(invited_api.getCurrentPlan())
+
+    assert workspace["success"] is True
+    assert len(workspace["invitations"]) == 1
+    assert workspace["invitations"][0]["status"] == "pending"
+    assert accepted["success"] is True
+    assert accepted["team"]["id"] == team_id
+    assert accepted["members"][1]["status"] == "active"
+    assert plan["plan"]["tier"] == "team"
+
+
+def test_team_owner_can_cancel_pending_invite_locally():
+    api = Api(supabase_enabled=False)
+    api._session = {
+        "user_id": "team-user-001",
+        "user_info": {
+            "id": "team-user-001",
+            "email": "team@example.com",
+            "plan_tier": "team",
+            "plan_status": "active",
+            "plan_source": "admin",
+            "feature_flags": {},
+        },
+    }
+    created = _json(api.createTeamWorkspace("团队空间", 2))
+    team_id = created["team"]["id"]
+    _json(api.addTeamMemberByEmail("member@example.com"))
+
+    canceled = _json(api.cancelTeamInvite(team_id, "member@example.com"))
+    readded = _json(api.addTeamMemberByEmail("member@example.com"))
+
+    assert canceled["success"] is True
+    assert len(canceled["members"]) == 1
+    assert readded["success"] is True
+    assert readded["added_member"]["status"] == "pending"
 
 
 def test_team_member_add_respects_local_seat_limit():

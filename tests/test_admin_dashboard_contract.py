@@ -18,10 +18,10 @@ def test_dashboard_uses_current_admin_token_view_fields():
     assert 'select("stat_date,total_tokens,user_count")' not in html
 
 
-def test_dashboard_content_section_stays_within_batch17a_scope():
+def test_dashboard_content_section_reflects_minimal_batch17b_progress_without_live_team_queries():
     html = DASHBOARD_HTML.read_text(encoding="utf-8")
 
-    assert "Batch 17B 尚未启动" in html
+    assert "Batch 17B 已接入最小闭环" in html
     assert 'sb.from("teams")' not in html
     assert 'sb.from("team_members")' not in html
 

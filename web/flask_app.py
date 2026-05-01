@@ -126,6 +126,21 @@ def add_team_member_by_email():
     result = api.addTeamMemberByEmail(email, role)
     return result
 
+@app.route('/api/acceptTeamInvite', methods=['POST'])
+def accept_team_invite():
+    data = request.json or {}
+    team_id = data.get('team_id', '')
+    result = api.acceptTeamInvite(team_id)
+    return result
+
+@app.route('/api/cancelTeamInvite', methods=['POST'])
+def cancel_team_invite():
+    data = request.json or {}
+    team_id = data.get('team_id', '')
+    email = data.get('email', '')
+    result = api.cancelTeamInvite(team_id, email)
+    return result
+
 @app.route('/api/redeemActivationCode', methods=['POST'])
 def redeem_activation_code():
     data = request.json or {}

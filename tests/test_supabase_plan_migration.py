@@ -56,6 +56,18 @@ ADMIN_DELETE_UNUSED_CODES_MIGRATION = (
     / "migrations"
     / "20260501_admin_delete_unused_activation_codes.sql"
 )
+TEAM_INVITES_MIGRATION = (
+    Path(__file__).resolve().parents[1]
+    / "supabase"
+    / "migrations"
+    / "20260502_batch17b_team_invites.sql"
+)
+TEAM_INVITE_CANCEL_MIGRATION = (
+    Path(__file__).resolve().parents[1]
+    / "supabase"
+    / "migrations"
+    / "20260502_batch17b_cancel_team_invite.sql"
+)
 
 
 def test_plan_migration_uses_rpc_for_activation_redemption():
@@ -210,3 +222,53 @@ def test_admin_delete_unused_codes_migration_limits_delete_to_unused_codes_for_a
     assert "for delete to authenticated" in sql
     assert "coalesce(auth.jwt() -> 'app_metadata' ->> 'role', auth.jwt() ->> 'role')" in sql
     assert "coalesce(redeemed_count, 0) = 0" in sql
+
+
+def test_team_invites_migration_adds_pending_invite_columns_and_index():
+    sql = TEAM_INVITES_MIGRATION.read_text(encoding="utf-8").lower()
+
+    assert "alter table public.team_members" in sql
+    assert "add column if not exists status text not null default 'active'" in sql
+    assert "add column if not exists invite_email text" in sql
+    assert "add column if not exists invited_by uuid" in sql
+    assert "add column if not exists invited_at timestamptz not null default now()" in sql
+    assert "add column if not exists accepted_at timestamptz" in sql
+    assert "create index if not exists idx_team_members_user_status" in sql
+
+
+def test_team_invites_migration_adds_member_accept_policy_and_rpc():
+    sql = TEAM_INVITES_MIGRATION.read_text(encoding="utf-8").lower()
+
+    assert "create policy team_members_accept_own_pending_invite" in sql
+    assert "status = 'pending'" in sql
+    assert "create or replace function public.accept_team_invite" in sql
+    assert "pending invite was not found." in sql
+    assert "plan_tier = 'team'" in sql
+    assert "plan_source = 'team_invite'" in sql
+    assert "revoke execute on function public.accept_team_invite(uuid) from public, anon" in sql
+    assert "grant execute on function public.accept_team_invite(uuid) to authenticated" in sql
+
+
+def test_team_invites_migration_switches_add_member_to_pending_invites():
+    sql = TEAM_INVITES_MIGRATION.read_text(encoding="utf-8").lower()
+
+    assert "create or replace function public.add_team_member_by_email" in sql
+    assert "'user is already invited or already a team member.'" in sql
+    assert "'pending'" in sql
+    assert "invite_email" in sql
+    assert "invited_by" in sql
+    assert "update public.profiles" not in sql.split("create or replace function public.add_team_member_by_email", 1)[1].split("create or replace function public.accept_team_invite", 1)[0]
+
+
+def test_team_invite_cancel_migration_adds_owner_delete_policy_and_rpc():
+    sql = TEAM_INVITE_CANCEL_MIGRATION.read_text(encoding="utf-8").lower()
+
+    assert "create policy team_members_delete_pending_invite_by_team_owner" in sql
+    assert "for delete to authenticated" in sql
+    assert "status = 'pending'" in sql
+    assert "create or replace function public.cancel_team_invite" in sql
+    assert "only the team owner can cancel pending invites." in sql
+    assert "pending invite was not found." in sql
+    assert "delete from public.team_members" in sql
+    assert "revoke execute on function public.cancel_team_invite(uuid, text) from public, anon" in sql
+    assert "grant execute on function public.cancel_team_invite(uuid, text) to authenticated" in sql

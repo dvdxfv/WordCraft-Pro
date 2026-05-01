@@ -542,3 +542,44 @@ git show <commit-hash>:CLAUDE.md  # 查看特定提交时的完整历史
 ---
 
 See [CLAUDE.md](CLAUDE.md) for remaining batch history (batch 1-7) and current status.
+## Recent fixes (2026-05-01) - 第十七批 17B：团队邀请接受 / 撤销链路补齐
+
+> 同步 `PLANS/batch17_user_segmentation_engineering_plan.md` 当前状态。第十七批目前已完成最小团队工作区、邀请制加入、邀请撤销与前端分层收口；真实团队账号在线验收继续后置。
+
+### A. 团队邀请制加入链路落地
+
+**相关文件**:
+- `supabase/migrations/20260502_batch17b_team_invites.sql`
+- `app.py`
+- `core/supabase_client.py`
+- `web/flask_app.py`
+
+- `add_team_member_by_email` 改为写入 `pending` 邀请
+- 新增 `accept_team_invite` RPC 和本地 fallback
+- 被邀请用户接受后再切换到 `team` 态，而不是被 owner 直接写成已生效成员
+
+### B. owner 侧邀请撤销补齐
+
+**相关文件**:
+- `supabase/migrations/20260502_batch17b_cancel_team_invite.sql`
+- `app.py`
+- `core/supabase_client.py`
+- `web/flask_app.py`
+
+- 新增 `cancel_team_invite` RPC
+- owner 可撤销 `pending` 邀请，释放误占用的团队名额
+
+### C. 团队工作区前端收口
+
+**相关文件**:
+- `web/index.html`
+
+- 团队工作区继续只对 `team / enterprise` 显示
+- 被邀请但尚未接受的用户仍可看到待接受邀请入口
+- pending 邀请现在提供 `复制文案`、`邮件草稿`、`重新发送`、`撤销邀请`
+
+### D. 验证
+
+- `python -m pytest tests/test_plan_gating.py tests/test_team_workspace_contract.py tests/test_supabase_plan_migration.py -q`
+- `python -m pytest tests/test_batch_regression.py -q`
+- `python -m pytest tests/test_format_checker.py -q`
