@@ -1525,6 +1525,9 @@
     <div id="authSwitchRow" style="text-align:center;margin-top:16px;font-size:13px;color:var(--text-subtle)">
       还没有账号？<a href="#" onclick="setAuthMode('register'); return false;" style="color:var(--text);text-decoration:underline">注册</a>
     </div>
+    <div id="authResendRow" style="text-align:center;margin-top:8px;font-size:12px;color:var(--text-subtle);display:none">
+      没收到确认邮件？<a href="#" onclick="resendConfirmFromLanding(); return false;" style="color:var(--text);text-decoration:underline">重新发送</a>
+    </div>
   </div>
 </div>
 
@@ -1666,6 +1669,7 @@
     document.getElementById('authSwitchRow').innerHTML = isRegister
       ? '已有账号？<a href="#" onclick="setAuthMode(\'login\'); return false;" style="color:var(--text);text-decoration:underline">登录</a>'
       : '还没有账号？<a href="#" onclick="setAuthMode(\'register\'); return false;" style="color:var(--text);text-decoration:underline">注册</a>';
+    document.getElementById('authResendRow').style.display = 'none';
   }
 
   function resetAuthForm() {
@@ -1834,6 +1838,7 @@
       
       if (error) {
         showToast('登录失败: ' + (error.message || '未知错误'), true);
+        document.getElementById('authResendRow').style.display = 'block';
         return;
       }
       
@@ -1916,6 +1921,26 @@
       showToast('注册失败，请重试', true);
       console.error('Register error:', error);
     }
+  }
+
+  async function resendConfirmFromLanding() {
+    const email = document.getElementById('loginEmail').value.trim();
+    if (!email) {
+      showToast('请先在邮箱框中填入邮箱', true);
+      return;
+    }
+    showToast('正在重新发送...');
+    const confirmRedirectUrl = window.location.origin + '/confirm.html';
+    const { error } = await window.supabaseClient.auth.resend({
+      type: 'signup',
+      email: email,
+      options: { emailRedirectTo: confirmRedirectUrl },
+    });
+    if (error) {
+      showToast('重新发送失败: ' + (error.message || '未知错误'), true);
+      return;
+    }
+    showToast('已重新发送，请检查邮箱');
   }
 
   function handleAuthSubmit() {
