@@ -133,6 +133,32 @@ class TestFormatCheckerIntegration:
         for issue in report.issues:
             assert issue.confidence >= 0.8
 
+    def test_pseudo_heading_uses_structure_metadata(self):
+        doc = _make_doc(
+            _para(
+                "1.2 Pseudo Section",
+                "FONT_B",
+                14,
+                metadata={"structure_role": "heading", "heading_level": 2},
+            )
+        )
+        report = FormatChecker(_make_rules()).check(doc)
+        assert len(report.issues) == 1
+        assert "二级标题" in report.issues[0].title
+
+    def test_deeper_pseudo_heading_reuses_h3_rules(self):
+        doc = _make_doc(
+            _para(
+                "2.2.1 Deep Pseudo Section",
+                "FONT_B",
+                12,
+                metadata={"structure_role": "heading", "heading_level": 4},
+            )
+        )
+        report = FormatChecker(_make_rules(h3f="FONT_A", h3s=12.0)).check(doc)
+        assert len(report.issues) == 1
+        assert "三级标题" in report.issues[0].title
+
 
 class TestQAEngineFormatRulesIntegration:
     def test_qa_engine_accepts_format_rules(self):

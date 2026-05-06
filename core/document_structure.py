@@ -83,6 +83,10 @@ _TOC_HEADING_RE = re.compile(
 )
 
 # Word 自带的 TOC 样式名前缀
+_COVER_AUTHOR_RE = re.compile(
+    r"^(浣滆€咃紝?|author)\s*[:：]?\s*\S.{0,30}$",
+    re.IGNORECASE,
+)
 _TOC_STYLE_PREFIXES = ("toc ", "toc1", "toc2", "toc3", "toc4", "toc5", "toc6")
 
 # 题注 / 参考文献样式名
@@ -249,6 +253,22 @@ def _infer_baseline(views: list[_ElementView]) -> _Baseline:
     align_counts: dict[str, int] = {}
     cover_boundary = _COVER_MAX_INDEX
 
+    def _looks_like_toc_entry(view: _ElementView) -> bool:
+        text = view.text.strip()
+        if not text:
+            return False
+        if _TOC_DOTTED_LEADER_RE.search(text) or _TOC_TAB_PAGE_RE.search(text):
+            return True
+        if any(view.style_name.startswith(p) for p in _TOC_STYLE_PREFIXES):
+            return True
+        if len(text) > 60:
+            return False
+        if _TOC_HEADING_RE.match(text) or _SECTION_NAME_RE.match(text):
+            return True
+        if _CHAPTER_RE.match(text) or _NUMBERED_RE.match(text) or _CHINESE_NUM_RE.match(text):
+            return True
+        return False
+
     for v in views:
         if v.is_section_break and v.index < cover_boundary:
             cover_boundary = v.index
@@ -275,6 +295,7 @@ def _classify_one(
     view: _ElementView,
     baseline: _Baseline,
     in_ref_section: bool,
+    prev_role: str | None = None,
 ) -> tuple[str, float, str]:
     """单个元素 → (role, confidence, reason)。所有阈值与启发式集中在此。"""
     text = view.text.strip()
@@ -330,6 +351,13 @@ def _classify_one(
             and view.first_indent_twips <= 1.0
         ):
             return ("cover", 0.85, "cover_first_page_centered_large")
+        if (
+            _COVER_AUTHOR_RE.match(text)
+            and len(text) <= 40
+            and view.first_indent_twips <= 1.0
+            and (prev_role == "cover" or view.index <= 2)
+        ):
+            return ("cover", 0.82, "cover_author_line")
         # 兜底：很短的居中行，前 3 个段
         if (
             view.index < 3
@@ -385,19 +413,54 @@ def _build_views_and_classify(
     baseline = _infer_baseline(views)
     results: list[tuple[str, float, str]] = []
     in_ref_section = False
+    in_toc_section = False
+    prev_role: str | None = None
+
+    def _looks_like_toc_entry(view: _ElementView) -> bool:
+        text = view.text.strip()
+        if not text:
+            return False
+        if _TOC_DOTTED_LEADER_RE.search(text) or _TOC_TAB_PAGE_RE.search(text):
+            return True
+        if any(view.style_name.startswith(p) for p in _TOC_STYLE_PREFIXES):
+            return True
+        if len(text) > 60:
+            return False
+        if _TOC_HEADING_RE.match(text) or _SECTION_NAME_RE.match(text):
+            return True
+        if _CHAPTER_RE.match(text) or _NUMBERED_RE.match(text) or _CHINESE_NUM_RE.match(text):
+            return True
+        return False
 
     for v in views:
         # 一旦遇到 section break，认定封面区已结束（更新 baseline.cover_boundary 下限）
         # 但 cover_boundary 已在 baseline 中固定，仅在分类逻辑里短路即可。
-        role, conf, reason = _classify_one(v, baseline, in_ref_section)
+        text = v.text.strip()
+        if (
+            in_toc_section
+            and text
+            and v.type_hint not in ("h1", "h2", "h3")
+            and _looks_like_toc_entry(v)
+        ):
+            role, conf, reason = ("toc", 0.88, "in_toc_section")
+        else:
+            if in_toc_section and text and v.type_hint in ("h1", "h2", "h3") and not _TOC_HEADING_RE.match(text):
+                in_toc_section = False
+            elif in_toc_section and text and not _looks_like_toc_entry(v):
+                in_toc_section = False
+            role, conf, reason = _classify_one(v, baseline, in_ref_section, prev_role)
         results.append((role, conf, reason))
+        if role == "heading" and _TOC_HEADING_RE.match(text):
+            in_toc_section = True
         # 检查是否进入 / 退出参考文献区段
-        if _is_ref_section_heading(role, reason, v.text.strip()):
+        if _is_ref_section_heading(role, reason, text):
             in_ref_section = True
         elif role == "heading" and in_ref_section:
             # 进入新章节 → 退出参考文献区段
-            if not _is_ref_section_heading(role, reason, v.text.strip()):
+            if not _is_ref_section_heading(role, reason, text):
                 in_ref_section = False
+
+        prev_role = role
 
     return results
 

@@ -1472,6 +1472,41 @@ function _isExcludedFromQABodyElement(el){
   const role=String((meta&&meta.structure_role)||'').toLowerCase();
   return role==='toc'||role==='cover';
 }
+function _getElementMetadata(el){
+  return (el&&typeof el==='object'&&el.metadata&&typeof el.metadata==='object')?el.metadata:null;
+}
+function _getSemanticHeadingLevel(el){
+  const meta=_getElementMetadata(el);
+  const role=String((meta&&meta.structure_role)||'').toLowerCase();
+  if(role==='heading'){
+    const lvl=Number(meta&&meta.heading_level);
+    if(Number.isFinite(lvl)&&lvl>0)return Math.min(Math.max(Math.round(lvl),1),3);
+  }
+  const t=String((el&&el.type)||'').toLowerCase();
+  if(t==='h1')return 1;
+  if(t==='h2')return 2;
+  if(t==='h3')return 3;
+  return 0;
+}
+function _getSemanticElementType(el){
+  const meta=_getElementMetadata(el);
+  const role=String((meta&&meta.structure_role)||'').toLowerCase();
+  if(role==='heading'){
+    const lvl=_getSemanticHeadingLevel(el);
+    if(lvl===1)return'h1';
+    if(lvl===2)return'h2';
+    return'h3';
+  }
+  if(role==='toc')return'toc';
+  if(role==='reference')return'ref';
+  if(role==='caption')return'caption';
+  if(role==='table')return'table';
+  const kind=String((meta&&meta.section_kind)||'').toLowerCase();
+  if(kind==='toc_heading'||kind==='abstract_heading_zh'||kind==='abstract_heading_en'||kind==='references_heading'){
+    return'h1';
+  }
+  return String((el&&el.type)||'p').toLowerCase();
+}
 function _collectQAElements(fn){
   const els=Array.isArray(docContents[fn])?docContents[fn]:[];
   return els.filter(el=>{
@@ -1863,9 +1898,10 @@ function renderDocument(){
   const parts=[];let liBuffer=[],liOrdered=false;
   function flushLi(){if(!liBuffer.length)return;parts.push((liOrdered?'<ol>':'<ul>')+liBuffer.join('')+'</'+(liOrdered?'ol':'ul')+'>');liBuffer=[];}
   content.forEach(it=>{
-    if(it.type==='li'){if(liBuffer.length&&liOrdered!==!!it.ordered)flushLi();liOrdered=!!it.ordered;liBuffer.push(`<li>${it.text}</li>`);}
+    const semanticType=_getSemanticElementType(it);
+    if(semanticType==='li'){if(liBuffer.length&&liOrdered!==!!it.ordered)flushLi();liOrdered=!!it.ordered;liBuffer.push(`<li>${it.text}</li>`);}
     else{flushLi();
-      switch(it.type){
+      switch(semanticType){
         case'h1':parts.push(`<h1>${it.text}</h1>`);break;
         case'h2':parts.push(`<h2>${it.text}</h2>`);break;
         case'h3':parts.push(`<h3>${it.text}</h3>`);break;
@@ -2906,7 +2942,7 @@ function _buildQAHtml(fn){
   return els.map(e=>{
     const txt=(e.text||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     if(!txt.trim())return '';
-    const t=e.type||'p';
+    const t=_getSemanticElementType(e);
     if(t==='h1')return `<h1>${txt}</h1>`;
     if(t==='h2')return `<h2>${txt}</h2>`;
     if(t==='h3')return `<h3>${txt}</h3>`;
@@ -4273,17 +4309,23 @@ async function exportDocAsDocxRebuild(tab){
       const fmt=it.fmt;const runs=Array.isArray(it.runs)?it.runs:null;
       const rawText=typeof it.text==='string'?it.text:'';
       const t=fmt?rawText:_strip(rawText);
+      const semanticType=_getSemanticElementType(it);
+      const semanticHeadingLevel=_getSemanticHeadingLevel(it);
       if(!fmt&&!t)return null;
       // Round-trip path: use per-paragraph metadata when we have it.
       if(fmt){
         // Pick eastAsia fallback from paragraph type (headings use heading fonts).
-        const ea=it.type==='h1'?h1Font:it.type==='h2'?h2Font:it.type==='h3'?h3Font:bFont;
+        const ea=semanticType==='h1'?h1Font:semanticType==='h2'?h2Font:semanticType==='h3'?h3Font:bFont;
         let kids;
         if(runs&&runs.length)kids=runs.map(r=>_buildRun(r));
-        else if(t)kids=_defaultChildren(t,it.type);
+        else if(t)kids=_defaultChildren(t,semanticType);
         else kids=[];
         const opts={children:kids};
-        const heading=_headingByStyle(fmt.style);
+        const heading=_headingByStyle(fmt.style)||(
+          semanticHeadingLevel===1?HeadingLevel.HEADING_1:
+          semanticHeadingLevel===2?HeadingLevel.HEADING_2:
+          semanticHeadingLevel===3?HeadingLevel.HEADING_3:null
+        );
         if(heading)opts.heading=heading;
         else if(fmt.style&&fmt.style!=='Normal')opts.style=fmt.style;
         const alg=_algn(fmt.alignment);if(alg)opts.alignment=alg;
@@ -4316,11 +4358,11 @@ async function exportDocAsDocxRebuild(tab){
         return new Paragraph(opts);
       }
       // Fallback (no fmt): use form-panel defaults (legacy behavior).
-      if(it.type==='h1')return new Paragraph({children:_defaultChildren(t,'h1'),heading:HeadingLevel.HEADING_1,spacing:{before:240,after:120}});
-      if(it.type==='h2')return new Paragraph({children:_defaultChildren(t,'h2'),heading:HeadingLevel.HEADING_2,spacing:{before:200,after:100}});
-      if(it.type==='h3')return new Paragraph({children:_defaultChildren(t,'h3'),heading:HeadingLevel.HEADING_3,spacing:{before:160,after:80}});
-      if(it.type==='li')return new Paragraph({children:_defaultChildren(t,'li'),indent:{left:480},spacing:{line:defaultLineSpacing,after:0}});
-      if(it.type==='ref'||it.type==='caption')return new Paragraph({children:_defaultChildren(t,it.type)});
+      if(semanticType==='h1')return new Paragraph({children:_defaultChildren(t,'h1'),heading:HeadingLevel.HEADING_1,spacing:{before:240,after:120}});
+      if(semanticType==='h2')return new Paragraph({children:_defaultChildren(t,'h2'),heading:HeadingLevel.HEADING_2,spacing:{before:200,after:100}});
+      if(semanticType==='h3')return new Paragraph({children:_defaultChildren(t,'h3'),heading:HeadingLevel.HEADING_3,spacing:{before:160,after:80}});
+      if(semanticType==='li')return new Paragraph({children:_defaultChildren(t,'li'),indent:{left:480},spacing:{line:defaultLineSpacing,after:0}});
+      if(semanticType==='ref'||semanticType==='caption')return new Paragraph({children:_defaultChildren(t,semanticType)});
       return new Paragraph({children:_defaultChildren(t,'p'),indent:{firstLine:firstLineTwips},spacing:{line:defaultLineSpacing,after:0}});
     });
     // Section properties: prefer uploaded-doc values when available.

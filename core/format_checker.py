@@ -59,6 +59,32 @@ class FormatChecker:
     def __init__(self, rules: FormatRules):
         self.rules = rules
 
+    @staticmethod
+    def _resolve_semantic_slot(elem) -> tuple[ElementType, int]:
+        """Prefer structure metadata so pseudo-headings participate in title checks."""
+        meta = elem.metadata if isinstance(elem.metadata, dict) else {}
+        role = str(meta.get("structure_role") or "").strip().lower()
+        heading_level = meta.get("heading_level")
+
+        if role == "heading":
+            try:
+                lvl = int(heading_level)
+            except (TypeError, ValueError):
+                lvl = int(elem.level or 0)
+            # The UI only exposes H1-H3 rules today; deeper headings reuse H3 checks.
+            if lvl >= 3:
+                lvl = 3
+            if lvl > 0:
+                return (ElementType.HEADING, lvl)
+
+        if elem.element_type == ElementType.HEADING:
+            lvl = int(elem.level or 0)
+            if lvl >= 3:
+                lvl = 3
+            return (ElementType.HEADING, lvl)
+
+        return (ElementType.PARAGRAPH, 0)
+
     def check(self, doc: DocumentModel) -> QAReport:
         report = QAReport()
         if self.rules.is_empty():
@@ -75,8 +101,7 @@ class FormatChecker:
             if isinstance(elem.metadata, dict) and elem.metadata.get("exclude_from_format_body"):
                 continue
 
-            lvl = elem.level if elem.element_type == ElementType.HEADING else 0
-            key = (elem.element_type, lvl)
+            key = self._resolve_semantic_slot(elem)
             if key not in type_rules:
                 continue
 
@@ -88,7 +113,7 @@ class FormatChecker:
             fs = elem.font_style
             actual_font = fs.font_name_cn or fs.font_name_en
             actual_size = fs.font_size_pt
-            tk = f"{elem.element_type.value}_{lvl}"
+            tk = f"{key[0].value}_{key[1]}"
 
             if actual_font and exp_font and actual_font != exp_font:
                 report.add_issue(QAIssue(
