@@ -7,8 +7,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from core.document_structure import (
     DEFAULT_FORMAT_THRESHOLD,
     DEFAULT_XREF_THRESHOLD,
@@ -188,7 +186,7 @@ class TestCover:
         out = classify_dicts(elems)
         assert out[0]["metadata"]["structure_role"] == "cover"
         assert out[1]["metadata"]["structure_role"] == "cover"
-        assert out[1]["metadata"]["structure_reason"] == "cover_author_line"
+        assert out[1]["metadata"]["exclude_from_format_body"] is True
 
 
 # ============================================================
@@ -239,33 +237,6 @@ class TestHeadingByContent:
         elems = [_mk_dict("章节", type_="h1", size_pt=16.0, style="heading 1")]
         out = classify_dicts(elems)
         assert out[0]["metadata"]["structure_role"] == "heading"
-
-    @pytest.mark.skip(reason="Superseded by the stable TOC section test above.")
-    @pytest.mark.skip(reason="Duplicate legacy sample with mojibake text.")
-    def test_references_inside_toc_section_stays_toc(self):
-        elems = [
-            _mk_dict("Contents", type_="h1", size_pt=16, bold=True),
-            _mk_dict("References", size_pt=11.0, style="Normal"),
-            _mk_dict("1.1 Background", size_pt=11.0, style="Normal"),
-            _mk_dict("Body paragraph " * 10, size_pt=11.0, align="JUSTIFY", first_indent_twips=420),
-        ]
-        out = classify_dicts(elems)
-        assert out[1]["metadata"]["structure_role"] == "toc"
-        assert out[2]["metadata"]["structure_role"] == "toc"
-        assert out[3]["metadata"]["structure_role"] == "body"
-
-    @pytest.mark.skip(reason="Duplicate legacy sample with mojibake text.")
-    def test_references_inside_toc_section_stays_toc(self):
-        elems = [
-            _mk_dict("鐩綍", type_="h1", size_pt=16, bold=True),
-            _mk_dict("鍙傝€冩枃鐚?", size_pt=11.0, style="Normal"),
-            _mk_dict("1.1 鐮旂┒鑳屾櫙", size_pt=11.0, style="Normal"),
-            _mk_dict("姝ｆ枃娈佃惤" * 10, size_pt=11.0, align="JUSTIFY", first_indent_twips=420),
-        ]
-        out = classify_dicts(elems)
-        assert out[1]["metadata"]["structure_role"] == "toc"
-        assert out[2]["metadata"]["structure_role"] == "toc"
-        assert out[3]["metadata"]["structure_role"] == "body"
 
     def test_heading_level_for_numbered_plain_paragraphs(self):
         elems = [

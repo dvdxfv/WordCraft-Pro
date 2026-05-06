@@ -60,6 +60,10 @@ _KNOWN_ROLES = (
 # TOC 行尾"......15"或制表符 + 页码模式（点导符 / dotted leader）
 _TOC_DOTTED_LEADER_RE = re.compile(r"[\.…·•]{3,}\s*\d+\s*$")
 _TOC_TAB_PAGE_RE = re.compile(r"\t+\d+\s*$")
+_TOC_TRAILING_PAGE_RE = re.compile(
+    r"(?:\s+[-–—]?\s*(?:\d+|[ivxlcdm]+)\s*[-–—]?\s*)$",
+    re.IGNORECASE,
+)
 
 # 章节级标题（无 Word 样式时仅靠正文文本识别）
 _CHAPTER_RE = re.compile(r"^第\s*[一二三四五六七八九十百零〇\d]+\s*[章节篇部回卷]")
@@ -253,22 +257,6 @@ def _infer_baseline(views: list[_ElementView]) -> _Baseline:
     align_counts: dict[str, int] = {}
     cover_boundary = _COVER_MAX_INDEX
 
-    def _looks_like_toc_entry(view: _ElementView) -> bool:
-        text = view.text.strip()
-        if not text:
-            return False
-        if _TOC_DOTTED_LEADER_RE.search(text) or _TOC_TAB_PAGE_RE.search(text):
-            return True
-        if any(view.style_name.startswith(p) for p in _TOC_STYLE_PREFIXES):
-            return True
-        if len(text) > 60:
-            return False
-        if _TOC_HEADING_RE.match(text) or _SECTION_NAME_RE.match(text):
-            return True
-        if _CHAPTER_RE.match(text) or _NUMBERED_RE.match(text) or _CHINESE_NUM_RE.match(text):
-            return True
-        return False
-
     for v in views:
         if v.is_section_break and v.index < cover_boundary:
             cover_boundary = v.index
@@ -415,6 +403,7 @@ def _build_views_and_classify(
     in_ref_section = False
     in_toc_section = False
     prev_role: str | None = None
+    prev_nonempty_role: str | None = None
 
     def _looks_like_toc_entry(view: _ElementView) -> bool:
         text = view.text.strip()
@@ -424,19 +413,40 @@ def _build_views_and_classify(
             return True
         if any(view.style_name.startswith(p) for p in _TOC_STYLE_PREFIXES):
             return True
-        if len(text) > 60:
+        if len(text) > 80:
             return False
+        if _TOC_TRAILING_PAGE_RE.search(text):
+            return True
         if _TOC_HEADING_RE.match(text) or _SECTION_NAME_RE.match(text):
             return True
         if _CHAPTER_RE.match(text) or _NUMBERED_RE.match(text) or _CHINESE_NUM_RE.match(text):
             return True
         return False
 
+    def _looks_like_cover_continuation(view: _ElementView) -> bool:
+        text = view.text.strip()
+        if not text or len(text) > 40:
+            return False
+        if _TOC_HEADING_RE.match(text) or _SECTION_NAME_RE.match(text):
+            return False
+        if _TOC_TRAILING_PAGE_RE.search(text):
+            return False
+        if view.first_indent_twips > 1.0:
+            return False
+        return view.alignment in ("center", "") or view.font_size_pt >= baseline.body_size_pt
+
     for v in views:
         # 一旦遇到 section break，认定封面区已结束（更新 baseline.cover_boundary 下限）
         # 但 cover_boundary 已在 baseline 中固定，仅在分类逻辑里短路即可。
         text = v.text.strip()
         if (
+            (prev_role == "cover" or prev_nonempty_role == "cover")
+            and text
+            and v.index < baseline.cover_boundary * 3
+            and _looks_like_cover_continuation(v)
+        ):
+            role, conf, reason = ("cover", 0.78, "cover_continuation")
+        elif (
             in_toc_section
             and text
             and v.type_hint not in ("h1", "h2", "h3")
@@ -461,6 +471,8 @@ def _build_views_and_classify(
                 in_ref_section = False
 
         prev_role = role
+        if text:
+            prev_nonempty_role = role
 
     return results
 

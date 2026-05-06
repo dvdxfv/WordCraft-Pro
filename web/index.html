@@ -1965,16 +1965,48 @@ function applyHighlights(items){
     if(item.status&&item.status!=='pending')return;
     const issueIdx=item.id!==undefined?item.id:idx;
     let n=0;
+    const blocks=Array.from(page.querySelectorAll('p,li,td,th'));
+    const scopedBlock=Number.isInteger(item.elementIndex)&&item.elementIndex>=0?blocks[item.elementIndex]:null;
+    // Prefer backend elementIndex: repeated text in TOC and body must not highlight the first textual match.
+    function highlightInScope(scope){
+      if(!scope)return false;
+      const directNodes=textNodes(scope);
+      for(const node of directNodes){
+        if(!node.parentNode)return false;
+        const t=node.textContent;const i=t.indexOf(item.hlText);if(i<0)continue;
+        const f=document.createDocumentFragment();
+        if(i)f.appendChild(document.createTextNode(t.substring(0,i)));
+        f.appendChild(_mkSpan(item,issueIdx));
+        if(t.substring(i+item.hlText.length))f.appendChild(document.createTextNode(t.substring(i+item.hlText.length)));
+        node.parentNode.replaceChild(f,node);
+        return true;
+      }
+      const tns=textNodes(scope);
+      let full='';
+      const offs=tns.map(nd=>{const s=full.length;full+=nd.textContent;return{node:nd,start:s};});
+      const mi=full.indexOf(item.hlText);if(mi<0)return false;
+      const me=mi+item.hlText.length;
+      let sn,so,en,eo;
+      for(const{node,start}of offs){const end=start+node.textContent.length;if(!sn&&mi<end){sn=node;so=mi-start;}if(sn&&me<=end){en=node;eo=me-start;break;}}
+      if(!sn||!en)return false;
+      try{
+        const range=document.createRange();range.setStart(sn,so);range.setEnd(en,eo);
+        range.surroundContents(_mkSpan(item,issueIdx));
+        return true;
+      }catch(e){return false;}
+    }
+    if(scopedBlock&&highlightInScope(scopedBlock))return;
     // Pass 1: single text node match (fast path)
-    textNodes(page).forEach(node=>{
+    for(const node of textNodes(page)){
       if(!node.parentNode)return;
-      const t=node.textContent;const i=t.indexOf(item.hlText);if(i<0)return;
+      const t=node.textContent;const i=t.indexOf(item.hlText);if(i<0)continue;
       const f=document.createDocumentFragment();
       if(i)f.appendChild(document.createTextNode(t.substring(0,i)));
       f.appendChild(_mkSpan(item,issueIdx));
       if(t.substring(i+item.hlText.length))f.appendChild(document.createTextNode(t.substring(i+item.hlText.length)));
       node.parentNode.replaceChild(f,node);n++;
-    });
+      break;
+    }
     if(!n){
       // Pass 2: cross-node match — docx-preview splits text across <span class="run"> elements.
       // Find the smallest block element whose innerText contains hlText, then use Range API.
