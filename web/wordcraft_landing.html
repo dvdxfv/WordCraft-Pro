@@ -126,6 +126,21 @@
     border:none;
   }
   .nav-btn:hover{box-shadow:0 0 20px rgba(255,255,255,0.2);transform:translateY(-1px)}
+  .nav-actions{
+    display:flex;
+    align-items:center;
+    gap:10px;
+  }
+  .nav-btn.secondary{
+    background:transparent;
+    color:var(--text);
+    border:1px solid var(--border);
+  }
+  .nav-btn.secondary:hover{
+    background:var(--accent-dim);
+    border-color:var(--border-hover);
+    box-shadow:none;
+  }
 
   /* HERO */
   .hero{
@@ -558,6 +573,215 @@
     line-height:2;
   }
 
+  /* REVIEWS */
+  .reviews-grid{
+    display:grid;
+    grid-template-columns:repeat(3,minmax(0,1fr));
+    gap:20px;
+    margin-top:48px;
+  }
+  .reviews-head{
+    display:flex;
+    align-items:flex-end;
+    justify-content:space-between;
+    gap:24px;
+    flex-wrap:wrap;
+  }
+  .reviews-head .section-desc{
+    margin:0;
+  }
+  .review-action{
+    display:flex;
+    align-items:center;
+    gap:12px;
+    flex-wrap:wrap;
+  }
+  .review-hint{
+    font-size:12px;
+    color:var(--text-subtle);
+  }
+  .review-card{
+    min-height:100%;
+  }
+  .review-stars{
+    font-size:14px;
+    letter-spacing:2px;
+    color:var(--text);
+    margin-bottom:16px;
+  }
+  .review-copy{
+    font-size:14px;
+    color:var(--text);
+    line-height:1.8;
+    margin-bottom:20px;
+  }
+  .review-meta{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:12px;
+    padding-top:14px;
+    border-top:1px solid var(--border);
+    color:var(--text-muted);
+    font-size:12px;
+    letter-spacing:.3px;
+  }
+  .review-id{
+    font-family:'SFMono-Regular','Consolas','Liberation Mono',monospace;
+  }
+  .review-tag{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    padding:4px 10px;
+    border-radius:999px;
+    background:var(--accent-soft);
+    color:var(--text-subtle);
+    white-space:nowrap;
+  }
+
+  /* FAQ */
+  .faq-list{
+    display:grid;
+    gap:14px;
+    margin-top:48px;
+    max-width:960px;
+    margin-left:auto;
+    margin-right:auto;
+  }
+  .faq-item{
+    border:1px solid var(--border);
+    border-radius:16px;
+    background:transparent;
+    overflow:hidden;
+    transition:all 0.3s ease;
+  }
+  .faq-item:hover,
+  .faq-item[open]{
+    border-color:var(--border-hover);
+    background:var(--accent-dim);
+  }
+  .faq-q{
+    list-style:none;
+    cursor:pointer;
+    padding:20px 24px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:16px;
+    font-size:15px;
+    font-weight:600;
+    color:var(--text);
+  }
+  .faq-q::-webkit-details-marker{
+    display:none;
+  }
+  .faq-q::after{
+    content:'+';
+    flex-shrink:0;
+    font-size:22px;
+    color:var(--text-muted);
+    transition:transform 0.3s ease,color 0.3s ease;
+  }
+  .faq-item[open] .faq-q::after{
+    transform:rotate(45deg);
+    color:var(--text);
+  }
+  .faq-a{
+    padding:0 24px 22px;
+    color:var(--text-muted);
+    font-size:14px;
+    line-height:1.8;
+  }
+
+  /* FEEDBACK */
+  .feedback-form{
+    display:flex;
+    flex-direction:column;
+    gap:16px;
+  }
+  .feedback-grid{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:14px;
+  }
+  .feedback-field label{
+    display:block;
+    font-size:13px;
+    color:var(--text);
+    margin-bottom:6px;
+  }
+  .feedback-input,
+  .feedback-textarea{
+    width:100%;
+    padding:12px 14px;
+    background:var(--surface-alt);
+    border:1px solid var(--border);
+    border-radius:10px;
+    color:var(--text);
+    font-size:14px;
+    transition:border-color 0.3s ease, background 0.3s ease;
+  }
+  .feedback-input:focus,
+  .feedback-textarea:focus{
+    border-color:var(--border-hover);
+    background:rgba(255,255,255,0.04);
+    outline:none;
+  }
+  .feedback-textarea{
+    min-height:120px;
+    resize:vertical;
+    line-height:1.6;
+  }
+  .feedback-note{
+    font-size:12px;
+    color:var(--text-subtle);
+    line-height:1.6;
+  }
+  .feedback-rating{
+    display:flex;
+    align-items:center;
+    gap:14px;
+    flex-wrap:wrap;
+    padding:14px 16px;
+    background:var(--surface-alt);
+    border:1px solid var(--border);
+    border-radius:10px;
+  }
+  .feedback-stars{
+    display:flex;
+    align-items:center;
+    gap:6px;
+  }
+  .feedback-star{
+    appearance:none;
+    border:none;
+    background:transparent;
+    color:rgba(255,255,255,0.22);
+    font-size:24px;
+    line-height:1;
+    cursor:pointer;
+    padding:0;
+    transition:transform 0.2s ease, color 0.2s ease;
+  }
+  .feedback-star:hover{
+    transform:translateY(-1px) scale(1.04);
+  }
+  .feedback-star.active{
+    color:#ffb648;
+    text-shadow:0 0 18px rgba(255,182,72,0.22);
+  }
+  .feedback-rating-text{
+    font-size:13px;
+    color:var(--text-muted);
+    min-width:88px;
+  }
+  .feedback-actions{
+    display:flex;
+    gap:12px;
+    flex-wrap:wrap;
+  }
+
   /* CTA */
   .cta-box{
     text-align:center;
@@ -703,6 +927,37 @@
   .price-yearly .deal{
     color:var(--text);
   }
+  .price-plan-lines{
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+    margin-bottom:20px;
+  }
+  .price-plan-line{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    flex-wrap:wrap;
+    font-size:13px;
+    color:var(--text-muted);
+  }
+  .price-plan-line .label{
+    min-width:60px;
+    color:var(--text-subtle);
+    letter-spacing:.2px;
+  }
+  .price-plan-line .strike{
+    color:rgba(255,255,255,0.28);
+    text-decoration:line-through;
+    text-decoration-thickness:1.5px;
+    text-decoration-color:rgba(255,255,255,0.28);
+  }
+  .price-plan-line .deal{
+    color:var(--text);
+    font-size:16px;
+    font-weight:700;
+    letter-spacing:-0.01em;
+  }
   .price-dot{
     display:inline-flex;
     align-items:center;
@@ -784,7 +1039,10 @@
   }
 
   /* Responsive */
-  @media(max-width:1024px){.qa-wrap{grid-template-columns:1fr}}
+  @media(max-width:1024px){
+    .qa-wrap{grid-template-columns:1fr}
+    .reviews-grid{grid-template-columns:1fr 1fr}
+  }
   @media(max-width:768px){
     section{padding:80px 5%}
     .mock-content{grid-template-columns:1fr}
@@ -792,6 +1050,10 @@
     .flow-step:not(:last-child)::after{display:none}
     .btn-primary,.btn-ghost{width:100%;max-width:280px}
     nav ul{display:none}
+    .nav-actions{width:100%;justify-content:flex-end}
+    .reviews-grid{grid-template-columns:1fr}
+    .feedback-grid{grid-template-columns:1fr}
+    .faq-q,.faq-a{padding-left:18px;padding-right:18px}
   }
   @media(max-width:480px){
     .hero h1{font-size:32px}
@@ -824,7 +1086,10 @@
     <li><a href="#qa" class="nav-link">质量检查</a></li>
     <li><a href="#pricing" class="nav-link">定价</a></li>
   </ul>
-  <button class="nav-btn" onclick="openLoginModal()">登录</button>
+  <div class="nav-actions">
+    <button class="nav-btn secondary" onclick="scrollToReviews()">我要反馈</button>
+    <button class="nav-btn" onclick="openLoginModal()">登录</button>
+  </div>
 </nav>
 
 <!-- HERO -->
@@ -1046,6 +1311,47 @@
   </div>
 </section>
 
+<!-- REVIEWS -->
+<section id="reviews">
+  <div class="reviews-head">
+    <div>
+      <div class="section-tag">用户反馈</div>
+      <h2 class="section-title">不是你一个人被格式逼到崩溃</h2>
+      <p class="section-desc">这些反馈先替你回答一个问题：它到底值不值得在交稿前打开一次。</p>
+    </div>
+    <div class="review-action">
+      <span class="review-hint">写下一句真实体验！！！付费内容用了几次、值不值，也欢迎直接写。</span>
+      <button class="btn-ghost" onclick="openFeedbackModal()">我要评论</button>
+    </div>
+  </div>
+  <div class="reviews-grid">
+    <article class="feat-card review-card">
+      <div class="review-stars" aria-label="5 星评价">★★★★★</div>
+      <p class="review-copy">“字号行距一个一个调到崩溃，后来用这个一键全改了，当场想哭。免费的检查已经够用了”</p>
+      <div class="review-meta">
+        <span class="review-id">zha******@qq.com</span>
+        <span class="review-tag">已完成初稿排版</span>
+      </div>
+    </article>
+    <article class="feat-card review-card">
+      <div class="review-stars" aria-label="4 星评价">★★★★☆</div>
+      <p class="review-copy">“错别字那块比我自己看还细，‘帐号’这种我完全没注意到。就是 AI 那个要付费，稍微犹豫了一下，最后还是买了急诊包”</p>
+      <div class="review-meta">
+        <span class="review-id">li*****@163.com</span>
+        <span class="review-tag">急诊包用户</span>
+      </div>
+    </article>
+    <article class="feat-card review-card">
+      <div class="review-stars" aria-label="5 星评价">★★★★★</div>
+      <p class="review-copy">“参考文献编号乱了让我加班到十二点，交叉引用扫一遍直接找出来了。这个场景太对了”</p>
+      <div class="review-meta">
+        <span class="review-id">wang*****@stu.edu.cn</span>
+        <span class="review-tag">毕业论文场景</span>
+      </div>
+    </article>
+  </div>
+</section>
+
 <!-- PRICING -->
 <section id="pricing" style="background:var(--surface)">
   <div class="center">
@@ -1080,17 +1386,27 @@
         <li>24h 内交付结果</li>
       </ul>
       <p class="price-meta">适合不想订阅、急用一次的毕业生用户。</p>
-      <button class="price-cta primary" onclick="openWechatModal()">微信咨询下单</button>
+      <button class="price-cta primary" onclick="openWechatModal('emergency')">微信咨询下单</button>
     </div>
 
     <!-- Pro -->
     <div class="price-card">
       <div class="price-name">Pro</div>
-      <div class="price-amount"><span class="num">¥9.9</span><span class="unit">/ 月</span></div>
+      <div class="price-amount"><span class="num">¥6.9</span><span class="unit">/ 月</span></div>
       <div class="price-yearly">
-        <span class="strike">¥79</span>
-        <span class="deal">¥69 / 年</span>
-        <span class="price-dot">毕业季限时</span>
+        <span class="price-dot" id="proCountdownBadge">毕业季限时 · 剩 0 天</span>
+      </div>
+      <div class="price-plan-lines">
+        <div class="price-plan-line">
+          <span class="label">Pro 月付</span>
+          <span class="strike">¥9.9 / 月</span>
+          <span class="deal">¥6.9 / 月</span>
+        </div>
+        <div class="price-plan-line">
+          <span class="label">Pro 年付</span>
+          <span class="strike">¥79 / 年</span>
+          <span class="deal">¥69 / 年</span>
+        </div>
       </div>
       <ul class="price-features">
         <li>AI 深度检查无限次</li>
@@ -1099,8 +1415,51 @@
         <li>深度交叉引用（参考文献 / 图表链接）</li>
         <li>优先技术支持</li>
       </ul>
-      <button class="price-cta disabled" disabled>即将开放</button>
+      <button class="price-cta primary" onclick="openWechatModal('pro')">微信咨询订阅</button>
     </div>
+  </div>
+</section>
+
+<!-- FAQ -->
+<section id="faq">
+  <div class="center">
+    <div class="section-tag">常见问题</div>
+    <h2 class="section-title">把下单前最常见的顾虑先说清楚</h2>
+    <p class="section-desc">默认全部折叠，你只需要展开自己在意的那几项。</p>
+  </div>
+  <div class="faq-list">
+    <details class="faq-item">
+      <summary class="faq-q">免费版有什么限制？</summary>
+      <div class="faq-a">规则层检查（错别字、标点、数据一致性、交叉引用）永久免费无限次。AI 深度检查每月 3 次，超出后需购买急诊包或升级 Pro。</div>
+    </details>
+    <details class="faq-item">
+      <summary class="faq-q">规则检查和 AI 深度检查有什么区别？</summary>
+      <div class="faq-a">规则检查靠本地词库和正则，快、准、免费，适合查错别字和格式问题。AI 检查调用 DeepSeek-V4，能判断论证逻辑、因果关系等需要语义理解的问题。</div>
+    </details>
+    <details class="faq-item">
+      <summary class="faq-q">支持哪些文件格式？</summary>
+      <div class="faq-a">.docx、.doc、.pdf、.xlsx、.txt、.md。</div>
+    </details>
+    <details class="faq-item">
+      <summary class="faq-q">急诊包怎么下单？</summary>
+      <div class="faq-a">点“微信咨询下单”，扫码加客服，确认需求后付款，24h 内交付完整格式检查报告。</div>
+    </details>
+    <details class="faq-item">
+      <summary class="faq-q">Pro 版怎么订阅？</summary>
+      <div class="faq-a">扫码微信咨询，付款后会收到激活码，在应用内“激活码”入口输入即可立即升级。</div>
+    </details>
+    <details class="faq-item">
+      <summary class="faq-q">我的文档会被上传保存吗？</summary>
+      <div class="faq-a">文档仅在检查时临时传输到服务器，不做持久化存储。</div>
+    </details>
+    <details class="faq-item">
+      <summary class="faq-q">激活码怎么用？</summary>
+      <div class="faq-a">登录后点击右上角“激活码”按钮，输入收到的激活码，立即生效。</div>
+    </details>
+    <details class="faq-item">
+      <summary class="faq-q">需要安装软件吗？</summary>
+      <div class="faq-a">不需要，浏览器直接用。本地部署版需要 Python 3.10+，参考 README。</div>
+    </details>
   </div>
 </section>
 
@@ -1172,17 +1531,65 @@
 <!-- WECHAT MODAL -->
 <div id="wechatModal" style="position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);backdrop-filter:blur(10px);z-index:1000;display:none;align-items:center;justify-content:center" onclick="if(event.target===this)closeWechatModal()">
   <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:32px;width:380px;max-width:90vw;text-align:center">
-    <div style="display:flex;align-items:center;justify-content:center;gap:10px;font-size:17px;font-weight:600;margin-bottom:6px">📱 论文急诊包 · 微信咨询</div>
-    <p style="font-size:13px;color:var(--text-muted);margin-bottom:20px">扫码添加客服，确认需求后下单（¥49 / 次）。</p>
+    <div id="wechatModalTitle" style="display:flex;align-items:center;justify-content:center;gap:10px;font-size:17px;font-weight:600;margin-bottom:6px">📱 论文急诊包 · 微信咨询</div>
+    <p id="wechatModalSubtitle" style="font-size:13px;color:var(--text-muted);margin-bottom:20px">扫码添加客服，确认需求后下单（¥49 / 次）。</p>
     <div style="width:200px;height:200px;margin:0 auto 16px;border:1px dashed var(--border-hover);border-radius:12px;display:flex;align-items:center;justify-content:center;background:var(--surface-alt);color:var(--text-subtle);font-size:12px;line-height:1.6">
-      二维码稍后更新<br>（占位）
+      <span id="wechatModalQrNote">二维码稍后更新<br>（占位）</span>
     </div>
-    <div style="font-size:13px;color:var(--text-muted);line-height:1.7;margin-bottom:20px">
+    <div id="wechatModalMeta" style="font-size:13px;color:var(--text-muted);line-height:1.7;margin-bottom:20px">
       微信号：<span style="color:var(--text)">wordcraft-pro</span><br>
       服务时间：每日 09:00 – 22:00<br>
       24h 内交付检查报告
     </div>
     <button onclick="closeWechatModal()" style="width:100%;padding:12px;background:transparent;color:var(--text-muted);border:1px solid var(--border);border-radius:8px;font-size:14px;cursor:pointer;transition:all .3s">关闭</button>
+  </div>
+</div>
+
+<!-- FEEDBACK MODAL -->
+<div id="feedbackModal" style="position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);backdrop-filter:blur(10px);z-index:1000;display:none;align-items:center;justify-content:center" onclick="if(event.target===this)closeFeedbackModal()">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:32px;width:560px;max-width:92vw">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:20px">
+      <div>
+        <div style="font-size:18px;font-weight:600;margin-bottom:6px">写一条用户评论</div>
+        <p style="font-size:13px;color:var(--text-muted);line-height:1.7">这会展示在用户反馈区。先收集内容，当前版本提交后只做前端提示，不会写入数据库。</p>
+      </div>
+      <button onclick="closeFeedbackModal()" style="background:transparent;border:none;color:var(--text-muted);font-size:24px;line-height:1;cursor:pointer">×</button>
+    </div>
+    <form class="feedback-form" onsubmit="submitFeedback(event)">
+      <div class="feedback-grid">
+        <div class="feedback-field">
+          <label for="feedbackName">昵称或邮箱</label>
+          <input class="feedback-input" id="feedbackName" type="text" placeholder="登录后会自动带出邮箱，也可手动改成昵称" required>
+        </div>
+        <div class="feedback-field">
+          <label for="feedbackRating">评分</label>
+          <input id="feedbackRating" type="hidden" value="">
+          <div class="feedback-rating" role="radiogroup" aria-label="评分">
+            <div class="feedback-stars">
+              <button type="button" class="feedback-star" data-rating="1" aria-label="1 星">★</button>
+              <button type="button" class="feedback-star" data-rating="2" aria-label="2 星">★</button>
+              <button type="button" class="feedback-star" data-rating="3" aria-label="3 星">★</button>
+              <button type="button" class="feedback-star" data-rating="4" aria-label="4 星">★</button>
+              <button type="button" class="feedback-star" data-rating="5" aria-label="5 星">★</button>
+            </div>
+            <span class="feedback-rating-text" id="feedbackRatingText">请选择评分</span>
+          </div>
+        </div>
+      </div>
+      <div class="feedback-field">
+        <label for="feedbackRole">身份标签（选填）</label>
+        <input class="feedback-input" id="feedbackRole" type="text" placeholder="例如：毕业论文场景 / 初稿排版完成">
+      </div>
+      <div class="feedback-field">
+        <label for="feedbackContent">评论内容</label>
+        <textarea class="feedback-textarea" id="feedbackContent" placeholder="写下你最真实的一句体验，建议 20-80 字。" required></textarea>
+      </div>
+      <div class="feedback-note">建议不要填写完整邮箱、手机号或论文敏感内容。</div>
+      <div class="feedback-actions">
+        <button type="submit" class="nav-btn">提交评论</button>
+        <button type="button" class="btn-ghost" onclick="closeFeedbackModal()">暂不提交</button>
+      </div>
+    </form>
   </div>
 </div>
 
@@ -1231,6 +1638,21 @@
     });
   })();
 
+  (function(){
+    const badge = document.getElementById('proCountdownBadge');
+    if(!badge) return;
+    const targetDate = new Date('2026-06-30T23:59:59+08:00');
+
+    function renderCountdown(){
+      const now = new Date();
+      const daysLeft = Math.max(0, Math.floor((targetDate - now) / 86400000));
+      badge.textContent = '毕业季限时 · 剩 ' + daysLeft + ' 天';
+    }
+
+    renderCountdown();
+    window.setInterval(renderCountdown, 60000);
+  })();
+
   // Modal and login functions
   let authMode = 'login';
 
@@ -1256,6 +1678,12 @@
     setAuthMode(mode || 'login');
     document.getElementById('loginModal').style.display = 'flex';
   }
+
+  function scrollToReviews(){
+    const reviews = document.getElementById('reviews');
+    if(!reviews) return;
+    reviews.scrollIntoView({behavior:'smooth',block:'start'});
+  }
   
   function closeLoginModal(){
     document.getElementById('loginModal').style.display = 'none';
@@ -1263,12 +1691,115 @@
     setAuthMode('login');
   }
 
-  function openWechatModal(){
+  function openWechatModal(mode){
+    const modalType = mode === 'pro' ? 'pro' : 'emergency';
+    const title = document.getElementById('wechatModalTitle');
+    const subtitle = document.getElementById('wechatModalSubtitle');
+    const qrNote = document.getElementById('wechatModalQrNote');
+    const meta = document.getElementById('wechatModalMeta');
+    const modalConfigs = {
+      emergency: {
+        title: '📱 论文急诊包 · 微信咨询',
+        subtitle: '扫码添加客服，确认需求后下单（¥49 / 次）。',
+        qrNote: '急诊包咨询码<br>（占位）',
+        meta: '微信号：<span style="color:var(--text)">wordcraft-pro</span><br>服务时间：每日 09:00 – 22:00<br>24h 内交付检查报告'
+      },
+      pro: {
+        title: '📱 Pro 订阅 · 微信咨询',
+        subtitle: '扫码咨询 Pro 月付 / 年付方案，确认后发放激活码。',
+        qrNote: 'Pro 订阅咨询码<br>（占位）',
+        meta: '微信号：<span style="color:var(--text)">wordcraft-pro</span><br>服务时间：每日 09:00 – 22:00<br>Pro 月付：<span style="text-decoration:line-through;color:var(--text-subtle)">9.9 / 月</span> <span style="color:var(--text)">6.9 / 月</span><br>Pro 年付：<span style="text-decoration:line-through;color:var(--text-subtle)">79 / 年</span> <span style="color:var(--text)">69 / 年</span><br>付款后发送激活码，登录后即可升级'
+      }
+    };
+    const config = modalConfigs[modalType];
+    title.innerHTML = config.title;
+    subtitle.textContent = config.subtitle;
+    qrNote.innerHTML = config.qrNote;
+    meta.innerHTML = config.meta;
     document.getElementById('wechatModal').style.display = 'flex';
   }
 
   function closeWechatModal(){
     document.getElementById('wechatModal').style.display = 'none';
+  }
+
+  function openFeedbackModal(){
+    prefillFeedbackUser();
+    document.getElementById('feedbackModal').style.display = 'flex';
+  }
+
+  function closeFeedbackModal(){
+    const form = document.querySelector('#feedbackModal form');
+    document.getElementById('feedbackModal').style.display = 'none';
+    if(form) form.reset();
+    setFeedbackRating(0);
+  }
+
+  async function prefillFeedbackUser(){
+    const nameInput = document.getElementById('feedbackName');
+    if(!nameInput || nameInput.value.trim()) return;
+    try{
+      if(!window.supabaseClient || !window.supabaseClient.auth) return;
+      const { data } = await window.supabaseClient.auth.getSession();
+      const email = data && data.session && data.session.user ? data.session.user.email : '';
+      if(email){
+        nameInput.value = maskFeedbackIdentity(email);
+      }
+    }catch(error){
+      console.error('Prefill feedback user failed:', error);
+    }
+  }
+
+  function maskFeedbackIdentity(value){
+    if(!value) return '';
+    if(value.includes('@')){
+      const parts = value.split('@');
+      const local = parts[0];
+      const domain = parts.slice(1).join('@');
+      if(local.length <= 3) return local + '****@' + domain;
+      return local.slice(0,3) + '****@' + domain;
+    }
+    if(value.length <= 3) return value + '****';
+    return value.slice(0,3) + '****';
+  }
+
+  function setFeedbackRating(rating){
+    const value = Number(rating) || 0;
+    const input = document.getElementById('feedbackRating');
+    const text = document.getElementById('feedbackRatingText');
+    const labels = {
+      1: '1 分 · 不太满意',
+      2: '2 分 · 有待提升',
+      3: '3 分 · 还可以',
+      4: '4 分 · 挺不错',
+      5: '5 分 · 强烈推荐'
+    };
+    if(input) input.value = value ? String(value) : '';
+    if(text) text.textContent = value ? labels[value] : '请选择评分';
+    document.querySelectorAll('.feedback-star').forEach(function(star){
+      const starValue = Number(star.getAttribute('data-rating'));
+      star.classList.toggle('active',starValue <= value);
+      star.setAttribute('aria-pressed',starValue <= value ? 'true' : 'false');
+    });
+  }
+
+  function bindFeedbackRating(){
+    document.querySelectorAll('.feedback-star').forEach(function(star){
+      star.addEventListener('click',function(){
+        setFeedbackRating(this.getAttribute('data-rating'));
+      });
+    });
+  }
+
+  function submitFeedback(event){
+    event.preventDefault();
+    const rating = document.getElementById('feedbackRating').value;
+    if(!rating){
+      showToast('请先选择评分', true);
+      return;
+    }
+    closeFeedbackModal();
+    showToast('评论内容已收到，后续可接入真实存储。');
   }
 
   function showToast(message,isError=false){
@@ -1397,6 +1928,14 @@
       closeLoginModal();
     }
   });
+
+  document.getElementById('feedbackModal').addEventListener('click',function(e){
+    if(e.target === this){
+      closeFeedbackModal();
+    }
+  });
+
+  bindFeedbackRating();
 
   // 进入应用前检查登录状态
   async function enterApp() {
