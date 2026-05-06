@@ -32,9 +32,15 @@
         const result = await window.pywebview.api[endpoint](...Object.values(body || {}));
         return JSON.parse(result);
       } else {
+        const headers = { 'Content-Type': 'application/json' };
+        if (window.supabaseClient) {
+          const { data } = await window.supabaseClient.auth.getSession();
+          const token = data?.session?.access_token;
+          if (token) headers['Authorization'] = `Bearer ${token}`;
+        }
         const response = await fetch('/api/' + endpoint, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers,
           body: JSON.stringify(body || {})
         });
         if (!response.ok) throw new Error('HTTP ' + response.status);

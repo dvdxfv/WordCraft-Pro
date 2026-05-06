@@ -95,9 +95,11 @@ class SupabaseClient:
     #  Profiles 表操作
     # ------------------------------------------------------------------
 
-    def get_profile(self, user_id: str) -> Optional[dict]:
+    def get_profile(self, user_id: str, access_token: str | None = None) -> Optional[dict]:
         """获取用户档案"""
         try:
+            if access_token:
+                self.client.postgrest.auth(access_token)
             result = self.client.table("profiles").select("*").eq("id", user_id).execute()
             if result.data:
                 return result.data[0]
@@ -105,6 +107,9 @@ class SupabaseClient:
         except Exception as e:
             logger.error("获取用户档案失败: %s", e)
             return None
+        finally:
+            if access_token:
+                self.client.postgrest.auth(self.key)
 
     def update_profile(self, user_id: str, updates: dict) -> bool:
         """更新用户档案"""
@@ -119,8 +124,8 @@ class SupabaseClient:
     #  Token 管理
     # ------------------------------------------------------------------
 
-    def get_user_plan(self, user_id: str) -> dict:
-        profile = self.get_profile(user_id) or {}
+    def get_user_plan(self, user_id: str, access_token: str | None = None) -> dict:
+        profile = self.get_profile(user_id, access_token=access_token) or {}
         return {
             "plan_tier": profile.get("plan_tier") or "free",
             "plan_status": profile.get("plan_status") or "active",
@@ -133,8 +138,10 @@ class SupabaseClient:
             "token_used": profile.get("token_used", 0),
         }
 
-    def get_or_create_usage_counter(self, user_id: str, period_key: str, day_key: str | None = None) -> dict:
+    def get_or_create_usage_counter(self, user_id: str, period_key: str, day_key: str | None = None, access_token: str | None = None) -> dict:
         try:
+            if access_token:
+                self.client.postgrest.auth(access_token)
             result = (
                 self.client.table("usage_counters")
                 .select("*")
@@ -173,6 +180,9 @@ class SupabaseClient:
                 "ai_parse_used": 0,
                 "rule_check_used_today": 0,
             }
+        finally:
+            if access_token:
+                self.client.postgrest.auth(self.key)
 
     def increment_usage_counter(self, user_id: str, counter_name: str, amount: int = 1,
                                 period_key: str | None = None, day_key: str | None = None) -> dict:
@@ -201,11 +211,11 @@ class SupabaseClient:
             logger.error("更新使用计数失败: %s", e)
             return {**row, **updates}
 
-    def get_user_entitlements(self, user_id: str) -> dict:
+    def get_user_entitlements(self, user_id: str, access_token: str | None = None) -> dict:
         from core.entitlements import build_entitlements, current_day_key, current_period_key
 
-        profile = self.get_user_plan(user_id)
-        usage = self.get_or_create_usage_counter(user_id, current_period_key(), current_day_key())
+        profile = self.get_user_plan(user_id, access_token=access_token)
+        usage = self.get_or_create_usage_counter(user_id, current_period_key(), current_day_key(), access_token=access_token)
         return build_entitlements(profile, usage)
 
     def get_team(self, team_id: str) -> Optional[dict]:

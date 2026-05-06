@@ -330,7 +330,8 @@ class Api:
         self._ensure_supabase_initialized()
         uid = self._session.get("user_id") if self._session else None
         if self._supabase and uid:
-            return self._supabase.get_user_entitlements(uid)
+            access_token = (self._session or {}).get("access_token")
+            return self._supabase.get_user_entitlements(uid, access_token=access_token)
         return build_entitlements(self._local_profile(), self._get_usage_counter())
 
     def _current_team_id(self) -> str | None:
@@ -688,7 +689,7 @@ class Api:
             user = getattr(auth_user, "user", None)
             if not user or not getattr(user, "id", None):
                 return
-            profile = self._supabase.get_user_plan(user.id)
+            profile = self._supabase.get_user_plan(user.id, access_token=access_token)
             user_info = {
                 "id": user.id,
                 "email": getattr(user, "email", None),
