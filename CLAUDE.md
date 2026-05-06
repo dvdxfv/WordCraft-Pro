@@ -14,12 +14,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 第十五批（含 run 样式修复）+ 第十四批（含 Phase 3 E2E）+ 第十三批已完成（2026-04-27）。
 
+**邮件确认页面优化** — 独立功能（2026-05-06）
+- 实现 Supabase Auth 邮箱验证确认页面 (`web/confirm.html`)
+- 支持4种状态：验证中 → 成功（3秒后跳转） / 过期 / 已验证
+- 集成到登录页 `wordcraft_landing.html`：支持重新发送确认邮件
+- 全部验证通过，无行为回归（70 tests）
+- 设计文档：`docs/superpowers/specs/2026-05-06-email-confirmation-design.md`
+
 - Batch14 全量测试通过：`tests/test_format_checker.py`（23）+ `tests/test_batch_regression.py`（27）+ `tests/e2e/test_format_qa_workflow.py`（3）= **53 tests passed**。
 
 - 完成项细节统一维护在 [CHANGELOG.md](docs/CHANGELOG.md)（第十三至第十五批）。
 - 计划文档索引：
   - 第十四批：`PLANS/batch14_format_qa.md`
   - 第十五批：`PLANS/batch15_ai_format_parser_improvement.md`
+  - 邮件确认：`docs/superpowers/specs/2026-05-06-email-confirmation-design.md`
 
 ---
 
