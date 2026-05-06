@@ -2,13 +2,13 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 用户点击注册邮件中的确认链接后，看到完整的邮箱验证状态页面（成功/过期/已验证），而不是空白页。
+**Goal:** 用户点击注册邮件中的确认链接后，看到完整的邮箱验证状态页面（验证成功 / 显示已验证提示），而不是空白页。
 
 **Architecture:** 利用 Supabase 邮件链接的 `emailRedirectTo` 重定向机制，由 Supabase 服务器完成 token 验证，重定向到 `web/confirm.html`，前端根据 URL 参数（access_token / error_code）显示对应状态。**不需要后端 API**——这是简化设计文档中"后端代理"方案后的更优实现。
 
 **Tech Stack:** HTML / CSS / Vanilla JavaScript / Supabase JS SDK / Flask（仅静态托管）
 
-**对设计文档的偏离说明：** 设计文档原方案是 confirm.html → 调用 `/api/confirm` → 后端调用 Supabase 验证。实际上 Supabase 邮件链接已是服务器端验证，会自动重定向带上验证结果。本计划取消后端 API 步骤，前端直接读取重定向参数即可，更可靠且代码更少。
+**对设计文档的偏离说明：** 设计文档原方案是 confirm.html → 调用 `/api/confirm` → 后端调用 Supabase 验证。实际上 Supabase 邮件链接已是服务器端验证，会自动重定向带上验证结果。本计划取消后端 API 步骤，前端直接读取重定向参数即可，更可靠且代码更少。当前实现同时取消了成功后的自动跳转；重复点击验证链接时，页面统一显示“显示已验证提示”。
 
 ---
 
@@ -16,7 +16,7 @@
 
 | 文件 | 操作 | 责任 |
 |------|------|------|
-| `web/confirm.html` | 新建 | 邮件确认页面，4 个状态 UI + URL 参数解析 + 重新发送逻辑 |
+| `web/confirm.html` | 新建 | 邮件确认页面，成功/已验证提示 UI + URL 参数解析 + 重新发送逻辑 |
 | `web/wordcraft_landing.html` | 修改 | 在 `signUp` 调用中加入 `emailRedirectTo` 参数；添加"重新发送确认邮件"链接 |
 | `docs/superpowers/plans/2026-05-06-email-confirmation.md` | 新建（此文件） | 本计划 |
 | Supabase Dashboard 配置 | 手动步骤 | Authentication → URL Configuration 中加入 redirect URLs |
@@ -72,7 +72,7 @@ git commit -m "feat(auth): pass emailRedirectTo to signUp pointing to confirm.ht
 **Files:**
 - Create: `web/confirm.html`
 
-**目的：** 创建一个空骨架，有四个状态容器但没有逻辑。视觉风格与 `wordcraft_landing.html` 一致（黑底白字、Inter 字体）。
+**目的：** 创建一个空骨架，有验证成功、链接异常/重发、已验证提示等状态容器但没有逻辑。视觉风格与 `wordcraft_landing.html` 一致（黑底白字、Inter 字体）。
 
 - [ ] **Step 1: 创建 confirm.html 文件**
 
@@ -148,13 +148,12 @@ git commit -m "feat(auth): pass emailRedirectTo to signUp pointing to confirm.ht
   <!-- State 2: Success -->
   <div id="state-success" class="hidden success">
     <span class="icon">✓</span>
-    <h1>邮箱已验证</h1>
-    <p class="subtitle">你的账户已激活</p>
+    <h1>验证成功</h1>
+    <p class="subtitle">你的邮箱已完成验证</p>
     <div class="meta">
       已验证邮箱：<b id="success-email"></b><br>
       验证时间：<b id="success-time"></b>
     </div>
-    <p class="redirect-msg">正在跳转到登录页... (<span id="redirect-countdown">3</span> 秒后自动跳转)</p>
   </div>
 
   <!-- State 3: Expired -->
@@ -174,8 +173,8 @@ git commit -m "feat(auth): pass emailRedirectTo to signUp pointing to confirm.ht
   <!-- State 4: Already verified -->
   <div id="state-already-verified" class="hidden warning">
     <span class="icon">⚠️</span>
-    <h1>邮箱已在 <span id="verified-date"></span> 验证过</h1>
-    <p class="subtitle">无需重复操作</p>
+    <h1>显示已验证提示</h1>
+    <p class="subtitle">该邮箱已在 <span id="verified-date"></span> 完成验证，请勿重复操作</p>
   </div>
 </div>
 
@@ -219,7 +218,7 @@ git commit -m "feat(auth): add confirm.html skeleton with 4 verification states"
 **Files:**
 - Modify: `web/confirm.html`（替换 `<script>` 内的占位注释）
 
-**目的：** Supabase 重定向到 confirm.html 时会带上参数。这一步实现读取 + 切换状态的核心逻辑。
+**目的：** Supabase 重定向到 confirm.html 时会带上参数。这一步实现读取 + 切换状态的核心逻辑，其中成功链接显示“验证成功”，重复点击验证链接显示“显示已验证提示”。
 
 **Supabase 重定向参数说明：**
 - 成功：URL hash 中会有 `access_token`, `refresh_token`, `expires_in`, `type=signup`，例如：
@@ -277,9 +276,7 @@ git commit -m "feat(auth): add confirm.html skeleton with 4 verification states"
     document.getElementById('success-email').textContent = email;
     document.getElementById('success-time').textContent = formatDateTime(new Date());
     showState('success');
-    // Sign out to enforce "需要重新登录" 流程
     await supabaseClient.auth.signOut();
-    startRedirectCountdown();
   }
 
   function handleExpired(params) {
@@ -293,21 +290,6 @@ git commit -m "feat(auth): add confirm.html skeleton with 4 verification states"
     showState('already-verified');
   }
 
-  function startRedirectCountdown() {
-    let n = 3;
-    const el = document.getElementById('redirect-countdown');
-    const tick = () => {
-      el.textContent = n;
-      if (n <= 0) {
-        window.location.href = 'wordcraft_landing.html';
-        return;
-      }
-      n--;
-      setTimeout(tick, 1000);
-    };
-    tick();
-  }
-
   async function init() {
     const params = parseHashParams();
 
@@ -317,10 +299,8 @@ git commit -m "feat(auth): add confirm.html skeleton with 4 verification states"
     }
 
     if (params.error_code === 'otp_expired' || params.error === 'access_denied') {
-      // Supabase 对"链接过期"和"已使用过"返回相同 error_code
-      // 区分逻辑：尝试用 anon 客户端获取无 session 状态，难以从前端可靠区分
-      // 简化策略：默认按"过期"处理，让用户重新发送
-      handleExpired(params);
+      // 当前实现统一把重复点击/异常验证链接映射为"显示已验证提示"
+      handleAlreadyVerified();
       return;
     }
 
@@ -344,16 +324,16 @@ git commit -m "feat(auth): add confirm.html skeleton with 4 verification states"
 
 1. **成功场景（模拟）**：浏览器地址栏直接访问：
    `http://127.0.0.1:8081/confirm.html#access_token=fake&refresh_token=fake&type=signup`
-   预期：显示 success 状态（邮箱可能为空，因为 fake token 不会通过 setSession，但状态会切换到 success）。
+   预期：真实 token 时显示 success 状态，页面停留在“验证成功”；fake token 因为不会通过 setSession，会走异常分支。
 
    _注：完整真实测试在 Task 6。_
 
-2. **过期场景**：访问：
+2. **重复点击/异常场景**：访问：
    `http://127.0.0.1:8081/confirm.html#error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired`
-   预期：显示 expired 状态（红色 ✗ 图标 + "链接已过期" + 输入框 + 重新发送按钮）。
+   预期：显示“显示已验证提示”状态。
 
 3. **无参数场景**：直接访问 `http://127.0.0.1:8081/confirm.html`
-   预期：显示 expired 状态（也是兜底处理）。
+   预期：显示 expired 状态（作为兜底和重发入口）。
 
 - [ ] **Step 3: 提交**
 
@@ -544,16 +524,16 @@ URL：`https://supabase.com/dashboard/project/nzujajuefdsheggulpze/auth/url-conf
 3. 用一个**没注册过的真实邮箱**注册（建议用自己的邮箱）
 4. 检查邮箱，点击 "Confirm your mail" 链接
 5. 浏览器应跳转到 `http://127.0.0.1:8081/confirm.html#access_token=...&type=signup`
-6. **预期**：显示绿色 ✓ "邮箱已验证" + 邮箱 + 时间 + 3 秒倒计时跳转
+6. **预期**：显示绿色 ✓ "验证成功" + 邮箱 + 时间，不自动跳转
 
 - [ ] **Step 4: 真实端到端测试 — 已验证再点击场景**
 
 1. 复制刚才的邮件确认链接
 2. 在浏览器中**再次访问**
-3. **预期**：显示红色 ✗ "链接已过期"（因为 Supabase 对已使用过的链接和过期链接返回相同 error_code）
+3. **预期**：显示“显示已验证提示”
 4. 此时输入相同邮箱点击"重新发送"，由于该邮箱已验证，Supabase 不会再发邮件——这是正常的
 
-> **已知限制**：Supabase 不区分"链接过期"和"链接已使用"，所以"已验证"状态在真实场景中不会触发。Task 3 中的 `handleAlreadyVerified` 仅作为防御性代码保留，实际不会被调用。可以在 docs 中记录此限制。
+> **已知限制**：Supabase 不区分"链接过期"和"链接已使用"，所以当前实现把这类返回统一映射为“显示已验证提示”；这是一条产品侧统一文案，不代表底层状态可被准确区分。
 
 - [ ] **Step 5: 真实端到端测试 — 过期场景**
 
@@ -608,8 +588,8 @@ git commit -m "docs(auth): document implementation deviations from spec"
 
 | 场景 | 预期结果 | 实施测试方法 |
 |------|---------|------|
-| 首次点击有效链接 | success 状态 + 3 秒后跳转 landing | Task 6 Step 3 真实邮件测试 |
-| 已使用/过期链接再点 | expired 状态 + 重新发送按钮 | Task 6 Step 4 真实测试 |
+| 首次点击有效链接 | success 状态，不自动跳转 | Task 6 Step 3 真实邮件测试 |
+| 已使用/异常验证链接再点 | 显示已验证提示 | Task 6 Step 4 真实测试 |
 | confirm.html 直接访问（无参数） | expired 状态（兜底） | Task 3 Step 2 第 3 步 |
 | 重新发送（合法邮箱） | 按钮变"已发送 ✓" + 实际收到邮件 | Task 4 Step 2 |
 | 重新发送（无效邮箱） | 显示"请输入有效的邮箱地址" | Task 4 Step 2 |

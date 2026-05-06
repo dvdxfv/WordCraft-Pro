@@ -1,6 +1,3 @@
-[project]
-id = "nzujajuefdsheggulpze"
-
 [functions.qa-summary]
 verify_jwt = true
 

@@ -70,13 +70,12 @@
   <!-- State 2: Success -->
   <div id="state-success" class="hidden success">
     <span class="icon">✓</span>
-    <h1>邮箱已验证</h1>
-    <p class="subtitle">你的账户已激活</p>
+    <h1>验证成功</h1>
+    <p class="subtitle">你的邮箱已完成验证</p>
     <div class="meta">
       已验证邮箱：<b id="success-email"></b><br>
       验证时间：<b id="success-time"></b>
     </div>
-    <p class="redirect-msg">正在跳转到登录页... (<span id="redirect-countdown">3</span> 秒后自动跳转)</p>
   </div>
 
   <!-- State 3: Expired -->
@@ -96,8 +95,8 @@
   <!-- State 4: Already verified -->
   <div id="state-already-verified" class="hidden warning">
     <span class="icon">⚠️</span>
-    <h1>邮箱已在 <span id="verified-date"></span> 验证过</h1>
-    <p class="subtitle">无需重复操作</p>
+    <h1>显示已验证提示</h1>
+    <p class="subtitle">该邮箱已在 <span id="verified-date"></span> 完成验证，请勿重复操作</p>
   </div>
 </div>
 
@@ -143,7 +142,6 @@
     document.getElementById('success-time').textContent = formatDateTime(new Date());
     showState('success');
     await supabaseClient.auth.signOut();
-    startRedirectCountdown();
   }
 
   function handleExpired(params) {
@@ -155,21 +153,6 @@
     showState('already-verified');
   }
 
-  function startRedirectCountdown() {
-    let n = 3;
-    const el = document.getElementById('redirect-countdown');
-    const tick = () => {
-      el.textContent = n;
-      if (n <= 0) {
-        window.location.href = 'wordcraft_landing.html';
-        return;
-      }
-      n--;
-      setTimeout(tick, 1000);
-    };
-    tick();
-  }
-
   async function init() {
     const params = parseHashParams();
 
@@ -179,8 +162,9 @@
     }
 
     if (params.error_code === 'otp_expired' || params.error === 'access_denied') {
-      // Supabase 对"链接过期"和"已使用过"返回相同 error_code，简化策略：默认按"过期"处理
-      handleExpired(params);
+      // 当前产品预期是重复点击优先显示"已验证提示"。
+      // Supabase 的该类错误无法稳定区分"过期"和"已使用"，这里统一映射到已验证提示。
+      handleAlreadyVerified();
       return;
     }
 
