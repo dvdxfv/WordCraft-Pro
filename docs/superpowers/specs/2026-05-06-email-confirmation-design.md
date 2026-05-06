@@ -218,3 +218,11 @@ https://yourdomain.com/confirm.html?type=signup&token={{ .ConfirmationURL }}
 - `web/flask_app.py` — 添加 `/api/confirm` 路由
 - `web/confirm.html` — 新增确认页面
 - `web/landing.html` — 可选改动
+
+---
+
+## 实现差异说明（2026-05-06 实施后）
+
+- 实际实现取消了 `/api/confirm` 后端 API。Supabase 邮件链接已是服务器端验证 URL，验证后通过 `emailRedirectTo` 直接重定向到 confirm.html，前端通过解析 URL hash 即可。
+- 状态 4（已验证再点击）实际不会触发 — Supabase 对"已使用链接"和"过期链接"返回相同 `error_code=otp_expired`，无法可靠区分。该状态保留为防御性代码。
+- Supabase Dashboard 的 Redirect URLs 必须包含 `/confirm.html` 路径，否则重定向会被拒绝。
