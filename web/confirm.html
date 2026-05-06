@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>邮箱验证 — WordCraft Pro</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  :root{
+    --bg:#000;--surface:#0A0A0A;--surface-alt:#111;
+    --text:#fff;--text-muted:#888;--text-subtle:#555;
+    --border:rgba(255,255,255,0.08);
+    --success:#34D399;--error:#F87171;--warning:#FBBF24;
+  }
+  body{
+    background:var(--bg);color:var(--text);
+    font-family:'Inter','PingFang SC','Microsoft YaHei',-apple-system,sans-serif;
+    min-height:100vh;display:flex;align-items:center;justify-content:center;
+    padding:24px;line-height:1.6;
+  }
+  .card{
+    background:var(--surface);border:1px solid var(--border);
+    border-radius:16px;padding:48px 40px;width:480px;max-width:100%;
+    text-align:center;
+  }
+  .icon{font-size:56px;margin-bottom:16px;display:block;line-height:1}
+  h1{font-size:22px;font-weight:600;margin-bottom:12px}
+  .subtitle{color:var(--text-muted);font-size:14px;margin-bottom:24px}
+  .meta{
+    background:var(--surface-alt);border:1px solid var(--border);
+    border-radius:8px;padding:16px;margin:24px 0;text-align:left;
+    font-size:13px;color:var(--text-muted);line-height:1.8;
+  }
+  .meta b{color:var(--text);font-weight:500}
+  .btn{
+    display:inline-block;padding:12px 24px;border-radius:8px;
+    font-size:14px;font-weight:500;cursor:pointer;border:none;
+    background:#fff;color:#000;text-decoration:none;
+    transition:opacity .2s;
+  }
+  .btn:hover{opacity:.85}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  .redirect-msg{font-size:13px;color:var(--text-subtle);margin-top:16px}
+  .spinner{
+    width:48px;height:48px;border:3px solid var(--border);
+    border-top-color:var(--text);border-radius:50%;
+    animation:spin 0.8s linear infinite;margin:0 auto 16px;
+  }
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .hidden{display:none}
+  .success .icon{color:var(--success)}
+  .error .icon{color:var(--error)}
+  .warning .icon{color:var(--warning)}
+</style>
+</head>
+<body>
+
+<div class="card">
+  <!-- State 1: Loading -->
+  <div id="state-loading">
+    <div class="spinner"></div>
+    <h1>正在验证邮箱...</h1>
+    <p class="subtitle">请稍候</p>
+  </div>
+
+  <!-- State 2: Success -->
+  <div id="state-success" class="hidden success">
+    <span class="icon">✓</span>
+    <h1>邮箱已验证</h1>
+    <p class="subtitle">你的账户已激活</p>
+    <div class="meta">
+      已验证邮箱：<b id="success-email"></b><br>
+      验证时间：<b id="success-time"></b>
+    </div>
+    <p class="redirect-msg">正在跳转到登录页... (<span id="redirect-countdown">3</span> 秒后自动跳转)</p>
+  </div>
+
+  <!-- State 3: Expired -->
+  <div id="state-expired" class="hidden error">
+    <span class="icon">✗</span>
+    <h1>链接已过期</h1>
+    <p class="subtitle">此确认链接有效期为 24 小时，已失效</p>
+    <div class="meta hidden" id="expired-email-wrap">
+      邮箱：<b id="expired-email"></b>
+    </div>
+    <input type="email" id="resend-email-input" placeholder="请输入注册邮箱"
+      style="width:100%;padding:12px 16px;background:var(--surface-alt);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;margin-bottom:12px">
+    <button class="btn" id="resend-btn" onclick="handleResend()">重新发送确认邮件</button>
+    <p class="redirect-msg hidden" id="resend-success-msg">已重新发送，请检查邮箱</p>
+  </div>
+
+  <!-- State 4: Already verified -->
+  <div id="state-already-verified" class="hidden warning">
+    <span class="icon">⚠️</span>
+    <h1>邮箱已在 <span id="verified-date"></span> 验证过</h1>
+    <p class="subtitle">无需重复操作</p>
+  </div>
+</div>
+
+<script>
+  // Logic comes in Task 3
+</script>
+
+</body>
+</html>
