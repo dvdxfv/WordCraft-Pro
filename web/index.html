@@ -2782,18 +2782,18 @@ async function pollTeamBatchJob(jobId){
 function _collectFormatRules(){
   const g=id=>document.getElementById(id);
   return {
-    h1Font:g('fH1Font')?.value||'黑体', h1Size:parseFloat(g('fH1Size')?.value)||16,
-    h2Font:g('fH2Font')?.value||'黑体', h2Size:parseFloat(g('fH2Size')?.value)||14,
-    h3Font:g('fH3Font')?.value||'黑体', h3Size:parseFloat(g('fH3Size')?.value)||12,
-    h4Font:g('fH4Font')?.value||'黑体', h4Size:parseFloat(g('fH4Size')?.value)||10.5,
+    h1Font:g('fH1Font')?.value||'', h1Size:parseFloat(g('fH1Size')?.value)||0,
+    h2Font:g('fH2Font')?.value||'', h2Size:parseFloat(g('fH2Size')?.value)||0,
+    h3Font:g('fH3Font')?.value||'', h3Size:parseFloat(g('fH3Size')?.value)||0,
+    h4Font:g('fH4Font')?.value||'', h4Size:parseFloat(g('fH4Size')?.value)||0,
     h1NumFormat:g('fH1NumFormat')?.value||'',
     h2NumFormat:g('fH2NumFormat')?.value||'',
     h3NumFormat:g('fH3NumFormat')?.value||'',
     h4NumFormat:g('fH4NumFormat')?.value||'',
-    bFont:g('fBFont')?.value||'宋体',   bSize:parseFloat(g('fBSize')?.value)||12,
-    lineSpacing:parseFloat(g('fLH')?.value)||1.5,
-    lineSpacingMode:g('fLineSpacingMode')?.value||'multiple',
-    lineSpacingValue:parseFloat(g('fLH')?.value)||1.5,
+    bFont:g('fBFont')?.value||'',   bSize:parseFloat(g('fBSize')?.value)||0,
+    lineSpacing:parseFloat(g('fLH')?.value)||0,
+    lineSpacingMode:g('fLineSpacingMode')?.value||'',
+    lineSpacingValue:parseFloat(g('fLH')?.value)||0,
     savedAt:new Date().toISOString(),
   };
 }
@@ -2983,7 +2983,7 @@ function _buildAIParsePrimaryPrompt(){
 【页脚】footerFont, footerSize(pt), footerFormat(如"-1-"或"第1页")
 【表格】tableNameFont(表名字体), tableNameSize(pt), tableNamePos(top/bottom), tableContentFont, tableContentSize(pt), tableNumFormat(序号模式：第一位是所在章节号、第二位是该章内顺序号，如"表{章}-{序}"，写成"表X-X")
 【图】figNameFont(图名字体), figNameSize(pt), figNamePos(top/bottom), figNumFormat(序号模式：同表格规则，如"图X-X")
-【附加说明】notes(其他重要规则，不超过80字)
+【附加说明】notes(仅记录无法用上述字段表达的规则，如特定章节行距、参考文献格式、段间距等；不要重复已填入字段的内容；不超过120字)
 
 严格约束：
 - lineSpacingMode 必须是 "multiple" 或 "exact"，不确定填 null。lineSpacingValue：倍数模式时在 1.0-5.0 之间；固定值模式时在 6-100 pt 之间；超出范围填 null。
@@ -3014,6 +3014,8 @@ footerFont, footerSize, footerFormat,
 tableNameFont, tableNameSize, tableNamePos, tableContentFont, tableContentSize, tableNumFormat,
 figNameFont, figNameSize, figNamePos, figNumFormat,
 notes
+
+notes 专用规则：仅填写无对应结构化字段的规则（如参考文献行距、摘要格式、段前段后间距等）；已填入上方字段的内容不得重复写入 notes；不超过120字。
 
 提取规则（照做，不要跳过）：
 1. 看到”字体：X”或”X字体”就填对应 font 字段；看到”字号：X号/X磅”就转磅值填对应 size 字段。
@@ -3098,10 +3100,12 @@ async function runAIParse(){
   if(btn){btn.disabled=true;btn.style.opacity='0.6';}
   showToast('AI 解析中…');
   try{
+    const _aiParseConfig={max_tokens:4000,no_thinking:true};
     const parseWithPrompt=async(sys)=>{
-      const data=await window.WC_API.callAI(sys,text,{max_tokens:2000});
+      const data=await window.WC_API.callAI(sys,text,_aiParseConfig);
       if(data.error)throw new Error(data.error);
-      return _sanitizeAIParseRules(_extractAIParseJson(data.content||''));
+      try{return _sanitizeAIParseRules(_extractAIParseJson(data.content||''));}
+      catch(_){return {};}
     };
     let parsed=await parseWithPrompt(_buildAIParsePrimaryPrompt());
     let parsedFieldCount=_countAIParseFields(parsed);

@@ -2,7 +2,7 @@
 Regression tests for FormatRules and FormatChecker.
 """
 
-from core.document_model import DocumentModel, DocElement, ElementType, FontStyle
+from core.document_model import DocumentModel, DocElement, ElementType, FontStyle, ParagraphStyle, LineSpacingType
 from core.format_checker import FormatChecker, FormatRules
 from core.qa_models import IssueSeverity, IssueCategory
 
@@ -28,6 +28,15 @@ def _heading(level: int, text: str, font_cn: str = "", size_pt: float = 0.0) -> 
 def _para(text: str, font_cn: str = "", size_pt: float = 0.0, metadata: dict | None = None) -> DocElement:
     fs = FontStyle(font_name_cn=font_cn, font_size_pt=size_pt)
     return DocElement(element_type=ElementType.PARAGRAPH, content=text, font_style=fs, metadata=metadata or {})
+
+
+def _para_with_spacing(text: str, ls_type: LineSpacingType, ls_value: float) -> DocElement:
+    ps = ParagraphStyle(line_spacing_type=ls_type, line_spacing_value=ls_value)
+    return DocElement(element_type=ElementType.PARAGRAPH, content=text, paragraph_style=ps)
+
+
+def _rules_with_spacing(mode: str, value: float) -> FormatRules:
+    return FormatRules(bFont="FONT_BODY", bSize=12.0, lineSpacingMode=mode, lineSpacingValue=value)
 
 
 class TestFormatRulesModel:
@@ -183,6 +192,75 @@ class TestFormatCheckerIntegration:
         )
         assert any(i.rule_id == "format_font_heading_4" for i in report.issues)
         assert any(i.rule_id == "format_size_heading_4" for i in report.issues)
+
+
+class TestFormatCheckerLineSpacing:
+    def test_exact_match_no_issue(self):
+        doc = _make_doc(_para_with_spacing("Body text", LineSpacingType.EXACT, 20.0))
+        report = FormatChecker(_rules_with_spacing("exact", 20.0)).check(doc)
+        assert not any(i.rule_id == "format_line_spacing" for i in report.issues)
+
+    def test_exact_mismatch_detected(self):
+        doc = _make_doc(_para_with_spacing("Body text", LineSpacingType.EXACT, 15.0))
+        report = FormatChecker(_rules_with_spacing("exact", 20.0)).check(doc)
+        ls_issues = [i for i in report.issues if i.rule_id == "format_line_spacing"]
+        assert len(ls_issues) == 1
+        assert "固定值" in ls_issues[0].description
+        assert "20" in ls_issues[0].description
+
+    def test_exact_wrong_type_detected(self):
+        doc = _make_doc(_para_with_spacing("Body text", LineSpacingType.MULTIPLE, 1.5))
+        report = FormatChecker(_rules_with_spacing("exact", 20.0)).check(doc)
+        ls_issues = [i for i in report.issues if i.rule_id == "format_line_spacing"]
+        assert len(ls_issues) == 1
+        assert "非固定值行距" in ls_issues[0].description
+
+    def test_multiple_match_no_issue(self):
+        doc = _make_doc(_para_with_spacing("Body text", LineSpacingType.MULTIPLE, 1.5))
+        report = FormatChecker(_rules_with_spacing("multiple", 1.5)).check(doc)
+        assert not any(i.rule_id == "format_line_spacing" for i in report.issues)
+
+    def test_multiple_mismatch_detected(self):
+        doc = _make_doc(_para_with_spacing("Body text", LineSpacingType.MULTIPLE, 2.0))
+        report = FormatChecker(_rules_with_spacing("multiple", 1.5)).check(doc)
+        ls_issues = [i for i in report.issues if i.rule_id == "format_line_spacing"]
+        assert len(ls_issues) == 1
+        assert "倍行距" in ls_issues[0].description
+        assert "1.5" in ls_issues[0].description
+
+    def test_multiple_wrong_type_detected(self):
+        doc = _make_doc(_para_with_spacing("Body text", LineSpacingType.EXACT, 20.0))
+        report = FormatChecker(_rules_with_spacing("multiple", 1.5)).check(doc)
+        ls_issues = [i for i in report.issues if i.rule_id == "format_line_spacing"]
+        assert len(ls_issues) == 1
+        assert "非倍数行距" in ls_issues[0].description
+
+    def test_default_single_1_0_skipped(self):
+        doc = _make_doc(_para_with_spacing("Body text", LineSpacingType.SINGLE, 1.0))
+        report = FormatChecker(_rules_with_spacing("multiple", 1.5)).check(doc)
+        assert not any(i.rule_id == "format_line_spacing" for i in report.issues)
+
+    def test_max_issues_cap(self):
+        elems = [_para_with_spacing(f"Para {i}", LineSpacingType.MULTIPLE, 2.0) for i in range(10)]
+        doc = _make_doc(*elems)
+        report = FormatChecker(_rules_with_spacing("multiple", 1.5)).check(doc)
+        ls_issues = [i for i in report.issues if i.rule_id == "format_line_spacing"]
+        assert len(ls_issues) == FormatChecker.MAX_LINE_SPACING_ISSUES
+
+    def test_no_spacing_rules_no_issue(self):
+        doc = _make_doc(_para_with_spacing("Body text", LineSpacingType.MULTIPLE, 2.0))
+        report = FormatChecker(FormatRules()).check(doc)
+        assert not any(i.rule_id == "format_line_spacing" for i in report.issues)
+
+    def test_within_tolerance_exact_no_issue(self):
+        doc = _make_doc(_para_with_spacing("Body text", LineSpacingType.EXACT, 20.5))
+        report = FormatChecker(_rules_with_spacing("exact", 20.0)).check(doc)
+        assert not any(i.rule_id == "format_line_spacing" for i in report.issues)
+
+    def test_within_tolerance_multiple_no_issue(self):
+        doc = _make_doc(_para_with_spacing("Body text", LineSpacingType.MULTIPLE, 1.52))
+        report = FormatChecker(_rules_with_spacing("multiple", 1.5)).check(doc)
+        assert not any(i.rule_id == "format_line_spacing" for i in report.issues)
 
 
 class TestQAEngineFormatRulesIntegration:

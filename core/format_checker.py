@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from core.document_model import DocumentModel, ElementType
+from core.document_model import DocumentModel, ElementType, LineSpacingType
 from core.qa_models import QAIssue, IssueCategory, IssueSeverity, QAReport
 
 
@@ -72,6 +72,9 @@ class FormatRules:
 
 class FormatChecker:
     SIZE_TOL = 0.5
+    SPACING_TOL_PT = 1.0    # exact 模式容差（磅）
+    SPACING_TOL_MUL = 0.05  # multiple 模式容差（倍数）
+    MAX_LINE_SPACING_ISSUES = 5  # 全文行距问题上限，避免刷屏
 
     def __init__(self, rules: FormatRules):
         self.rules = rules
@@ -113,6 +116,10 @@ class FormatChecker:
             (ElementType.HEADING, 4): (self.rules.h4Font, self.rules.h4Size, "四级标题"),
             (ElementType.PARAGRAPH, 0): (self.rules.bFont, self.rules.bSize, "正文段落"),
         }
+
+        ls_mode = (self.rules.lineSpacingMode or "").strip().lower()
+        ls_value = self.rules.lineSpacingValue
+        _ls_count = 0
 
         for idx, elem in enumerate(doc.elements):
             if isinstance(elem.metadata, dict) and elem.metadata.get("exclude_from_format_body"):
@@ -159,5 +166,40 @@ class FormatChecker:
                     checker="FormatChecker",
                     confidence=0.9,
                 ))
+
+            # 行距检查：只对解析器已明确设置行距（非默认 SINGLE/1.0）的元素进行比对
+            if ls_mode in ("multiple", "exact") and ls_value > 0 and _ls_count < self.MAX_LINE_SPACING_ISSUES:
+                ps = elem.paragraph_style
+                a_type = ps.line_spacing_type
+                a_val = ps.line_spacing_value
+                # 跳过默认值（未被解析器显式设置的元素）
+                if not (a_type == LineSpacingType.SINGLE and a_val == 1.0):
+                    mismatch = False
+                    if ls_mode == "exact":
+                        if a_type != LineSpacingType.EXACT or abs(a_val - ls_value) > self.SPACING_TOL_PT:
+                            mismatch = True
+                            actual_desc = (f"固定值 {a_val:.1f}pt" if a_type == LineSpacingType.EXACT
+                                           else f"非固定值行距（{a_type.value}）")
+                            desc = f"规范要求固定值 {ls_value}pt，实际为{actual_desc}"
+                    else:
+                        if a_type != LineSpacingType.MULTIPLE or abs(a_val - ls_value) > self.SPACING_TOL_MUL:
+                            mismatch = True
+                            actual_desc = (f"{a_val:.2f} 倍" if a_type == LineSpacingType.MULTIPLE
+                                           else f"非倍数行距（{a_type.value}）")
+                            desc = f"规范要求 {ls_value} 倍行距，实际为{actual_desc}"
+                    if mismatch:
+                        _ls_count += 1
+                        report.add_issue(QAIssue(
+                            category=IssueCategory.FORMAT,
+                            severity=IssueSeverity.WARNING,
+                            title="行距不符规范",
+                            description=desc,
+                            suggestion=f'将"{loc[:20]}"的行距调整为规范要求',
+                            location_text=loc,
+                            element_index=idx,
+                            rule_id="format_line_spacing",
+                            checker="FormatChecker",
+                            confidence=0.85,
+                        ))
 
         return report

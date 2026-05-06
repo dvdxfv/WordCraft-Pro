@@ -2232,6 +2232,7 @@ class Api:
         temperature = config.get("temperature", 0.3)
         max_tokens = int(config.get("max_tokens", 2048))
         reasoning_effort = config.get("reasoning_effort", "high")
+        no_thinking = bool(config.get("no_thinking", False))
         # 优先环境变量；若运行时缓存未更新，则直接回读最新 config.yaml 做兜底。
         latest_cfg = self._load_runtime_config()
         latest_llm = latest_cfg.get("llm") or {}
@@ -2260,8 +2261,11 @@ class Api:
                 "max_tokens": max_tokens,
             }
             if model in ("deepseek-v4-flash", "deepseek-v4-pro"):
-                req["reasoning_effort"] = reasoning_effort
-                req["extra_body"] = {"thinking": {"type": "enabled"}}
+                if no_thinking:
+                    req["extra_body"] = {"thinking": {"type": "disabled"}}
+                else:
+                    req["reasoning_effort"] = reasoning_effort
+                    req["extra_body"] = {"thinking": {"type": "enabled"}}
             resp = client.chat.completions.create(**req)
             content = (resp.choices[0].message.content or "").strip()
             usage = getattr(resp, "usage", None)

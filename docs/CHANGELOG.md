@@ -8,6 +8,77 @@ git log --all --oneline
 git show <commit-hash>:CLAUDE.md  # 查看特定提交时的完整历史
 ```
 
+## Recent fixes (2026-05-07) - 第二十批：自定义排版补齐 + AI Parse 改进 + 行距 QA
+
+> 20A（自定义排版能力补齐）+ 20B（AI 解析排版改进）合并收录。
+> 计划文档：`PLANS/batch20a_custom_format_editor_upgrade.md`、`PLANS/batch20b_ai_parse_template_alignment.md`
+
+### A. 格式规则模型扩展（20A）
+
+**改动文件**：`core/format_checker.py`、`web/index.html`、`tests/test_format_checker.py`
+
+- `FormatRules` 新增字段：`h4Font`、`h4Size`、`h1-h4NumFormat`、`lineSpacingMode`、`lineSpacingValue`
+- 格式面板补齐 H4 字体/字号输入项与 H1-H4 编号格式输入项
+- 行距从单一 `lineSpacing` 值升级为"模式 + 数值"分离（`lineSpacingMode: "multiple" | "exact"`）
+- `FormatChecker.check()` 新增行距检查：
+  - 读取 `elem.paragraph_style.line_spacing_type` / `line_spacing_value`
+  - 跳过默认 `SINGLE/1.0`（解析器未显式设置的元素）
+  - exact 模式容差 1.0pt；multiple 模式容差 0.05 倍
+  - 全文行距问题上限 5 条（`MAX_LINE_SPACING_ISSUES`），避免刷屏
+  - `rule_id="format_line_spacing"`
+
+### B. AI Parse 回归修复与提示词重写（20B）
+
+**改动文件**：`web/index.html`、`app.py`
+
+- `runAIParse()` 改进：
+  - 新增 `_aiParseConfig={max_tokens:4000, no_thinking:true}` 配置
+  - `parseWithPrompt` 内层加 try-catch，JSON 解析异常返回 `{}` 而非向外抛出，确保 fallback 提示词能正确触发
+- Primary prompt：`notes` 字段说明改为"仅记录无法用结构化字段表达的规则；不重复已填内容；不超过120字"
+- Fallback prompt：完整重写，包含 8 条显式抽取指令；新增 `notes 专用规则` 约束块
+- `app.py:callAI()`：支持 `no_thinking` 参数，DeepSeek 模型可通过 `extra_body.thinking.type="disabled"` 按需关闭推理模式
+
+### C. `_sanitizeAIParseRules()` Bug 修复（20B）
+
+**改动文件**：`web/index.html`
+
+两处并发 bug：
+1. **lineHeight > 5 被提前清除**：`lineHeight=20`（固定值20磅）在映射到 `lineSpacingMode="exact"` 之前就被清零。修复：先执行映射（1.0-5.0 → multiple；6-100 → exact），再执行显示范围校验
+2. **lineSpacingValue 无 mode 时被置 null**：`else` 分支直接清空两者，无法恢复仅含数值的结构。修复：在清空前，根据数值范围自动推断 `lineSpacingMode`
+
+### D. `_collectFormatRules()` 默认值掩盖修复（20B）
+
+**改动文件**：`web/index.html`
+
+- 原代码：`h1Font:... || '黑体'`、`h1Size:... || 16`、`bFont:... || '宋体'`、`lineSpacingMode:... || 'multiple'` 等
+- 问题：用户未填写面板直接保存，硬编码默认值传入 `FormatChecker` 触发误报
+- 修复：全部改为 `|| ''` / `|| 0`，`FormatChecker` 已有 `if exp_font and ...` / `if exp_size and ...` / `if ls_value > 0` 判断，空值自然跳过
+
+### E. 测试补充
+
+**改动文件**：`tests/test_format_checker.py`（新增）、`tests/test_ai_parse_normalize.js`（新增）
+
+- `TestFormatCheckerLineSpacing`（11 个 Python 测试）：
+  - exact/multiple 匹配无误报
+  - exact/multiple 类型错误或数值超差检出
+  - SINGLE/1.0 默认值跳过
+  - MAX_LINE_SPACING_ISSUES 上限封顶
+  - 容差边界（1.0pt / 0.05×）不触发
+- `test_ai_parse_normalize.js`（17 个 JS 测试）：
+  - `lineHeight=1.5` → multiple；`lineHeight=20` → exact
+  - 仅含 `lineSpacingValue` 时自动推断 mode
+  - 显式 mode 不被 lineHeight 覆盖
+  - 非法 mode 清零；超范围 lineHeight 清零
+
+### F. 全量测试结果
+
+- `tests/test_format_checker.py`：**34 passed**
+- `tests/test_batch_regression.py`：**27 passed**
+- `tests/test_ai_parse_normalize.js`：**17 passed**（Node.js）
+- 第二十批：**已闭环完成**
+
+---
+
 ## Recent fixes (2026-04-30) - 第十七批 17A：Free / Pro 分层闭环 + 激活码开通链路
 
 > 依据 `PLANS/batch17_user_segmentation_engineering_plan.md` 对齐记录。本批先完成 17A，不进入 Team 完整协作闭环。
