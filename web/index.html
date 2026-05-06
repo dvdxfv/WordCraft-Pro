@@ -115,11 +115,16 @@
     async refreshDocxFields(docx_b64) { return this._request('refreshDocxFields', { docx_b64 }); },
     async saveFormatRequirements(rules, scope='personal') { return this._request('saveFormatRequirements', { rules, scope }); },
     async loadFormatRequirements(scope='personal') { return this._request('loadFormatRequirements', { scope }); },
+    async getCurrentPlan() { return this._request('getCurrentPlan', {}); },
+    async getUsageAndPlan() { return this._request('getUsageAndPlan', {}); },
     async getTeamWorkspace() { return this._request('getTeamWorkspace', {}); },
     async createTeamWorkspace(name, seat_limit=5) { return this._request('createTeamWorkspace', { name, seat_limit }); },
     async addTeamMemberByEmail(email, role='member') { return this._request('addTeamMemberByEmail', { email, role }); },
     async acceptTeamInvite(team_id) { return this._request('acceptTeamInvite', { team_id }); },
     async cancelTeamInvite(team_id, email) { return this._request('cancelTeamInvite', { team_id, email }); },
+    async sendTeamInviteEmail(team_id, email, role='member') { return this._request('sendTeamInviteEmail', { team_id, email, role }); },
+    async startTeamBatchQA(files, categories) { return this._request('startTeamBatchQA', { files, categories }); },
+    async getTeamBatchJobs() { return this._request('getTeamBatchJobs', {}); },
     async runBatchQA(files, categories) { return this._request('runBatchQA', { files, categories }); },
     async uploadTemplate(file_content, name, file_name) { return this._request('uploadTemplate', { file_content, name, file_name }); },
     async deleteTemplate(template_id) {
@@ -1171,6 +1176,7 @@ html,body{height:100%;font-family:-apple-system,'SF Pro Text','PingFang SC','Mic
           <div class="fr"><label>成员邮箱</label><input id="teamMemberEmail" placeholder="member@example.com"></div>
           <div class="fr"><button class="fbtn" id="btnAddTeamMember" onclick="addTeamMemberByEmail()">录入成员</button><button class="fbtn" id="btnSaveTeamFormatRules" onclick="saveTeamFormatRequirements()">保存团队规则</button></div>
           <div id="teamWorkspaceSummary" style="font-size:11px;color:#666;margin-top:6px">尚未加载团队信息</div>
+          <div id="teamWorkspacePlan" style="font-size:11px;color:#444;margin-top:6px"></div>
           <div id="teamWorkspaceStatus" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:6px;margin-top:8px"></div>
           <div id="teamWorkspaceInvites" style="margin-top:8px"></div>
         </div>
@@ -1179,11 +1185,14 @@ html,body{height:100%;font-family:-apple-system,'SF Pro Text','PingFang SC','Mic
           <div style="display:flex;gap:8px;flex-wrap:wrap">
             <button class="fbtn" id="btnLoadTeamFormatRules" onclick="loadTeamFormatRequirements()">加载团队规则</button>
             <button class="fbtn" id="btnRunTeamBatchQA" onclick="runTeamBatchQA()">批量检查已打开文档</button>
+            <button class="fbtn" id="btnRefreshTeamJobs" onclick="refreshTeamBatchJobs()">刷新任务历史</button>
           </div>
           <div id="teamWorkspaceProgress" style="font-size:11px;color:#666;margin-top:6px">团队工作区待命</div>
           <div id="teamWorkspaceMembers" style="font-size:11px;color:#444;margin-top:6px"></div>
           <div id="teamBatchQAResult" style="font-size:11px;color:#444;margin-top:6px"></div>
+          <div id="teamBatchJobs" style="margin-top:8px"></div>
           <div id="teamBatchQADetails" style="margin-top:8px"></div>
+          <div id="teamActivityHistory" style="margin-top:8px"></div>
         </div>
 
         <div class="format-panel" id="fp-ai">
@@ -1652,6 +1661,51 @@ function _planTierLabel(tier){
   }[String(tier||'free').toLowerCase()]||String(tier||'免费版');
 }
 
+function _formatPlanLimit(value, suffix=''){
+  if(value===null||value===undefined)return '不限';
+  return `${value}${suffix}`;
+}
+
+function _formatPlanQuota(used, limit){
+  if(limit===null||limit===undefined)return `${used||0}/不限`;
+  return `${used||0}/${limit}`;
+}
+
+function _formatPlanPeriod(plan){
+  const end=plan?.current_period_end;
+  if(!end)return '当前周期未设置';
+  const text=String(end).replace('T',' ').replace('Z','').slice(0,16);
+  return `到期时间 ${text}`;
+}
+
+function _renderTeamWorkspacePlan(plan){
+  const el=document.getElementById('teamWorkspacePlan');
+  if(!el)return;
+  if(!plan){
+    el.textContent='套餐信息暂不可用';
+    return;
+  }
+  const tierLabel=_planTierLabel(plan.tier);
+  const sourceLabel=plan.source||'system';
+  const statusLabel=plan.status==='expired'?'已过期':'生效中';
+  const limits=plan.limits||{};
+  const usage=plan.usage||{};
+  el.innerHTML=`
+    <div style="display:flex;flex-wrap:wrap;gap:6px">
+      <span style="padding:2px 8px;border-radius:999px;background:#e8f3ff;color:#185abc">${escapeHtml(tierLabel)}</span>
+      <span style="padding:2px 8px;border-radius:999px;background:#eef7ed;color:#2d6a4f">${escapeHtml(statusLabel)}</span>
+      <span style="padding:2px 8px;border-radius:999px;background:#f5f5f5;color:#555">来源 ${escapeHtml(String(sourceLabel))}</span>
+    </div>
+    <div style="margin-top:6px;color:#666">
+      文件上限 ${escapeHtml(_formatPlanLimit(limits.file_size_mb,'MB'))} ·
+      AI 深度 ${escapeHtml(_formatPlanQuota(usage.ai_qa_used, limits.ai_qa_per_month))} ·
+      AI 规则解析 ${escapeHtml(_formatPlanQuota(usage.ai_parse_used, limits.ai_parse_per_month))} ·
+      规则检查 ${escapeHtml(_formatPlanQuota(usage.rule_check_used_today, limits.rule_checks_per_day))}
+    </div>
+    <div style="margin-top:4px;color:#777">${escapeHtml(_formatPlanPeriod(plan))}</div>
+  `;
+}
+
 function _setTeamWorkspaceVisibility(tier){
   const normalized=String(tier||'free').toLowerCase();
   const visible=normalized==='team'||normalized==='enterprise';
@@ -1696,19 +1750,12 @@ async function loadCurrentPlanBadge(){
   el.title='点击输入激活码升级套餐';
   el.onclick=openActivationRedeemModal;
   try{
-    if(!window.supabaseClient){el.textContent='套餐状态不可用';await _refreshTeamWorkspaceAccess('free');return;}
-    const { data: sessionData } = await window.supabaseClient.auth.getSession();
-    const userId = sessionData?.session?.user?.id;
-    if(!userId){el.textContent='未登录';await _refreshTeamWorkspaceAccess('free');return;}
-    const { data, error } = await window.supabaseClient
-      .from('profiles')
-      .select('plan_tier,plan_status,current_period_end')
-      .eq('id', userId)
-      .single();
-    if(error || !data){el.textContent='免费版';await _refreshTeamWorkspaceAccess('free');return;}
-    const status = data.plan_status==='expired' ? '（已过期）' : '';
-    await _refreshTeamWorkspaceAccess(data.plan_tier);
-    el.textContent = _planTierLabel(data.plan_tier)+status;
+    const resp=await window.WC_API.getUsageAndPlan();
+    const plan=resp?.plan||null;
+    if(!plan){el.textContent='套餐状态不可用';await _refreshTeamWorkspaceAccess('free');return;}
+    const status = plan.status==='expired' ? '（已过期）' : '';
+    await _refreshTeamWorkspaceAccess(plan.tier);
+    el.textContent = _planTierLabel(plan.tier)+status;
   }catch(e){
     el.textContent='免费版';
     await _refreshTeamWorkspaceAccess('free');
@@ -2268,15 +2315,19 @@ function _renderTeamWorkspaceStatus(data){
   if(!el)return;
   const team=data?.team||null;
   const members=Array.isArray(data?.members)?data.members:[];
+  const activeMembers=members.filter(m=>m.status!=='pending');
+  const pendingMembers=members.filter(m=>m.status==='pending');
   const hasRules=!!data?.rules;
   const cards=team ? [
     {label:'团队状态', value:team.status||'active'},
-    {label:'成员席位', value:`${members.length}/${team.seat_limit||0}`},
+    {label:'成员席位', value:`${activeMembers.length}/${team.seat_limit||0}`},
+    {label:'待接受邀请', value:String(pendingMembers.length)},
     {label:'规则库', value:hasRules?'已配置':'未配置'},
     {label:'已开文档', value:String(openTabs.length||0)}
   ] : [
     {label:'团队状态', value:'未创建'},
     {label:'成员席位', value:'0/0'},
+    {label:'待接受邀请', value:String((data?.invitations||[]).length||0)},
     {label:'规则库', value:'未配置'},
     {label:'已开文档', value:String(openTabs.length||0)}
   ];
@@ -2307,6 +2358,7 @@ function _renderTeamInvitations(invitations){
           </div>
           <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
             <button class="fbtn" onclick="acceptTeamInvite('${escapeHtml(item.team_id||'')}')">接受邀请</button>
+            <button class="fbtn" onclick="sendTeamInviteEmail('${escapeHtml(item.team_id||'')}','${escapeHtml(item.invite_email||item.email||'')}','${escapeHtml(item.role||'member')}')">发送正式邮件</button>
             <button class="fbtn" onclick="copyTeamInviteMessage('${escapeHtml(item.team_id||'')}','${escapeHtml(item.invite_email||item.email||'')}','${escapeHtml(item.role||'member')}')">复制文案</button>
             <button class="fbtn" onclick="openTeamInviteDraft('${escapeHtml(item.team_id||'')}','${escapeHtml(item.invite_email||item.email||'')}','${escapeHtml(item.role||'member')}')">邮件草稿</button>
           </div>
@@ -2362,33 +2414,6 @@ function openTeamInviteDraft(teamId, inviteEmail, role='member'){
   window.location.href=`mailto:${email}?subject=${subject}&body=${body}`;
 }
 
-function _renderTeamWorkspaceSummary(data){
-  const el=document.getElementById('teamWorkspaceSummary');
-  if(!el)return;
-  _renderTeamWorkspaceStatus(data);
-  _renderTeamInvitations(data?.invitations||[]);
-  if(!data?.team){
-    el.textContent=(Array.isArray(data?.invitations)&&data.invitations.length)
-      ? '当前账号有待接受的团队邀请，接受后即可进入团队工作区'
-      : '当前还没有团队，可先创建团队后再共享规则与录入成员';
-    _renderTeamMembers(null, []);
-    return;
-  }
-  const members=Array.isArray(data.members)?data.members:[];
-  const seatLimit=data.team.seat_limit||0;
-  const teamName=data.team.name||'未命名团队';
-  const ruleState=data.rules?'已配置团队规则':'未配置团队规则';
-  const activeMembers=members.filter(m=>m.status!=='pending');
-  const pendingMembers=members.filter(m=>m.status==='pending');
-  const memberEmails=activeMembers.map(m=>m.email||m.user_id).filter(Boolean).join('、');
-  el.textContent=`${teamName} | 生效成员 ${activeMembers.length}/${seatLimit} | 待接受 ${pendingMembers.length} | ${ruleState}${memberEmails?` | ${memberEmails}`:''}`;
-  if(membersEl){
-    membersEl.innerHTML=members.length
-      ? `成员列表：${members.map(m=>`${m.email||m.invite_email||m.user_id} (${m.role||'member'}${m.status==='pending'?'，待接受':''})`).join('；')}`
-      : '成员列表：当前只有团队所有者';
-  }
-}
-
 function _renderTeamMembers(teamId, members){
   const membersEl=document.getElementById('teamWorkspaceMembers');
   if(!membersEl)return;
@@ -2416,20 +2441,64 @@ function _renderTeamMembers(teamId, members){
   }).join('');
 }
 
+function _renderTeamActivityHistory(activities){
+  const el=document.getElementById('teamActivityHistory');
+  if(!el)return;
+  const items=Array.isArray(activities)?activities:[];
+  if(!items.length){
+    el.innerHTML='<div style="font-size:11px;color:#666">暂无团队活动记录</div>';
+    return;
+  }
+  el.innerHTML=`
+    <div style="font-size:12px;font-weight:600;margin-bottom:6px">最近活动</div>
+    ${items.slice(0,10).map(item=>`
+      <div style="border-top:1px solid rgba(0,0,0,.06);padding:6px 0;font-size:11px;color:#444">
+        <div>${escapeHtml(item.summary||item.event_type||'未命名活动')}</div>
+        <div style="color:#666;margin-top:2px">${escapeHtml(item.status||'completed')} · ${escapeHtml(item.created_at||'')}</div>
+      </div>
+    `).join('')}
+  `;
+}
+
+function _renderTeamBatchJobs(jobs){
+  const el=document.getElementById('teamBatchJobs');
+  if(!el)return;
+  const items=Array.isArray(jobs)?jobs:[];
+  if(!items.length){
+    el.innerHTML='<div style="font-size:11px;color:#666">暂无批量任务记录</div>';
+    return;
+  }
+  el.innerHTML=`
+    <div style="font-size:12px;font-weight:600;margin-bottom:6px">批量任务历史</div>
+    ${items.slice(0,8).map(job=>`
+      <div style="border:1px solid var(--line);border-radius:8px;padding:8px;background:#fafafa;margin-top:6px">
+        <div style="display:flex;justify-content:space-between;gap:8px;align-items:center">
+          <div style="font-size:11px;font-weight:600">${escapeHtml(job.summary||'未命名任务')}</div>
+          <div style="font-size:11px;color:#666">${escapeHtml(job.status||'queued')}</div>
+        </div>
+        <div style="font-size:11px;color:#666;margin-top:4px">文档 ${escapeHtml(String(job.file_count||0))} · 创建时间 ${escapeHtml(job.created_at||'')}</div>
+      </div>
+    `).join('')}
+  `;
+}
+
 async function resendTeamInvite(teamId, inviteEmail, role='member'){
-  await copyTeamInviteMessage(teamId, inviteEmail, role);
+  await sendTeamInviteEmail(teamId, inviteEmail, role);
 }
 
 function _renderTeamWorkspaceSummary(data){
   const el=document.getElementById('teamWorkspaceSummary');
   if(!el)return;
   _renderTeamWorkspaceStatus(data);
+  _renderTeamWorkspacePlan(data?.plan||null);
   _renderTeamInvitations(data?.invitations||[]);
   if(!data?.team){
     el.textContent=(Array.isArray(data?.invitations)&&data.invitations.length)
       ? '你有待接受的团队邀请，接受后即可进入团队工作区。'
       : '当前还没有团队工作区，创建团队后可共享团队规则并发起批量检查。';
     _renderTeamMembers(null, []);
+    _renderTeamBatchJobs(data?.jobs||[]);
+    _renderTeamActivityHistory(data?.activities||[]);
     return;
   }
   const members=Array.isArray(data.members)?data.members:[];
@@ -2441,6 +2510,8 @@ function _renderTeamWorkspaceSummary(data){
   const memberEmails=activeMembers.map(m=>m.email||m.user_id).filter(Boolean).join(' / ');
   el.textContent=`${teamName} | 成员 ${activeMembers.length}/${seatLimit} | 待接受邀请 ${pendingMembers.length} | ${ruleState}${memberEmails?` | ${memberEmails}`:''}`;
   _renderTeamMembers(data.team?.id, members);
+  _renderTeamBatchJobs(data?.jobs||[]);
+  _renderTeamActivityHistory(data?.activities||[]);
 }
 
 async function loadTeamWorkspace(force=false){
@@ -2501,6 +2572,21 @@ async function cancelTeamInvite(teamId, email){
   }
 }
 
+async function sendTeamInviteEmail(teamId, inviteEmail, role='member'){
+  if(!teamId||!inviteEmail){showToast('缺少待发送的邀请信息');return;}
+  _setTeamWorkspaceProgress('正在发送正式邀请邮件...',true);
+  try{
+    const data=await window.WC_API.sendTeamInviteEmail(teamId, inviteEmail, role);
+    if(!data?.success)throw new Error(data?.error||'send invite email failed');
+    _renderTeamWorkspaceSummary(data);
+    _setTeamWorkspaceProgress('正式邀请邮件已发送',false,false);
+    showToast('正式邀请邮件已发送');
+  }catch(e){
+    _setTeamWorkspaceProgress('正式邀请邮件发送失败',false,true);
+    showToast('正式邀请邮件发送失败：'+(e?.message||String(e)));
+  }
+}
+
 async function createTeamWorkspace(){
   const name=(document.getElementById('teamWorkspaceName')?.value||'').trim();
   const seatLimit=parseInt(document.getElementById('teamWorkspaceSeatLimit')?.value||'5',10)||5;
@@ -2529,8 +2615,8 @@ async function addTeamMemberByEmail(){
     _renderTeamWorkspaceSummary(data);
     const input=document.getElementById('teamMemberEmail');
     if(input)input.value='';
-    _setTeamWorkspaceProgress('团队成员已录入',false,false);
-    showToast('团队成员已录入');
+    _setTeamWorkspaceProgress('团队成员已录入，正在发送正式邀请邮件...',true);
+    await sendTeamInviteEmail(data.team?.id||data.team_id||'', email, 'member');
   }catch(e){
     _setTeamWorkspaceProgress('录入成员失败',false,true);
     showToast('录入成员失败：'+(e?.message||String(e)));
@@ -2604,23 +2690,69 @@ async function runTeamBatchQA(){
     return;
   }
   _setTeamWorkspaceProgress(`正在批量检查 ${files.length} 份文档...`,true);
-  if(resultEl)resultEl.textContent='批量检查中...';
+  if(resultEl)resultEl.textContent='批量任务已创建，等待执行...';
   try{
-    const data=await window.WC_API.runBatchQA(files, ['typo','consistency','logic','format','crossref']);
-    if(!data?.success)throw new Error(data?.error||'batch qa failed');
-    const summaries=(data.results||[]).map(item=>{
-      const count=Array.isArray(item.result?.issues)?item.result.issues.length:0;
-      return `${item.name}: ${count} 条`;
-    });
-    if(resultEl)resultEl.textContent=`批量检查完成，共 ${data.count||0} 份：${summaries.join('；')}`;
-    _renderTeamBatchQADetails(data);
-    _setTeamWorkspaceProgress(`批量检查已完成，共处理 ${data.count||0} 份文档`,false,false);
-    showToast('团队批量检查已完成');
+    const started=await window.WC_API.startTeamBatchQA(files, ['typo','consistency','logic','format','crossref']);
+    if(!started?.success)throw new Error(started?.error||'start batch qa failed');
+    if(resultEl)resultEl.textContent=`批量任务已创建：${started.job?.summary||''}`;
+    _renderTeamBatchJobs(started.jobs||[]);
+    _setTeamWorkspaceProgress(`批量任务已创建，正在后台处理 ${files.length} 份文档`,false,false);
+    showToast('团队批量任务已创建');
+    await pollTeamBatchJob(started.job?.id||'');
   }catch(e){
     if(resultEl)resultEl.textContent='批量检查失败';
     _renderTeamBatchQADetails(null);
     _setTeamWorkspaceProgress('批量检查失败',false,true);
     showToast('批量检查失败：'+(e?.message||String(e)));
+  }
+}
+
+async function refreshTeamBatchJobs(){
+  try{
+    const data=await window.WC_API.getTeamBatchJobs();
+    if(data?.success){
+      _renderTeamBatchJobs(data.jobs||[]);
+    }
+  }catch(e){}
+}
+
+async function pollTeamBatchJob(jobId){
+  if(!jobId)return;
+  const resultEl=document.getElementById('teamBatchQAResult');
+  for(let i=0;i<40;i++){
+    await new Promise(resolve=>setTimeout(resolve,1000));
+    const data=await window.WC_API.getTeamBatchJobs();
+    if(!data?.success)continue;
+    _renderTeamBatchJobs(data.jobs||[]);
+    const job=(data.jobs||[]).find(item=>item.id===jobId);
+    if(!job)continue;
+    if(job.status==='completed'){
+      const payload=job.result_payload||{};
+      const results=Array.isArray(payload.results)?payload.results:[];
+      const totals={files:payload.count||results.length||0,issues:payload.issues||0,error:0,warn:0,info:0};
+      results.forEach(item=>{
+        const issues=Array.isArray(item.result?.issues)?item.result.issues:[];
+        issues.forEach(issue=>{
+          const level=String(issue.severity||issue.level||'info').toLowerCase();
+          if(level==='error')totals.error+=1;
+          else if(level==='warn'||level==='warning')totals.warn+=1;
+          else totals.info+=1;
+        });
+      });
+      const summaries=results.map(item=>`${item.name}: ${Array.isArray(item.result?.issues)?item.result.issues.length:0} 条`);
+      if(resultEl)resultEl.textContent=`批量检查完成，共 ${totals.files} 份，发现 ${totals.issues} 条问题（错误 ${totals.error} / 警告 ${totals.warn} / 提示 ${totals.info}）：${summaries.join('；')}`;
+      _renderTeamBatchQADetails(payload);
+      _setTeamWorkspaceProgress(`批量检查已完成，共处理 ${totals.files} 份文档`,false,false);
+      await loadTeamWorkspace(true);
+      return;
+    }
+    if(job.status==='failed'){
+      if(resultEl)resultEl.textContent=job.summary||'批量检查失败';
+      _renderTeamBatchQADetails(null);
+      _setTeamWorkspaceProgress('批量检查失败',false,true);
+      await loadTeamWorkspace(true);
+      return;
+    }
   }
 }
 

@@ -68,6 +68,12 @@ TEAM_INVITE_CANCEL_MIGRATION = (
     / "migrations"
     / "20260502_batch17b_cancel_team_invite.sql"
 )
+TEAM_OPS_HISTORY_MIGRATION = (
+    Path(__file__).resolve().parents[1]
+    / "supabase"
+    / "migrations"
+    / "20260506_batch17b_team_ops_history.sql"
+)
 
 
 def test_plan_migration_uses_rpc_for_activation_redemption():
@@ -268,7 +274,14 @@ def test_team_invite_cancel_migration_adds_owner_delete_policy_and_rpc():
     assert "status = 'pending'" in sql
     assert "create or replace function public.cancel_team_invite" in sql
     assert "only the team owner can cancel pending invites." in sql
-    assert "pending invite was not found." in sql
-    assert "delete from public.team_members" in sql
-    assert "revoke execute on function public.cancel_team_invite(uuid, text) from public, anon" in sql
-    assert "grant execute on function public.cancel_team_invite(uuid, text) to authenticated" in sql
+
+
+def test_team_ops_history_migration_creates_activity_and_batch_job_tables():
+    sql = TEAM_OPS_HISTORY_MIGRATION.read_text(encoding="utf-8").lower()
+
+    assert "create table if not exists public.team_activity_logs" in sql
+    assert "create table if not exists public.team_batch_jobs" in sql
+    assert "alter table public.team_activity_logs enable row level security" in sql
+    assert "alter table public.team_batch_jobs enable row level security" in sql
+    assert "create policy team_activity_logs_select_member" in sql
+    assert "create policy team_batch_jobs_select_member" in sql

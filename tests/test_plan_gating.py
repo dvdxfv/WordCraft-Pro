@@ -1,5 +1,6 @@
 import base64
 import json
+import time
 from types import SimpleNamespace
 
 from app import Api
@@ -128,6 +129,7 @@ def test_team_user_can_create_workspace_and_save_team_rules_locally():
 
     assert created["success"] is True
     assert created["team"]["name"] == "编辑部"
+    assert created["plan"]["tier"] == "team"
     assert saved["success"] is True
     assert saved["scope"] == "team"
     assert loaded["success"] is True
@@ -196,11 +198,13 @@ def test_invited_local_member_can_accept_team_invite():
     plan = _json(invited_api.getCurrentPlan())
 
     assert workspace["success"] is True
+    assert workspace["plan"]["tier"] == "free"
     assert len(workspace["invitations"]) == 1
     assert workspace["invitations"][0]["status"] == "pending"
     assert accepted["success"] is True
     assert accepted["team"]["id"] == team_id
     assert accepted["members"][1]["status"] == "active"
+    assert accepted["plan"]["tier"] == "team"
     assert plan["plan"]["tier"] == "team"
 
 
@@ -342,3 +346,69 @@ def test_team_user_batch_qa_aggregates_results():
     assert data["count"] == 2
     assert data["results"][0]["name"] == "a.docx"
     assert data["results"][1]["result"]["success"] is True
+
+
+def test_team_owner_can_send_formal_invite_email_locally():
+    api = Api(supabase_enabled=False)
+    api._session = {
+        "user_id": "team-user-001",
+        "user_info": {
+            "id": "team-user-001",
+            "email": "team@example.com",
+            "plan_tier": "team",
+            "plan_status": "active",
+            "plan_source": "admin",
+            "feature_flags": {},
+        },
+    }
+    _json(api.createTeamWorkspace("编辑部", 2))
+    _json(api.addTeamMemberByEmail("member@example.com"))
+    api._deliver_team_invite_email = lambda email, payload: {  # type: ignore[method-assign]
+        "success": True,
+        "provider": "mock",
+        "response": {"to": email, "subject": payload["subject"]},
+    }
+
+    data = _json(api.sendTeamInviteEmail("team-local-001", "member@example.com", "member"))
+
+    assert data["success"] is True
+    assert data["delivery"]["provider"] == "mock"
+    assert data["activities"][0]["event_type"] == "team_invite_email_sent"
+
+
+def test_team_user_can_start_batch_job_and_read_history():
+    api = Api(supabase_enabled=False)
+    api._session = {
+        "user_id": "team-user-001",
+        "user_info": {
+            "id": "team-user-001",
+            "email": "team@example.com",
+            "plan_tier": "team",
+            "plan_status": "active",
+            "plan_source": "admin",
+            "feature_flags": {},
+        },
+    }
+    _json(api.createTeamWorkspace("编辑部", 2))
+    api.runQA = lambda content, categories_str='[]', elements_json=None: json.dumps({  # type: ignore[method-assign]
+        "success": True,
+        "issues": [{"severity": "warn", "message": "示例问题"}],
+    }, ensure_ascii=False)
+
+    started = _json(api.startTeamBatchQA(json.dumps([
+        {"name": "a.docx", "content": "<p>A</p>"},
+    ])))
+    job_id = started["job"]["id"]
+    for _ in range(20):
+        jobs = _json(api.getTeamBatchJobs())
+        job = next((item for item in jobs["jobs"] if item["id"] == job_id), None)
+        if job and job["status"] in {"completed", "failed"}:
+            break
+        time.sleep(0.05)
+
+    jobs = _json(api.getTeamBatchJobs())
+    job = next(item for item in jobs["jobs"] if item["id"] == job_id)
+
+    assert started["success"] is True
+    assert job["status"] == "completed"
+    assert job["result_payload"]["issues"] == 1

@@ -12,6 +12,28 @@ git show <commit-hash>:CLAUDE.md  # 查看特定提交时的完整历史
 
 > 依据 `PLANS/batch17_user_segmentation_engineering_plan.md` 对齐记录。本批先完成 17A，不进入 Team 完整协作闭环。
 
+## Recent fixes (2026-05-06) - 第十七批 17B：团队邀请正式发送 + 任务历史面板
+
+- 团队邀请不再只停留在 `mailto` / 文案复制：
+  - 后端新增正式邮件发送接口 `sendTeamInviteEmail()`
+  - 支持 webhook 邮件通道或 `Resend`（通过环境变量配置）
+  - `重新发送` 现在走真实后端发送逻辑，并写入团队活动历史
+- 团队工作区从“最小入口”提升为“可运营面板”：
+  - 新增最近活动区
+  - 新增批量任务历史区
+  - 批量检查改为创建任务后轮询收口，而不是前端同步等待
+- Supabase 数据层新增：
+  - `supabase/migrations/20260506_batch17b_team_ops_history.sql`
+  - `team_activity_logs`
+  - `team_batch_jobs`
+- 自动化验证补齐：
+  - `tests/test_plan_gating.py`
+  - `tests/test_team_workspace_contract.py`
+  - `tests/test_supabase_plan_migration.py`
+  - `tests/test_activation_entry_contract.py`
+  - `tests/test_batch_regression.py`
+  - `tests/test_format_checker.py`
+
 ### A. 统一 entitlement 层落地
 
 **新增文件**: `core/entitlements.py`

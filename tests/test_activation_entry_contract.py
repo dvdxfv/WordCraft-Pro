@@ -21,3 +21,4 @@ def test_activation_redeem_uses_supabase_rpc_and_updates_badge():
     assert ".rpc('redeem_activation_code', { p_code: code })" in html
     assert "await loadCurrentPlanBadge();" in html
     assert "el.onclick=openActivationRedeemModal;" in html
+    assert "async getUsageAndPlan() { return this._request('getUsageAndPlan', {}); }" in html

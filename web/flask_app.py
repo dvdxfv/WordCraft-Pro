@@ -141,6 +141,29 @@ def cancel_team_invite():
     result = api.cancelTeamInvite(team_id, email)
     return result
 
+@app.route('/api/sendTeamInviteEmail', methods=['POST'])
+def send_team_invite_email():
+    data = request.json or {}
+    team_id = data.get('team_id', '')
+    email = data.get('email', '')
+    role = data.get('role', 'member')
+    result = api.sendTeamInviteEmail(team_id, email, role)
+    return result
+
+@app.route('/api/startTeamBatchQA', methods=['POST'])
+def start_team_batch_qa():
+    data = request.json or {}
+    files = data.get('files', [])
+    categories = data.get('categories', [])
+    cats_str = _json.dumps(categories or [])
+    result = api.startTeamBatchQA(_json.dumps(files), cats_str)
+    return result
+
+@app.route('/api/getTeamBatchJobs', methods=['GET', 'POST'])
+def get_team_batch_jobs():
+    result = api.getTeamBatchJobs()
+    return result
+
 @app.route('/api/redeemActivationCode', methods=['POST'])
 def redeem_activation_code():
     data = request.json or {}

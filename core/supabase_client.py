@@ -230,6 +230,76 @@ class SupabaseClient:
             logger.error("获取团队成员失败: %s", e)
             return []
 
+    def list_team_activities(self, team_id: str, limit: int = 20) -> list:
+        try:
+            result = (
+                self.client.table("team_activity_logs")
+                .select("*")
+                .eq("team_id", team_id)
+                .order("created_at", desc=True)
+                .limit(limit)
+                .execute()
+            )
+            return result.data or []
+        except Exception as e:
+            logger.error("获取团队活动失败: %s", e)
+            return []
+
+    def create_team_activity(self, row: dict) -> dict:
+        try:
+            result = self.client.table("team_activity_logs").insert(row).execute()
+            return result.data[0] if result.data else row
+        except Exception as e:
+            logger.error("记录团队活动失败: %s", e)
+            raise
+
+    def list_team_batch_jobs(self, team_id: str, limit: int = 20) -> list:
+        try:
+            result = (
+                self.client.table("team_batch_jobs")
+                .select("*")
+                .eq("team_id", team_id)
+                .order("created_at", desc=True)
+                .limit(limit)
+                .execute()
+            )
+            return result.data or []
+        except Exception as e:
+            logger.error("获取团队任务失败: %s", e)
+            return []
+
+    def get_team_batch_job(self, job_id: str) -> Optional[dict]:
+        try:
+            result = self.client.table("team_batch_jobs").select("*").eq("id", job_id).limit(1).execute()
+            return result.data[0] if result.data else None
+        except Exception as e:
+            logger.error("获取团队任务详情失败: %s", e)
+            return None
+
+    def create_team_batch_job(self, row: dict) -> dict:
+        try:
+            result = self.client.table("team_batch_jobs").insert(row).execute()
+            return result.data[0] if result.data else row
+        except Exception as e:
+            logger.error("创建团队任务失败: %s", e)
+            raise
+
+    def update_team_batch_job(self, job_id: str, row: dict) -> dict:
+        updates = {
+            "status": row.get("status"),
+            "summary": row.get("summary"),
+            "result_payload": row.get("result_payload"),
+            "started_at": row.get("started_at"),
+            "finished_at": row.get("finished_at"),
+            "updated_at": row.get("updated_at") or datetime.now(timezone.utc).isoformat(),
+        }
+        try:
+            result = self.client.table("team_batch_jobs").update(updates).eq("id", job_id).execute()
+            return result.data[0] if result.data else {**row, **updates}
+        except Exception as e:
+            logger.error("更新团队任务失败: %s", e)
+            raise
+
     def get_pending_team_invitations(self, user_id: str) -> list:
         try:
             result = (
@@ -283,12 +353,27 @@ class SupabaseClient:
         team_id = profile.get("team_id")
         invitations = self.get_pending_team_invitations(user_id)
         if not team_id:
-            return {"team": None, "members": [], "rules": None, "team_id": None, "invitations": invitations}
+            return {"team": None, "members": [], "rules": None, "team_id": None, "invitations": invitations, "activities": [], "jobs": []}
 
+        workspace = self.get_team_workspace_by_id(team_id)
+        workspace["invitations"] = invitations
+        return workspace
+
+    def get_team_workspace_by_id(self, team_id: str) -> dict:
         team = self.get_team(team_id)
         members = self.get_team_members(team_id)
         rules = self.get_team_format_rules(team_id).get("rules")
-        return {"team": team, "members": members, "rules": rules, "team_id": team_id, "invitations": invitations}
+        activities = self.list_team_activities(team_id, limit=20)
+        jobs = self.list_team_batch_jobs(team_id, limit=20)
+        return {
+            "team": team,
+            "members": members,
+            "rules": rules,
+            "team_id": team_id,
+            "invitations": [],
+            "activities": activities,
+            "jobs": jobs,
+        }
 
     def create_team_workspace(self, user_id: str, name: str, seat_limit: int = 5) -> dict:
         try:

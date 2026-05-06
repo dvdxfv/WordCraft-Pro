@@ -9,9 +9,12 @@ import os
 import re
 import subprocess
 import sys
+import threading
 import time
+import uuid
 import zipfile
-from urllib.request import urlretrieve
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen, urlretrieve
 from functools import wraps
 
 logger = logging.getLogger(__name__)
@@ -61,6 +64,8 @@ class Api:
         }
         self._local_teams: dict[str, dict] = {}
         self._local_team_rules: dict[str, dict] = {}
+        self._local_team_activity_logs: dict[str, list[dict]] = {}
+        self._local_team_batch_jobs: dict[str, dict] = {}
         self._qa_install_state: dict = {
             "status": "idle",
             "message": "",
@@ -337,12 +342,16 @@ class Api:
         return (self._session or {}).get("user_id") or self._local_user_id()
 
     def _team_workspace_payload(self, team: dict | None = None, members: list | None = None, rules: dict | None = None) -> dict:
+        team_id = (team or {}).get("id") if isinstance(team, dict) else self._current_team_id()
         return {
             "team": team,
             "members": members or [],
             "rules": rules,
             "invitations": [],
-            "team_id": (team or {}).get("id") if isinstance(team, dict) else self._current_team_id(),
+            "team_id": team_id,
+            "plan": self._current_entitlements(),
+            "activities": self._list_team_activities(team_id, limit=20) if team_id else [],
+            "jobs": self._list_team_batch_jobs(team_id, limit=20) if team_id else [],
         }
 
     @staticmethod
@@ -407,6 +416,266 @@ class Api:
         except Exception as exc:
             logger.warning("failed to resolve auth role from session: %s", exc)
         return None
+
+    @staticmethod
+    def _now_iso() -> str:
+        return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+    def _record_team_activity(
+        self,
+        team_id: str | None,
+        event_type: str,
+        status: str = "completed",
+        summary: str = "",
+        payload: dict | None = None,
+        target_email: str | None = None,
+        target_user_id: str | None = None,
+        batch_job_id: str | None = None,
+    ) -> dict | None:
+        normalized_team_id = str(team_id or "").strip()
+        if not normalized_team_id:
+            return None
+        actor_user_id = self._current_user_id()
+        row = {
+            "id": f"activity-{uuid.uuid4().hex[:12]}",
+            "team_id": normalized_team_id,
+            "actor_user_id": actor_user_id,
+            "event_type": event_type,
+            "status": status,
+            "summary": summary,
+            "payload": payload or {},
+            "target_email": target_email,
+            "target_user_id": target_user_id,
+            "batch_job_id": batch_job_id,
+            "created_at": self._now_iso(),
+        }
+        if self._supabase:
+            try:
+                return self._supabase.create_team_activity(row)
+            except Exception as exc:
+                logger.warning("记录团队活动失败，回退本地日志: %s", exc)
+        bucket = self._local_team_activity_logs.setdefault(normalized_team_id, [])
+        bucket.insert(0, row)
+        del bucket[100:]
+        return row
+
+    def _list_team_activities(self, team_id: str | None, limit: int = 20) -> list[dict]:
+        normalized_team_id = str(team_id or "").strip()
+        if not normalized_team_id:
+            return []
+        if self._supabase:
+            try:
+                return self._supabase.list_team_activities(normalized_team_id, limit=limit)
+            except Exception as exc:
+                logger.warning("读取团队活动失败，回退本地日志: %s", exc)
+        return list(self._local_team_activity_logs.get(normalized_team_id, [])[:limit])
+
+    def _create_team_batch_job(self, team_id: str, files: list[dict], categories: list[str]) -> dict:
+        normalized_team_id = str(team_id or "").strip()
+        actor_user_id = self._current_user_id()
+        row = {
+            "id": f"job-{uuid.uuid4().hex[:12]}",
+            "team_id": normalized_team_id,
+            "created_by": actor_user_id,
+            "job_type": "batch_qa",
+            "status": "queued",
+            "file_count": len(files or []),
+            "categories": categories or [],
+            "request_payload": {
+                "files": [{"name": item.get("name", "untitled")} for item in (files or [])],
+            },
+            "result_payload": None,
+            "summary": f"等待批量检查 {len(files or [])} 份文档",
+            "created_at": self._now_iso(),
+            "updated_at": self._now_iso(),
+            "started_at": None,
+            "finished_at": None,
+        }
+        if self._supabase:
+            try:
+                row = self._supabase.create_team_batch_job(row)
+            except Exception as exc:
+                logger.warning("创建团队任务失败，回退本地: %s", exc)
+        self._local_team_batch_jobs[row["id"]] = row
+        self._record_team_activity(
+            normalized_team_id,
+            "batch_qa_created",
+            status="queued",
+            summary=f"已创建批量检查任务，文档数 {len(files or [])}",
+            payload={"job_id": row["id"], "file_count": len(files or []), "categories": categories or []},
+            batch_job_id=row["id"],
+        )
+        return row
+
+    def _update_team_batch_job(self, job_id: str, **updates) -> dict | None:
+        normalized_job_id = str(job_id or "").strip()
+        if not normalized_job_id:
+            return None
+        row = dict(self._local_team_batch_jobs.get(normalized_job_id) or {})
+        if not row and self._supabase:
+            row = self._supabase.get_team_batch_job(normalized_job_id) or {}
+        if not row:
+            return None
+        row.update({k: v for k, v in updates.items() if v is not None})
+        row["updated_at"] = self._now_iso()
+        self._local_team_batch_jobs[normalized_job_id] = row
+        if self._supabase:
+            try:
+                self._supabase.update_team_batch_job(normalized_job_id, row)
+            except Exception as exc:
+                logger.warning("更新团队任务失败: %s", exc)
+        return row
+
+    def _list_team_batch_jobs(self, team_id: str | None, limit: int = 20) -> list[dict]:
+        normalized_team_id = str(team_id or "").strip()
+        if not normalized_team_id:
+            return []
+        if self._supabase:
+            try:
+                rows = self._supabase.list_team_batch_jobs(normalized_team_id, limit=limit)
+                for row in rows:
+                    self._local_team_batch_jobs[row["id"]] = row
+                return rows
+            except Exception as exc:
+                logger.warning("读取团队任务失败，回退本地: %s", exc)
+        rows = [row for row in self._local_team_batch_jobs.values() if row.get("team_id") == normalized_team_id]
+        rows.sort(key=lambda item: item.get("created_at") or "", reverse=True)
+        return rows[:limit]
+
+    def _build_team_invite_email_payload(self, team: dict, invite_email: str, role: str = "member") -> dict:
+        team_name = team.get("name") or "WordCraft 团队"
+        role_label = "owner" if str(role or "").strip().lower() == "owner" else "member"
+        subject = f"邀请加入 {team_name}"
+        text = "\n".join([
+            f"你已被邀请加入 {team_name}。",
+            f"角色：{role_label}",
+            f"受邀邮箱：{invite_email}",
+            "请登录 WordCraft，在团队工作区中接受邀请。",
+        ])
+        html = (
+            f"<p>你已被邀请加入 <strong>{team_name}</strong>。</p>"
+            f"<p>角色：<strong>{role_label}</strong><br>受邀邮箱：<strong>{invite_email}</strong></p>"
+            "<p>请登录 WordCraft，在团队工作区中接受邀请。</p>"
+        )
+        return {"subject": subject, "text": text, "html": html}
+
+    def _deliver_team_invite_email(self, invite_email: str, payload: dict) -> dict:
+        webhook_url = os.environ.get("TEAM_INVITE_EMAIL_WEBHOOK_URL", "").strip()
+        resend_key = os.environ.get("RESEND_API_KEY", "").strip()
+        from_email = os.environ.get("TEAM_INVITE_FROM_EMAIL", "").strip() or os.environ.get("WC_EMAIL_FROM", "").strip()
+        body = {
+            "to": invite_email,
+            "subject": payload.get("subject", "WordCraft 团队邀请"),
+            "text": payload.get("text", ""),
+            "html": payload.get("html", ""),
+        }
+        try:
+            if webhook_url:
+                req = Request(
+                    webhook_url,
+                    data=json.dumps(body).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urlopen(req, timeout=15) as resp:
+                    raw = resp.read().decode("utf-8", errors="replace")
+                return {"success": True, "provider": "webhook", "response": raw}
+            if resend_key and from_email:
+                resend_body = {
+                    "from": from_email,
+                    "to": [invite_email],
+                    "subject": body["subject"],
+                    "html": body["html"],
+                    "text": body["text"],
+                }
+                req = Request(
+                    "https://api.resend.com/emails",
+                    data=json.dumps(resend_body).encode("utf-8"),
+                    headers={
+                        "Content-Type": "application/json",
+                        "Authorization": f"Bearer {resend_key}",
+                    },
+                    method="POST",
+                )
+                with urlopen(req, timeout=15) as resp:
+                    raw = resp.read().decode("utf-8", errors="replace")
+                parsed = json.loads(raw) if raw else {}
+                return {"success": True, "provider": "resend", "response": parsed}
+            return {
+                "success": False,
+                "error_code": "TEAM_EMAIL_NOT_CONFIGURED",
+                "error": "正式邀请邮件通道未配置，请设置 TEAM_INVITE_EMAIL_WEBHOOK_URL 或 RESEND_API_KEY + TEAM_INVITE_FROM_EMAIL。",
+            }
+        except HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace") if hasattr(exc, "read") else str(exc)
+            return {"success": False, "error_code": "TEAM_EMAIL_DELIVERY_FAILED", "error": detail or str(exc)}
+        except URLError as exc:
+            return {"success": False, "error_code": "TEAM_EMAIL_DELIVERY_FAILED", "error": str(exc)}
+        except Exception as exc:
+            return {"success": False, "error_code": "TEAM_EMAIL_DELIVERY_FAILED", "error": str(exc)}
+
+    def _run_team_batch_job(self, job_id: str, team_id: str, files: list[dict], categories: list[str]) -> None:
+        started = self._now_iso()
+        self._update_team_batch_job(job_id, status="running", summary=f"正在批量检查 {len(files)} 份文档", started_at=started)
+        self._record_team_activity(
+            team_id,
+            "batch_qa_started",
+            status="running",
+            summary=f"开始批量检查 {len(files)} 份文档",
+            payload={"job_id": job_id, "file_count": len(files)},
+            batch_job_id=job_id,
+        )
+        try:
+            results = []
+            for item in files:
+                content = (item or {}).get("content", "")
+                name = (item or {}).get("name") or "untitled"
+                elements = (item or {}).get("elements")
+                result = self.runQA(
+                    content,
+                    json.dumps(categories or ["typo", "consistency", "logic", "format", "crossref"], ensure_ascii=False),
+                    elements_json=json.dumps(elements, ensure_ascii=False) if elements is not None else None,
+                )
+                results.append({
+                    "name": name,
+                    "result": json.loads(result) if isinstance(result, str) else result,
+                })
+            issues = 0
+            for item in results:
+                issues += len((item.get("result") or {}).get("issues") or [])
+            finished = self._now_iso()
+            self._update_team_batch_job(
+                job_id,
+                status="completed",
+                finished_at=finished,
+                summary=f"批量检查完成，共 {len(results)} 份文档，发现 {issues} 条问题",
+                result_payload={"results": results, "count": len(results), "issues": issues},
+            )
+            self._record_team_activity(
+                team_id,
+                "batch_qa_completed",
+                status="completed",
+                summary=f"批量检查完成，共 {len(results)} 份文档，发现 {issues} 条问题",
+                payload={"job_id": job_id, "count": len(results), "issues": issues},
+                batch_job_id=job_id,
+            )
+        except Exception as exc:
+            finished = self._now_iso()
+            self._update_team_batch_job(
+                job_id,
+                status="failed",
+                finished_at=finished,
+                summary=f"批量检查失败：{exc}",
+                result_payload={"error": str(exc)},
+            )
+            self._record_team_activity(
+                team_id,
+                "batch_qa_failed",
+                status="failed",
+                summary=f"批量检查失败：{exc}",
+                payload={"job_id": job_id, "error": str(exc)},
+                batch_job_id=job_id,
+            )
 
     def sync_session_from_access_token(self, access_token: str | None) -> None:
         if not access_token:
@@ -486,6 +755,7 @@ class Api:
                     return self._deny_json(gate)
             if self._supabase and uid:
                 workspace = self._supabase.get_user_team_workspace(uid)
+                workspace.setdefault("plan", self._current_entitlements())
                 return json.dumps({"success": True, **workspace}, ensure_ascii=False)
 
             team_id = self._current_team_id()
@@ -565,7 +835,17 @@ class Api:
             if self._supabase and uid:
                 result = self._supabase.add_team_member_by_email(uid, team_id, normalized_email, member_role)
                 if result.get("success"):
+                    self._record_team_activity(
+                        team_id,
+                        "team_invite_created",
+                        status="pending",
+                        summary=f"已创建待接受邀请：{normalized_email}",
+                        payload={"role": member_role},
+                        target_email=normalized_email,
+                        target_user_id=(result.get("added_member") or {}).get("user_id"),
+                    )
                     workspace = self._supabase.get_user_team_workspace(uid)
+                    workspace.setdefault("plan", self._current_entitlements())
                     return json.dumps({"success": True, "added_member": result.get("added_member"), **workspace}, ensure_ascii=False)
                 return json.dumps(result, ensure_ascii=False)
 
@@ -595,6 +875,15 @@ class Api:
                 "accepted_at": None,
             }
             members.append(member)
+            self._record_team_activity(
+                team_id,
+                "team_invite_created",
+                status="pending",
+                summary=f"已创建待接受邀请：{normalized_email}",
+                payload={"role": member_role},
+                target_email=normalized_email,
+                target_user_id=user["id"],
+            )
             return json.dumps({
                 "success": True,
                 "added_member": member,
@@ -615,6 +904,14 @@ class Api:
                 if result.get("success"):
                     self._session.setdefault("user_info", {})["team_id"] = normalized_team_id
                     self._session["user_info"]["plan_tier"] = "team"
+                    result["plan"] = self._current_entitlements()
+                    self._record_team_activity(
+                        normalized_team_id,
+                        "team_invite_accepted",
+                        status="completed",
+                        summary="成员已接受团队邀请",
+                        target_user_id=uid,
+                    )
                 return json.dumps(result, ensure_ascii=False)
 
             team = self._local_teams.get(normalized_team_id)
@@ -634,6 +931,13 @@ class Api:
             user_info["plan_tier"] = "team"
             payload = self._team_workspace_payload(team, members, self._local_team_rules.get(normalized_team_id))
             payload["invitations"] = self._local_pending_team_invitations(uid)
+            self._record_team_activity(
+                normalized_team_id,
+                "team_invite_accepted",
+                status="completed",
+                summary="成员已接受团队邀请",
+                target_user_id=uid,
+            )
             return json.dumps({"success": True, **payload}, ensure_ascii=False)
         except Exception as exc:
             return json.dumps({"success": False, "error": str(exc)}, ensure_ascii=False)
@@ -651,7 +955,15 @@ class Api:
             if self._supabase and uid:
                 result = self._supabase.cancel_team_invite(uid, normalized_team_id, normalized_email)
                 if result.get("success"):
+                    self._record_team_activity(
+                        normalized_team_id,
+                        "team_invite_canceled",
+                        status="completed",
+                        summary=f"已撤销邀请：{normalized_email}",
+                        target_email=normalized_email,
+                    )
                     workspace = self._supabase.get_user_team_workspace(uid)
+                    workspace.setdefault("plan", self._current_entitlements())
                     return json.dumps({"success": True, **workspace}, ensure_ascii=False)
                 return json.dumps(result, ensure_ascii=False)
 
@@ -671,10 +983,109 @@ class Api:
                 return json.dumps({"success": False, "error": "Pending invite was not found.", "error_code": "TEAM_INVITE_NOT_FOUND"}, ensure_ascii=False)
 
             members.pop(pending_index)
+            self._record_team_activity(
+                normalized_team_id,
+                "team_invite_canceled",
+                status="completed",
+                summary=f"已撤销邀请：{normalized_email}",
+                target_email=normalized_email,
+            )
             return json.dumps({
                 "success": True,
                 **self._team_workspace_payload(team, members, self._local_team_rules.get(normalized_team_id)),
             }, ensure_ascii=False)
+        except Exception as exc:
+            return json.dumps({"success": False, "error": str(exc)}, ensure_ascii=False)
+
+    def sendTeamInviteEmail(self, team_id: str, email: str, role: str = "member") -> str:
+        try:
+            gate = self._check_feature_gate("team_rule_share")
+            if not gate.get("allowed"):
+                return self._deny_json(gate)
+
+            normalized_team_id = str(team_id or "").strip()
+            normalized_email = str(email or "").strip().lower()
+            if not normalized_team_id:
+                return json.dumps({"success": False, "error": "团队不存在", "error_code": "TEAM_NOT_FOUND"}, ensure_ascii=False)
+            if not normalized_email:
+                return json.dumps({"success": False, "error": "成员邮箱不能为空", "error_code": "MEMBER_EMAIL_REQUIRED"}, ensure_ascii=False)
+
+            if self._supabase:
+                workspace = self._supabase.get_team_workspace_by_id(normalized_team_id)
+            else:
+                team = self._local_teams.get(normalized_team_id)
+                workspace = self._team_workspace_payload(team, team.get("members") if team else [], self._local_team_rules.get(normalized_team_id)) if team else {}
+            team = (workspace or {}).get("team") or {}
+            members = (workspace or {}).get("members") or []
+            if not team:
+                return json.dumps({"success": False, "error": "团队不存在", "error_code": "TEAM_NOT_FOUND"}, ensure_ascii=False)
+            pending = next((
+                member for member in members
+                if member.get("status") == "pending"
+                and str(member.get("invite_email") or member.get("email") or "").strip().lower() == normalized_email
+            ), None)
+            if not pending:
+                return json.dumps({"success": False, "error": "待发送的邀请不存在", "error_code": "TEAM_INVITE_NOT_FOUND"}, ensure_ascii=False)
+
+            payload = self._build_team_invite_email_payload(team, normalized_email, role or pending.get("role") or "member")
+            delivery = self._deliver_team_invite_email(normalized_email, payload)
+            activity_status = "completed" if delivery.get("success") else "failed"
+            self._record_team_activity(
+                normalized_team_id,
+                "team_invite_email_sent",
+                status=activity_status,
+                summary=(
+                    f"正式邀请邮件已发送：{normalized_email}"
+                    if delivery.get("success")
+                    else f"正式邀请邮件发送失败：{normalized_email}"
+                ),
+                payload={"provider": delivery.get("provider"), "error": delivery.get("error")},
+                target_email=normalized_email,
+                target_user_id=pending.get("user_id"),
+            )
+            if delivery.get("success"):
+                refreshed = self.getTeamWorkspace()
+                data = json.loads(refreshed) if isinstance(refreshed, str) else refreshed
+                return json.dumps({
+                    "success": True,
+                    "delivery": delivery,
+                    **(data or {}),
+                }, ensure_ascii=False)
+            return json.dumps({"success": False, **delivery}, ensure_ascii=False)
+        except Exception as exc:
+            return json.dumps({"success": False, "error": str(exc)}, ensure_ascii=False)
+
+    def startTeamBatchQA(self, files_json: str, categories_str: str = '["typo", "consistency", "logic", "format", "crossref"]') -> str:
+        try:
+            gate = self._check_feature_gate("batch_check")
+            if not gate.get("allowed"):
+                return self._deny_json(gate)
+            team_id = self._current_team_id()
+            if not team_id:
+                return self._deny_json(self._team_gate("TEAM_REQUIRED", "当前账号尚未加入团队，无法创建批量任务。"))
+            files = json.loads(files_json) if isinstance(files_json, str) else (files_json or [])
+            categories = json.loads(categories_str) if isinstance(categories_str, str) else (categories_str or [])
+            if not files:
+                return json.dumps({"success": False, "error": "当前没有可批量检查的文档", "error_code": "EMPTY_BATCH_FILES"}, ensure_ascii=False)
+            job = self._create_team_batch_job(team_id, files, categories)
+            worker = threading.Thread(
+                target=self._run_team_batch_job,
+                args=(job["id"], team_id, files, categories),
+                daemon=True,
+            )
+            worker.start()
+            return json.dumps({"success": True, "job": job, "jobs": self._list_team_batch_jobs(team_id, limit=20)}, ensure_ascii=False)
+        except Exception as exc:
+            return json.dumps({"success": False, "error": str(exc)}, ensure_ascii=False)
+
+    def getTeamBatchJobs(self) -> str:
+        try:
+            gate = self._check_feature_gate("batch_check")
+            if not gate.get("allowed"):
+                return self._deny_json(gate)
+            team_id = self._current_team_id()
+            jobs = self._list_team_batch_jobs(team_id, limit=20) if team_id else []
+            return json.dumps({"success": True, "jobs": jobs, "team_id": team_id}, ensure_ascii=False)
         except Exception as exc:
             return json.dumps({"success": False, "error": str(exc)}, ensure_ascii=False)
 
