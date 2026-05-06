@@ -35,6 +35,38 @@ function Invoke-TestCommand {
 
 Set-Location -LiteralPath $repoRoot
 
+$protectedPathPatterns = @(
+    "docs/BUSINESS.md",
+    "docs/Key_URL_密码备忘清单.md",
+    "config.yaml",
+    ".env",
+    ".env.*"
+)
+
+function Convert-ToRepoRelativePath {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    return ($Path -replace "\\", "/").Trim()
+}
+
+function Test-IsProtectedPath {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    $normalized = Convert-ToRepoRelativePath -Path $Path
+    foreach ($pattern in $protectedPathPatterns) {
+        if ($normalized -like $pattern) {
+            return $true
+        }
+    }
+    return $false
+}
+
 $statusLines = git status --short
 if ($LASTEXITCODE -ne 0) {
     throw "git status --short failed with exit code $LASTEXITCODE"
@@ -54,6 +86,26 @@ if (-not $SkipTests) {
 }
 
 Invoke-Git add -A
+
+$stagedFiles = git diff --cached --name-only
+if ($LASTEXITCODE -ne 0) {
+    throw "git diff --cached --name-only failed with exit code $LASTEXITCODE"
+}
+
+$protectedFiles = @()
+foreach ($file in $stagedFiles) {
+    if (Test-IsProtectedPath -Path $file) {
+        $protectedFiles += $file
+    }
+}
+
+if ($protectedFiles.Count -gt 0) {
+    Write-Host "[checkpoint] Unstaging protected files:"
+    foreach ($file in $protectedFiles) {
+        Write-Host "  - $file"
+        Invoke-Git restore --staged -- $file
+    }
+}
 
 $stagedStatus = git diff --cached --name-only
 if ($LASTEXITCODE -ne 0) {

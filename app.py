@@ -1195,17 +1195,37 @@ class Api:
     # ------------------------------------------------------------------
 
     _FORMAT_RULES_FILE = os.path.join(os.path.dirname(__file__), "web", "format_rules.json")
+    _TRUSTED_FORMAT_RULE_SOURCES = {"manual", "team_manual", "ai_reviewed"}
+
+    @classmethod
+    def _normalize_format_rules(cls, rules: dict | None, default_source: str | None = None) -> dict | None:
+        if not isinstance(rules, dict):
+            return None
+        normalized = dict(rules)
+        if normalized.get("savedByUser") is True and default_source and not normalized.get("saveSource"):
+            normalized["saveSource"] = default_source
+        return normalized
+
+    @classmethod
+    def _is_trusted_format_rules(cls, rules: dict | None) -> bool:
+        if not isinstance(rules, dict):
+            return False
+        source = str(rules.get("saveSource") or "").strip().lower()
+        return bool(rules.get("savedByUser") is True and source in cls._TRUSTED_FORMAT_RULE_SOURCES)
 
     def saveFormatRequirements(self, rules_json: str, scope: str = "personal") -> str:
         """Save user format rules — Supabase primary, local JSON fallback."""
         try:
             rules = json.loads(rules_json) if isinstance(rules_json, str) else rules_json
-            if isinstance(rules, dict):
-                rules["savedByUser"] = True
 
             scope = str(scope or "personal").strip().lower()
             if scope not in {"personal", "team"}:
                 scope = "personal"
+            default_source = "team_manual" if scope == "team" else "manual"
+            rules = self._normalize_format_rules(rules, default_source=default_source)
+            if isinstance(rules, dict):
+                rules["savedByUser"] = True
+                rules["saveSource"] = str(rules.get("saveSource") or default_source).strip().lower()
             gate_feature = "team_rule_share" if scope == "team" else "personal_rule_library"
             gate = self._check_feature_gate(gate_feature)
             if not gate.get("allowed"):
@@ -1267,16 +1287,18 @@ class Api:
                 uid = self._session.get("user_id") if self._session else None
                 if self._supabase and uid:
                     result = self._supabase.get_team_format_rules(team_id)
+                    team_rules = self._normalize_format_rules(result.get("rules"))
                     return json.dumps({
                         "success": True,
-                        "rules": result.get("rules"),
+                        "rules": team_rules if self._is_trusted_format_rules(team_rules) else None,
                         "storage": result.get("storage", "supabase"),
                         "scope": "team",
                         "team_id": team_id,
                     }, ensure_ascii=False)
+                local_rules = self._normalize_format_rules(self._local_team_rules.get(team_id))
                 return json.dumps({
                     "success": True,
-                    "rules": self._local_team_rules.get(team_id),
+                    "rules": local_rules if self._is_trusted_format_rules(local_rules) else None,
                     "storage": "local",
                     "scope": "team",
                     "team_id": team_id,
@@ -1295,11 +1317,12 @@ class Api:
                         .execute()
                     )
                     if res.data:
-                        rules = res.data[0]["rules_json"]
-                        # 同步到本地缓存
-                        with open(self._FORMAT_RULES_FILE, "w", encoding="utf-8") as f:
-                            json.dump(rules, f, ensure_ascii=False, indent=2)
-                        return json.dumps({"success": True, "rules": rules,
+                        rules = self._normalize_format_rules(res.data[0]["rules_json"])
+                        trusted_rules = rules if self._is_trusted_format_rules(rules) else None
+                        if trusted_rules:
+                            with open(self._FORMAT_RULES_FILE, "w", encoding="utf-8") as f:
+                                json.dump(trusted_rules, f, ensure_ascii=False, indent=2)
+                        return json.dumps({"success": True, "rules": trusted_rules,
                                            "storage": "supabase", "scope": "personal"}, ensure_ascii=False)
                 except Exception as sb_err:
                     print(f"[FormatRules] Supabase load failed, falling back to local: {sb_err}")
@@ -1307,8 +1330,8 @@ class Api:
             # ── 本地 JSON 兜底 ──
             if os.path.exists(self._FORMAT_RULES_FILE):
                 with open(self._FORMAT_RULES_FILE, "r", encoding="utf-8") as f:
-                    rules = json.load(f)
-                return json.dumps({"success": True, "rules": rules,
+                    rules = self._normalize_format_rules(json.load(f))
+                return json.dumps({"success": True, "rules": rules if self._is_trusted_format_rules(rules) else None,
                                    "storage": "local", "scope": "personal"}, ensure_ascii=False)
             return json.dumps({"success": True, "rules": None, "scope": "personal"}, ensure_ascii=False)
         except Exception as exc:
@@ -1345,7 +1368,7 @@ class Api:
     # ------------------------------------------------------------------
 
     def runQA(self, content: str, categories_str: str = '["typo", "consistency", "logic", "format", "crossref"]',
-              elements_json: str = None) -> str:
+              elements_json: str = None, format_rules_json: str = None) -> str:
         try:
             from core.entitlements import check_quota_available
             gate = check_quota_available(self._current_entitlements(), "rule_check")
@@ -1454,17 +1477,28 @@ class Api:
 
             categories = json.loads(categories_str) if isinstance(categories_str, str) else categories_str
 
-            # 加载已保存的格式规范（如有）传给引擎
+            # 优先使用前端显式透传的受信规则；缺失时再回退到本地已保存规则。
             format_rules = None
-            if "format" in categories and os.path.exists(self._FORMAT_RULES_FILE):
+            if "format" in categories:
                 try:
                     from core.format_checker import FormatRules
-                    with open(self._FORMAT_RULES_FILE, "r", encoding="utf-8") as _f:
-                        _rules_dict = json.load(_f)
-                    if isinstance(_rules_dict, str):
-                        _rules_dict = json.loads(_rules_dict)
-                    if not isinstance(_rules_dict, dict) or not _rules_dict.get("savedByUser"):
-                        _rules_dict = None
+
+                    _rules_dict = None
+                    if format_rules_json is not None:
+                        _rules_dict = json.loads(format_rules_json) if isinstance(format_rules_json, str) else format_rules_json
+                        _rules_dict = self._normalize_format_rules(_rules_dict)
+                        if not self._is_trusted_format_rules(_rules_dict):
+                            _rules_dict = None
+
+                    if _rules_dict is None and os.path.exists(self._FORMAT_RULES_FILE):
+                        with open(self._FORMAT_RULES_FILE, "r", encoding="utf-8") as _f:
+                            _rules_dict = json.load(_f)
+                        if isinstance(_rules_dict, str):
+                            _rules_dict = json.loads(_rules_dict)
+                        _rules_dict = self._normalize_format_rules(_rules_dict)
+                        if not self._is_trusted_format_rules(_rules_dict):
+                            _rules_dict = None
+
                     _fr = FormatRules.from_dict(_rules_dict) if _rules_dict else None
                     if _fr and not _fr.is_empty():
                         format_rules = _fr

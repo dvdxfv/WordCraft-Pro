@@ -229,6 +229,38 @@ class TestHeadingByContent:
         out = classify_dicts(elems)
         assert out[0]["metadata"]["structure_role"] == "heading"
 
+    def test_heading_level_for_numbered_plain_paragraphs(self):
+        elems = [
+            _mk_dict("1.关键环境因子及其对南海鸢乌贼分布的影响", size_pt=14.0, style="Normal", bold=True),
+            _mk_dict("1.2海面高度异常（SSHA）和混合层深度（MLD）", size_pt=12.0, style="Normal", bold=True),
+            _mk_dict("2.2.1广义相加模型（GAMs）", size_pt=12.0, style="Normal", bold=True),
+        ]
+        out = classify_dicts(elems)
+        assert out[0]["metadata"]["structure_role"] == "heading"
+        assert out[0]["metadata"]["heading_level"] == 2
+        assert out[0]["metadata"]["section_kind"] == "heading_2"
+        assert out[1]["metadata"]["heading_level"] == 3
+        assert out[1]["metadata"]["section_kind"] == "heading_3"
+        assert out[2]["metadata"]["heading_level"] == 4
+        assert out[2]["metadata"]["section_kind"] == "heading_4"
+
+    def test_named_headings_have_section_kind(self):
+        elems = [
+            _mk_dict("摘要", type_="h1", size_pt=16.0, style="heading 1"),
+            _mk_dict("Abstract", size_pt=14.0, style="Normal", bold=True),
+            _mk_dict("目录", type_="h1", size_pt=16.0, style="heading 1"),
+            _mk_dict("参考文献", type_="h1", size_pt=16.0, style="heading 1"),
+        ]
+        out = classify_dicts(elems)
+        assert out[0]["metadata"]["section_kind"] == "abstract_heading_zh"
+        assert out[0]["metadata"]["heading_level"] == 1
+        assert out[1]["metadata"]["section_kind"] == "abstract_heading_en"
+        assert out[1]["metadata"]["heading_level"] == 1
+        assert out[2]["metadata"]["section_kind"] == "toc_heading"
+        assert out[2]["metadata"]["heading_level"] == 1
+        assert out[3]["metadata"]["section_kind"] == "references_heading"
+        assert out[3]["metadata"]["heading_level"] == 1
+
 
 # ============================================================
 # 参考文献 / 题注
@@ -258,6 +290,8 @@ class TestReferenceAndCaption:
         assert out[1]["metadata"]["structure_role"] == "heading"
         assert out[2]["metadata"]["structure_role"] == "reference"
         assert out[3]["metadata"]["structure_role"] == "reference"
+        assert out[2]["metadata"]["section_kind"] == "reference_item"
+        assert out[3]["metadata"]["section_kind"] == "reference_item"
 
     def test_reference_section_does_not_swallow_appendix(self):
         # 参考文献后跟"附录" → 退出 ref_section
@@ -271,6 +305,11 @@ class TestReferenceAndCaption:
         assert out[1]["metadata"]["structure_role"] == "reference"
         # 附录段落不应被当成参考文献条目
         assert out[3]["metadata"]["structure_role"] != "reference"
+
+    def test_keywords_line_gets_keywords_section_kind(self):
+        elems = [_mk_dict("关键词：南海鸢乌贼；捕捞量反演；遥感")]
+        out = classify_dicts(elems)
+        assert out[0]["metadata"]["section_kind"] == "keywords"
 
 
 # ============================================================

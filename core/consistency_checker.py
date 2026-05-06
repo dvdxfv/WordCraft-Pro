@@ -266,7 +266,7 @@ class ConsistencyChecker:
                 
                 # 检查别名
                 for alias in aliases:
-                    if alias in text:
+                    if self._contains_term_alias(text, alias):
                         found_terms[standard_term].append((idx, alias))
         
         # 检查同一术语的不同表达
@@ -296,6 +296,15 @@ class ConsistencyChecker:
                                 confidence=0.6,
                             )
                             report.add_issue(issue)
+
+    @staticmethod
+    def _contains_term_alias(text: str, alias: str) -> bool:
+        if not text or not alias:
+            return False
+        if re.search(r"[\u4e00-\u9fff]", alias):
+            return alias in text
+        pattern = rf"(?<![A-Za-z0-9]){re.escape(alias)}(?![A-Za-z0-9])"
+        return re.search(pattern, text, flags=re.IGNORECASE) is not None
 
     def _check_units(self, doc: DocumentModel, report: QAReport):
         """检查计量单位一致性

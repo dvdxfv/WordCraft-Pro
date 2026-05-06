@@ -27,7 +27,7 @@ ARTIFACT_ROOT = ROOT / "tests" / "artifacts"
 NO_PROXY_OPENER = build_opener(ProxyHandler({}))
 
 BACKEND_HEALTH_URL = "http://127.0.0.1:5000/api/getSystemInfo"
-FRONTEND_LOGIN_URL = "http://127.0.0.1:8081/login.html"
+FRONTEND_LOGIN_URL = "http://127.0.0.1:8081/wordcraft_landing.html"
 FRONTEND_INDEX_URL = "http://127.0.0.1:8081/index.html"
 _SAMPLE_CANDIDATES = (
     ROOT / "samples" / "南海鸢乌贼捕捞量智能反演文献综述.docx",

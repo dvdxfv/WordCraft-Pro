@@ -88,6 +88,50 @@ class TestBatch1RunQAChain:
             assert "start_pos" in issue
             assert "end_pos" in issue
 
+    def test_runqa_ignores_legacy_untrusted_format_rules_cache(self):
+        from app import Api
+        api = Api(supabase_enabled=False)
+        api._qa_health = {"ready": True, "missing": [], "capabilities": {}}
+        api._qa_runtime_config = {}
+        with open(api._FORMAT_RULES_FILE, "w", encoding="utf-8") as f:
+            json.dump({"savedByUser": True, "h1Font": "??"}, f, ensure_ascii=False)
+        data = json.loads(api.runQA("<h1>??</h1><p>??</p>"))
+        assert data["success"] is True
+        assert not any(i.get("checker") == "format_checker" for i in data["issues"])
+
+    def test_runqa_uses_explicit_trusted_format_rules_when_backend_file_missing(self):
+        from app import Api
+
+        api = Api(supabase_enabled=False)
+        api._qa_health = {"ready": True, "missing": [], "capabilities": {}}
+        api._qa_runtime_config = {}
+
+        if os.path.exists(api._FORMAT_RULES_FILE):
+            os.remove(api._FORMAT_RULES_FILE)
+
+        elements = [{
+            "type": "p",
+            "text": "????",
+            "runs": [{"text": "????", "font_name": "??", "font_eastAsia": "??", "font_size_pt": 14}],
+        }]
+        rules = {
+            "savedByUser": True,
+            "saveSource": "manual",
+            "bFont": "??GB2312",
+            "bSize": 12,
+        }
+
+        data = json.loads(api.runQA(
+            "<p>????</p>",
+            elements_json=json.dumps(elements, ensure_ascii=False),
+            format_rules_json=json.dumps(rules, ensure_ascii=False),
+        ))
+
+        assert data["success"] is True
+        rule_ids = {issue.get("rule_id") for issue in data["issues"]}
+        assert "format_font_paragraph_0" in rule_ids
+        assert "format_size_paragraph_0" in rule_ids
+
     def test_runqa_html_content_not_empty_check(self):
         """传入 HTML 内容时 runQA 必须解析出 elements 并执行检查（曾因未解析 HTML 始终返回 0 条）"""
         from app import Api
@@ -162,6 +206,18 @@ class TestBatch3PunctuationChecker:
 # ──────────────────────────────────────────────────────────────────────────────
 # 第八批：交叉引用参考文献扫描
 # ──────────────────────────────────────────────────────────────────────────────
+
+class TestBatch3ConsistencyTermAlias:
+    def test_mld_does_not_trigger_ml_alias_issue(self):
+        engine = QAEngine()
+        doc = _build_doc(
+            "Machine learning methods improve habitat modeling.",
+            "SSHA and MLD jointly affect habitat distribution.",
+        )
+        report = engine.check(doc, ["consistency"])
+        alias_issues = [i for i in report.issues if i.rule_id == "consistency.term_alias"]
+        assert len(alias_issues) == 0, "MLD should not be treated as the ML alias"
+
 
 class TestBatch8CrossRefReferenceScan:
     """第八批：TargetScanner 识别参考文献节中的 [1]-[N] 目标"""

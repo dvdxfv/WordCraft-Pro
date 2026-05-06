@@ -63,7 +63,7 @@ _TOC_TAB_PAGE_RE = re.compile(r"\t+\d+\s*$")
 
 # 章节级标题（无 Word 样式时仅靠正文文本识别）
 _CHAPTER_RE = re.compile(r"^第\s*[一二三四五六七八九十百零〇\d]+\s*[章节篇部回卷]")
-_NUMBERED_RE = re.compile(r"^\d+(?:\.\d+){0,3}\s*[\.、]?\s+\S")
+_NUMBERED_RE = re.compile(r"^\d+(?:\.\d+){0,3}(?:[\.?])?\s*\S")
 _CHINESE_NUM_RE = re.compile(r"^[一二三四五六七八九十]+\s*[、．\.]\s*\S")
 _SECTION_NAME_RE = re.compile(
     r"^(摘\s*要|abstract|引\s*言|绪\s*论|结\s*论|参考文献|references?|bibliography|"
@@ -91,6 +91,14 @@ _REF_STYLE_TOKENS = ("bibliography", "参考", "reference")
 
 # 默认 cover 区域上限：在没有 section break 信号时，最多扫描前 N 个段落寻找封面候选
 _COVER_MAX_INDEX = 8
+
+_HEADING_DECIMAL_RE = re.compile(r"^(\d+(?:\.\d+){0,3})[\.\u3001]?\s*\S")
+_HEADING_NAMED_LEVEL1_RE = re.compile(
+    r"^(\u6458\s*\u8981|abstract|\u5f15\s*\u8a00|\u7eea\s*\u8bba|\u524d\s*\u8a00|\u7ed3\s*\u8bba|"
+    r"\u53c2\u8003\u6587\u732e|references?|bibliography|\u76ee\s*\u5f55|contents?)\s*$",
+    re.IGNORECASE,
+)
+_KEYWORDS_RE = re.compile(r"^(\u5173\u952e\u8bcd|keywords?)\s*[:\uff1a]", re.IGNORECASE)
 
 
 @dataclass
@@ -409,17 +417,92 @@ def _compose_metadata(role: str, confidence: float, reason: str) -> dict:
     }
 
 
+def _infer_heading_level(view: _ElementView, role: str) -> Optional[int]:
+    """为 role=heading 的元素推断层级；目录/封面/正文返回 None。"""
+    if role != "heading":
+        return None
+
+    if view.type_hint == "h1":
+        return 1
+    if view.type_hint == "h2":
+        return 2
+    if view.type_hint == "h3":
+        return 3
+
+    text = view.text.strip()
+    if not text:
+        return None
+
+    if _HEADING_NAMED_LEVEL1_RE.match(text) or _CHAPTER_RE.match(text) or _CHINESE_NUM_RE.match(text):
+        return 1
+
+    m = _HEADING_DECIMAL_RE.match(text)
+    if m:
+        token = m.group(1)
+        return token.count(".") + 2
+
+    return None
+
+
+def _infer_section_kind(view: _ElementView, role: str) -> Optional[str]:
+    """补充更细的结构类型，供前端/QA 消费。"""
+    text = view.text.strip()
+    if not text:
+        return None
+
+    lower = text.lower()
+    compact = re.sub(r"\s+", "", lower)
+
+    if role == "toc":
+        return "toc_entry"
+    if role == "reference":
+        return "reference_item"
+    if role == "caption":
+        return "caption"
+    if role == "cover":
+        return "cover"
+
+    if compact in ("目录", "contents", "tableofcontents"):
+        return "toc_heading"
+    if compact == "摘要":
+        return "abstract_heading_zh"
+    if compact == "abstract":
+        return "abstract_heading_en"
+    if compact in ("参考文献", "references", "reference", "bibliography"):
+        return "references_heading"
+    if _KEYWORDS_RE.match(text):
+        return "keywords"
+
+    if role == "heading":
+        level = _infer_heading_level(view, role)
+        if level is not None:
+            return f"heading_{level}"
+        return "heading"
+
+    return None
+
+
 def classify_dicts(elems: list[dict]) -> list[dict]:
     """app.py._parse_docx 路径：原地写入 ``el['metadata']``，返回同一列表。"""
     if not elems:
         return elems
     views = [_to_view_from_dict(i, el) for i, el in enumerate(elems)]
     results = _build_views_and_classify(views)
-    for el, (role, conf, reason) in zip(elems, results):
+    for el, view, (role, conf, reason) in zip(elems, views, results):
         meta = el.get("metadata")
         if not isinstance(meta, dict):
             meta = {}
         meta.update(_compose_metadata(role, conf, reason))
+        heading_level = _infer_heading_level(view, role)
+        if heading_level is not None:
+            meta["heading_level"] = heading_level
+        else:
+            meta.pop("heading_level", None)
+        section_kind = _infer_section_kind(view, role)
+        if section_kind:
+            meta["section_kind"] = section_kind
+        else:
+            meta.pop("section_kind", None)
         el["metadata"] = meta
     return elems
 
@@ -430,10 +513,20 @@ def classify_elements(elems: list[DocElement]) -> list[DocElement]:
         return elems
     views = [_to_view_from_doc_element(i, e) for i, e in enumerate(elems)]
     results = _build_views_and_classify(views)
-    for elem, (role, conf, reason) in zip(elems, results):
+    for elem, view, (role, conf, reason) in zip(elems, views, results):
         if not isinstance(elem.metadata, dict):
             elem.metadata = {}
         elem.metadata.update(_compose_metadata(role, conf, reason))
+        heading_level = _infer_heading_level(view, role)
+        if heading_level is not None:
+            elem.metadata["heading_level"] = heading_level
+        else:
+            elem.metadata.pop("heading_level", None)
+        section_kind = _infer_section_kind(view, role)
+        if section_kind:
+            elem.metadata["section_kind"] = section_kind
+        else:
+            elem.metadata.pop("section_kind", None)
     return elems
 
 

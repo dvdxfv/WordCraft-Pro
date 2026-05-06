@@ -18,6 +18,15 @@ powershell -ExecutionPolicy Bypass -File .\scripts\git-checkpoint.ps1 "WIP: admi
 powershell -ExecutionPolicy Bypass -File .\scripts\git-checkpoint.ps1 "WIP: partial refactor" -SkipTests
 ```
 
+`git-checkpoint.ps1` 会自动把以下敏感文件从暂存区移除（即使执行了 `git add -A`）：
+
+- `docs/BUSINESS.md`（商业计划）
+- `docs/Key_URL_密码备忘清单.md`
+- `config.yaml`
+- `.env` / `.env.*`
+
+如果命中，会在终端打印 `[checkpoint] Unstaging protected files:` 列表，确保这些文件不会被本次 checkpoint 提交带上。
+
 ### 2. 暂存当前开发现场
 
 会把已跟踪和未跟踪文件一起 `stash`，方便你临时切任务。

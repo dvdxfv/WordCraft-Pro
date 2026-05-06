@@ -49,7 +49,14 @@
     async applyFormat(content, rules) { return this._request('applyFormat', { content, rules }); },
     async acceptSuggestion(content, issue_id, original_text, suggested_text) { return this._request('acceptSuggestion', { content, issue_id, original_text, suggested_text }); },
     async runXRef(content, fieldedRefs, elements) { return this._request('runXRef', { content, fielded_refs: fieldedRefs||[], elements: elements||null }); },
-    async runQA(content, categories, elements) { return this._request('runQA', { content, categories, elements: elements||null }); },
+    async runQA(content, categories, elements, formatRules) {
+      return this._request('runQA', {
+        content,
+        categories,
+        elements: elements||null,
+        format_rules: formatRules||null,
+      });
+    },
     async callAI(system_prompt, user_message, config) { return this._request('callAI', { system_prompt, user_message, config }); },
     async openFile(file_content, file_name) { return this._request('openFile', { file_content, file_name }); },
     async saveFile(content, file_name) { return this._request('saveFile', { content, file_name }); },
@@ -1449,8 +1456,14 @@ const tabAcceptedEdits={}; // per-tab accepted edits [{original,suggestion,issue
 const tabXrefAcceptedEdits={}; // per-tab xref adopted refs [{target_label,bookmark_name,element_index}] for REF field export
 let _currentXrefIssues=[]; // active tab's xref adoption issues
 let _savedFormatRules=null; // user-saved format requirements for QA compliance checking
+const _TRUSTED_FORMAT_RULE_SOURCES=new Set(['manual','team_manual','ai_reviewed']);
 function _isUserSavedFormatRules(rules){
-  return !!(rules && typeof rules==='object' && rules.savedByUser===true);
+  const source=String(rules?.saveSource||'').trim().toLowerCase();
+  return !!(rules && typeof rules==='object' && rules.savedByUser===true && _TRUSTED_FORMAT_RULE_SOURCES.has(source));
+}
+function _clearSavedFormatRulesCache(){
+  _savedFormatRules=null;
+  try{localStorage.removeItem('wc_format_rules');}catch(e){}
 }
 function _isExcludedFromQABodyElement(el){
   if(!el||typeof el!=='object')return false;
@@ -1471,6 +1484,7 @@ try{
   if(_sfr){
     const parsed=JSON.parse(_sfr);
     if(_isUserSavedFormatRules(parsed))_savedFormatRules=parsed;
+    else _clearSavedFormatRulesCache();
   }
 }catch(e){}
 (function(){const h=document.getElementById('formatRulesSavedHint');if(h&&_isUserSavedFormatRules(_savedFormatRules))h.style.display='block';})();
@@ -1563,6 +1577,8 @@ async function loadFormatRequirementsFromBackend(){
         if(_isUserSavedFormatRules(rules)){
           _savedFormatRules=rules;
           try{localStorage.setItem('wc_format_rules',JSON.stringify(rules));}catch(e){}
+        }else{
+          _clearSavedFormatRulesCache();
         }
       }
     }
@@ -1573,6 +1589,7 @@ async function loadFormatRequirementsFromBackend(){
       if(stored){
         const parsed=JSON.parse(stored);
         if(_isUserSavedFormatRules(parsed))_savedFormatRules=parsed;
+        else _clearSavedFormatRulesCache();
       }
     }catch(e2){}
   }
@@ -2131,6 +2148,7 @@ async function saveTeamFormatRequirements(){
 async function _saveFormatRequirementsWithScope(scope){
   const rules=_collectFormatRules();
   rules.savedByUser=true;
+  rules.saveSource=scope==='team'?'team_manual':'manual';
   _savedFormatRules=rules;
   try{localStorage.setItem('wc_format_rules',JSON.stringify(rules));}catch(e){}
   if(scope==='team')_setTeamWorkspaceProgress('正在保存团队规则...',true);
@@ -2574,71 +2592,6 @@ function _getDominantFontSize(runs){
   return ent.length?parseFloat(ent.sort((a,b)=>b[1]-a[1])[0][0]):null;
 }
 
-function _checkFormatCompliance(fn){
-  const rules=_savedFormatRules;
-  if(!_isUserSavedFormatRules(rules))return [];
-  const elements=_collectQAElements(fn);
-  if(!elements||!elements.length)return [];
-  const hasRuns=elements.some(el=>el&&el.runs&&el.runs.length);
-  if(!hasRuns)return [];
-
-  const typeRules={
-    h1:{font:rules.h1Font,size:rules.h1Size,label:'一级标题'},
-    h2:{font:rules.h2Font,size:rules.h2Size,label:'二级标题'},
-    h3:{font:rules.h3Font,size:rules.h3Size,label:'三级标题'},
-    p: {font:rules.bFont, size:rules.bSize, label:'正文段落'},
-  };
-  const issues=[];
-  const fontCounts={},sizeCounts={},totalFontMismatch={};
-  const MAX=2;
-
-  elements.forEach((el,idx)=>{
-    const t=el.type||'p';
-    if(!typeRules[t])return;
-    const rule=typeRules[t];
-    const txt=(el.text||'').slice(0,40).trim();
-    if(!txt)return;
-    const runs=el.runs||[];
-    const aFont=_getDominantEastAsiaFont(runs);
-    const aSize=_getDominantFontSize(runs);
-
-    if(aFont&&rule.font&&aFont!==rule.font){
-      totalFontMismatch[t]=(totalFontMismatch[t]||0)+1;
-      fontCounts[t]=(fontCounts[t]||0);
-      if(fontCounts[t]<MAX){
-        fontCounts[t]++;
-        issues.push({status:'pending',sev:'warn',cat:'格式问题',
-          title:`${rule.label}字体不符规范`,
-          desc:`规范要求 ${rule.font}，实际为 ${aFont}`,
-          suggestion:`将"${txt}"的字体改为 ${rule.font}`,
-          hlText:txt,hlClass:'hl-warn',elementIndex:idx});
-      }
-    }
-    if(aSize&&rule.size&&Math.abs(aSize-rule.size)>0.5){
-      sizeCounts[t]=(sizeCounts[t]||0);
-      if(sizeCounts[t]<MAX){
-        sizeCounts[t]++;
-        issues.push({status:'pending',sev:'warn',cat:'格式问题',
-          title:`${rule.label}字号不符规范`,
-          desc:`规范要求 ${rule.size}pt，实际为 ${aSize}pt`,
-          suggestion:`将"${txt}"的字号改为 ${rule.size}pt`,
-          hlText:txt,hlClass:'hl-warn',elementIndex:idx});
-      }
-    }
-  });
-
-  const totalMm=Object.values(totalFontMismatch).reduce((a,b)=>a+b,0);
-  const shown=Object.values(fontCounts).reduce((a,b)=>a+b,0);
-  if(totalMm>shown){
-    issues.push({status:'pending',sev:'info',cat:'格式问题',
-      title:'文档字体与规范存在大范围差异',
-      desc:`共检测到约 ${totalMm} 处字体不符合已保存的格式规范`,
-      suggestion:'可使用"应用排版规则"按钮一键统一全文格式',
-      hlText:'',hlClass:'hl-info'});
-  }
-  return issues;
-}
-
 async function showSaveTemplateDialog(){
   const name=prompt('请输入模板名称：','我的模板');
   if(!name?.trim())return;
@@ -2924,6 +2877,7 @@ function saveAIFormatRequirements(){
     // 附加说明
     notes: str(r.notes),
     savedByUser: true,
+    saveSource: 'ai_reviewed',
     savedAt: new Date().toISOString(),
   };
   _savedFormatRules=rules;
@@ -2986,7 +2940,8 @@ async function runQA(){
     const categories=['typo','consistency','logic','format','crossref'];
     // 传结构化 elements（含 runs 字体信息），让后端 FormatChecker 能实际检查字体/字号
     const elementsForQA = fn ? (_collectQAElements(fn) || null) : null;
-    const resp=await window.WC_API.runQA(content,categories,elementsForQA);
+    const trustedFormatRules=_isUserSavedFormatRules(_savedFormatRules)?_savedFormatRules:null;
+    const resp=await window.WC_API.runQA(content,categories,elementsForQA,trustedFormatRules);
     if(resp&&resp.success&&Array.isArray(resp.issues)){
       const sevMap={error:'error',warning:'warn',info:'info'};
       const catMap={typo:'错别字',inconsistency:'数据不一致',logic:'逻辑问题',
@@ -3018,19 +2973,14 @@ async function runQA(){
   }finally{
     if(btn){btn.disabled=false;btn.style.opacity='';}
   }
-  // Client-side format compliance check (uses saved format rules + element run data)
-  const fmtIssues=_checkFormatCompliance(fn);
-  if(fmtIssues.length){qaData=qaData.concat(fmtIssues);}
-
   qaData.forEach((q,i)=>{q.id=i;if(!q.status)q.status='pending';});
   window.currentQAData=qaData;
   renderQAIssues(qaData);
   applyHighlights(qaData);
   tabQAState[fn]=qaData;
   switchRightTab('qa');
-  const fmtNote=fmtIssues.length?`（含 ${fmtIssues.length} 个格式规范问题）`:'';
-  setStatus('QA 检查完成：发现 '+qaData.length+' 个问题'+fmtNote);
-  showToast('已标注 '+qaData.length+' 个问题'+fmtNote);
+  setStatus('QA 检查完成，共 '+qaData.length+' 个问题');
+  showToast('已检测出 '+qaData.length+' 个问题');
 }
 function renderQAIssues(qaData){
   document.getElementById('qaTotal').textContent=qaData.length;
