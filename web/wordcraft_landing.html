@@ -1925,8 +1925,8 @@
 
   async function resendConfirmFromLanding() {
     const email = document.getElementById('loginEmail').value.trim();
-    if (!email) {
-      showToast('请先在邮箱框中填入邮箱', true);
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      showToast('请输入有效的邮箱地址', true);
       return;
     }
     showToast('正在重新发送...');
