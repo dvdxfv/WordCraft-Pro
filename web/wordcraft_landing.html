@@ -1886,9 +1886,13 @@
 
     try {
       showToast('正在注册...');
+      const confirmRedirectUrl = window.location.origin + '/confirm.html';
       const { data, error } = await window.supabaseClient.auth.signUp({
         email: email,
         password: password,
+        options: {
+          emailRedirectTo: confirmRedirectUrl,
+        },
       });
 
       if (error) {
