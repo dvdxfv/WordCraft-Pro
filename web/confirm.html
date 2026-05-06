@@ -102,7 +102,96 @@
 </div>
 
 <script>
-  // Logic comes in Task 3
+  const SUPABASE_URL = 'https://nzujajuefdsheggulpze.supabase.co';
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im56dWphanVlZmRzaGVnZ3VscHplIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYyNDY0MDMsImV4cCI6MjA5MTgyMjQwM30.N3jsg3tIi6ezlmp_MvQYvbUo41SzR5kEBECawel5KDE';
+  const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  function showState(name) {
+    ['loading','success','expired','already-verified'].forEach(s => {
+      document.getElementById('state-' + s).classList.add('hidden');
+    });
+    document.getElementById('state-' + name).classList.remove('hidden');
+  }
+
+  function parseHashParams() {
+    const hash = window.location.hash.slice(1);
+    if (!hash) return {};
+    return Object.fromEntries(new URLSearchParams(hash));
+  }
+
+  function formatDateTime(d) {
+    const pad = n => String(n).padStart(2,'0');
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  }
+
+  function formatDateOnly(d) {
+    const pad = n => String(n).padStart(2,'0');
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+  }
+
+  async function handleSuccess(params) {
+    // Set the session so we know who the user is
+    const { data, error } = await supabaseClient.auth.setSession({
+      access_token: params.access_token,
+      refresh_token: params.refresh_token,
+    });
+    const email = data?.user?.email || '';
+    document.getElementById('success-email').textContent = email;
+    document.getElementById('success-time').textContent = formatDateTime(new Date());
+    showState('success');
+    // Sign out to enforce "需要重新登录" flow
+    await supabaseClient.auth.signOut();
+    startRedirectCountdown();
+  }
+
+  function handleExpired(params) {
+    showState('expired');
+  }
+
+  function handleAlreadyVerified() {
+    document.getElementById('verified-date').textContent = formatDateOnly(new Date());
+    showState('already-verified');
+  }
+
+  function startRedirectCountdown() {
+    let n = 3;
+    const el = document.getElementById('redirect-countdown');
+    const tick = () => {
+      el.textContent = n;
+      if (n <= 0) {
+        window.location.href = 'wordcraft_landing.html';
+        return;
+      }
+      n--;
+      setTimeout(tick, 1000);
+    };
+    tick();
+  }
+
+  async function init() {
+    const params = parseHashParams();
+
+    if (params.access_token && params.type === 'signup') {
+      await handleSuccess(params);
+      return;
+    }
+
+    if (params.error_code === 'otp_expired' || params.error === 'access_denied') {
+      // Supabase 对"链接过期"和"已使用过"返回相同 error_code，简化策略：默认按"过期"处理
+      handleExpired(params);
+      return;
+    }
+
+    // 没有任何参数 → 直接打开页面，未通过邮件链接
+    handleExpired({});
+  }
+
+  // Resend handler — implemented in Task 4
+  async function handleResend() {
+    alert('待 Task 4 实现');
+  }
+
+  init();
 </script>
 
 </body>
