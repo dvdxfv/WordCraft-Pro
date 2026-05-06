@@ -190,7 +190,43 @@
 
   // Resend handler — implemented in Task 4
   async function handleResend() {
-    alert('待 Task 4 实现');
+    const input = document.getElementById('resend-email-input');
+    const btn = document.getElementById('resend-btn');
+    const successMsg = document.getElementById('resend-success-msg');
+    const email = input.value.trim();
+
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      successMsg.textContent = '请输入有效的邮箱地址';
+      successMsg.style.color = 'var(--error)';
+      successMsg.classList.remove('hidden');
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = '发送中...';
+    successMsg.classList.add('hidden');
+
+    const confirmRedirectUrl = window.location.origin + '/confirm.html';
+    const { error } = await supabaseClient.auth.resend({
+      type: 'signup',
+      email: email,
+      options: { emailRedirectTo: confirmRedirectUrl },
+    });
+
+    btn.disabled = false;
+
+    if (error) {
+      btn.textContent = '重新发送确认邮件';
+      successMsg.textContent = '发送失败：' + (error.message || '未知错误');
+      successMsg.style.color = 'var(--error)';
+      successMsg.classList.remove('hidden');
+      return;
+    }
+
+    btn.textContent = '已发送 ✓';
+    successMsg.textContent = '已重新发送，请检查邮箱（包括垃圾邮件文件夹）';
+    successMsg.style.color = 'var(--success)';
+    successMsg.classList.remove('hidden');
   }
 
   init();
