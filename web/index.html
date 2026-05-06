@@ -2990,24 +2990,24 @@ function _buildAIParsePrimaryPrompt(){
 - 边距必须在 0.5-10 cm 之间，超出填 null。
 - 字号必须在 5-72 pt 之间，超出填 null。
 - 字体名保留原文（如"方正小标宋简体"、"仿宋GB2312"、"Times New Roman"），不翻译。
-- 仅当文档明确指定才填值，"未指定/不确定"一律填 null。
+- 文档中明确写出或可直接转换的值（如字号名→磅值）必须填入，不要过度保守；只有完全无法从文档推断时才填 null。
 
 只返回 JSON 对象，不加代码块标记，不加任何解释。`;
 }
 function _buildAIParseFallbackPrompt(){
-  return `你是排版规则解析器。请从模板要求文本里提取最明确、最核心的排版字段，并只返回 JSON 对象。
+  return `你是排版规则解析器。从模板要求文本中提取排版参数，只返回 JSON 对象（不要代码块、不要解释）。
 
-中文字号别名对照（必须转换为磅值）：
+字号转换表（中文字号→磅值，必须转换）：
 初号=42 小初=36 一号=26 小一=24 二号=22 小二=18 三号=16 小三=15 四号=14 小四=12 五号=10.5 小五=9 六号=7.5 小六=6.5
 
-如果文本里明确出现，就尽量提取这些字段；不确定则填 null：
+输出字段（能从文本确认的填值，完全没提到的填 null）：
 titleFont, titleSize, titleAlign,
-h1Font, h1Size, h1NumFormat,
-h2Font, h2Size, h2NumFormat,
+h1Font, h1Size, h1Bold, h1NumFormat,
+h2Font, h2Size, h2Bold, h2NumFormat,
 h3Font, h3Size, h3Bold, h3NumFormat,
 h4Font, h4Size, h4NumFormat,
 bodyFont, bodySize, westFont, westSize,
-indent, lineHeight, align,
+indent, lineSpacingMode, lineSpacingValue, align,
 marginTop, marginBottom, marginLeft, marginRight,
 headerFont, headerSize, headerAlign,
 footerFont, footerSize, footerFormat,
@@ -3015,11 +3015,18 @@ tableNameFont, tableNameSize, tableNamePos, tableContentFont, tableContentSize, 
 figNameFont, figNameSize, figNamePos, figNumFormat,
 notes
 
-要求：
-- 优先提取明确写出的规则，不要因为缺少某些字段就把全部字段都填 null。
-- 行距如果读到“1.5倍/单倍/双倍”，写入 lineHeight。
-- 编号格式如果读到“一 / （一） / 1. / （1）”或“1 / 1.1 / 1.1.1 / 1.1.1.1”，写入对应 h1NumFormat-h4NumFormat。
-- 只返回 JSON，不要解释。`;
+提取规则（照做，不要跳过）：
+1. 看到”字体：X”或”X字体”就填对应 font 字段；看到”字号：X号/X磅”就转磅值填对应 size 字段。
+2. 倍数行距（”1.5倍”/”单倍”/”双倍”）→ lineSpacingMode=”multiple”, lineSpacingValue=1.5；固定值行距（”固定值20磅”/”20磅行距”）→ lineSpacingMode=”exact”, lineSpacingValue=20。
+3. 页边距”上X cm”→marginTop=X，”下X cm”→marginBottom=X，”左X cm”→marginLeft=X，”右X cm”→marginRight=X。
+4. 一级标题字体→h1Font，二级→h2Font，三级→h3Font，四级→h4Font；加粗说明→对应 hNBold=true。
+5. 编号体系”一/（一）/1./（1）”→h1NumFormat=”一”、h2NumFormat=”（一）”、h3NumFormat=”1.”、h4NumFormat=”（1）”；
+   数字体系”1/1.1/1.1.1/1.1.1.1”→对应填入。
+6. 主标题/文件标题→titleFont/titleSize；表名→tableNameFont/tableNameSize/tableNamePos；图名→figNameFont/figNameSize/figNamePos。
+7. 输入文本可能是 Markdown 格式（含 ## 标题、- 列表项），要读懂其中的要求描述再提取。
+8. 已提取到的字段绝不填 null；没有明确信息的字段才填 null。
+
+只返回 JSON，不要解释。`;
 }
 function _extractAIParseJson(reply){
   try{return JSON.parse((reply||'').trim());}catch(e0){}
@@ -3038,13 +3045,25 @@ function _sanitizeAIParseRules(o){
   if(!o||typeof o!=='object'||Array.isArray(o))return {};
   if((o.lineSpacingMode==null||o.lineSpacingValue==null)&&o.lineHeight!=null){
     const lh=parseFloat(o.lineHeight);
-    if(isFinite(lh)&&lh>=1.0&&lh<=5.0){
-      o.lineSpacingMode='multiple';
-      o.lineSpacingValue=lh;
+    if(isFinite(lh)){
+      if(lh>=1.0&&lh<=5.0){
+        o.lineSpacingMode='multiple';
+        o.lineSpacingValue=lh;
+      }else if(lh>=6&&lh<=100){
+        o.lineSpacingMode='exact';
+        o.lineSpacingValue=lh;
+      }
     }
   }
   const lh=parseFloat(o.lineHeight);
   if(!isFinite(lh)||lh<1.0||lh>5.0)o.lineHeight=null;
+  if(o.lineSpacingMode==null&&o.lineSpacingValue!=null){
+    const sv=parseFloat(o.lineSpacingValue);
+    if(isFinite(sv)){
+      if(sv>=1.0&&sv<=5.0)o.lineSpacingMode='multiple';
+      else if(sv>=6&&sv<=100)o.lineSpacingMode='exact';
+    }
+  }
   if(o.lineSpacingMode==='multiple'){
     const sv=parseFloat(o.lineSpacingValue);
     if(!isFinite(sv)||sv<1.0||sv>5.0)o.lineSpacingValue=null;
