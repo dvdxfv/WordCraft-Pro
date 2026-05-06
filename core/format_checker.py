@@ -18,9 +18,17 @@ class FormatRules:
     h2Size: float = 0.0
     h3Font: str = ""
     h3Size: float = 0.0
+    h4Font: str = ""
+    h4Size: float = 0.0
     bFont: str = ""
     bSize: float = 0.0
     lineSpacing: float = 0.0
+    lineSpacingMode: str = ""
+    lineSpacingValue: float = 0.0
+    h1NumFormat: str = ""
+    h2NumFormat: str = ""
+    h3NumFormat: str = ""
+    h4NumFormat: str = ""
     savedAt: str = ""
 
     @classmethod
@@ -38,9 +46,17 @@ class FormatRules:
             h2Size=_f(d.get("h2Size")),
             h3Font=d.get("h3Font") or "",
             h3Size=_f(d.get("h3Size")),
+            h4Font=d.get("h4Font") or "",
+            h4Size=_f(d.get("h4Size")),
             bFont=d.get("bFont") or "",
             bSize=_f(d.get("bSize")),
             lineSpacing=_f(d.get("lineSpacing")),
+            lineSpacingMode=d.get("lineSpacingMode") or "",
+            lineSpacingValue=_f(d.get("lineSpacingValue") or d.get("lineSpacing")),
+            h1NumFormat=d.get("h1NumFormat") or "",
+            h2NumFormat=d.get("h2NumFormat") or "",
+            h3NumFormat=d.get("h3NumFormat") or "",
+            h4NumFormat=d.get("h4NumFormat") or "",
             savedAt=d.get("savedAt") or "",
         )
 
@@ -49,6 +65,7 @@ class FormatRules:
             self.h1Font, self.h1Size,
             self.h2Font, self.h2Size,
             self.h3Font, self.h3Size,
+            self.h4Font, self.h4Size,
             self.bFont, self.bSize,
         ])
 
@@ -71,16 +88,15 @@ class FormatChecker:
                 lvl = int(heading_level)
             except (TypeError, ValueError):
                 lvl = int(elem.level or 0)
-            # The UI only exposes H1-H3 rules today; deeper headings reuse H3 checks.
-            if lvl >= 3:
-                lvl = 3
+            if lvl >= 4:
+                lvl = 4
             if lvl > 0:
                 return (ElementType.HEADING, lvl)
 
         if elem.element_type == ElementType.HEADING:
             lvl = int(elem.level or 0)
-            if lvl >= 3:
-                lvl = 3
+            if lvl >= 4:
+                lvl = 4
             return (ElementType.HEADING, lvl)
 
         return (ElementType.PARAGRAPH, 0)
@@ -94,6 +110,7 @@ class FormatChecker:
             (ElementType.HEADING, 1): (self.rules.h1Font, self.rules.h1Size, "一级标题"),
             (ElementType.HEADING, 2): (self.rules.h2Font, self.rules.h2Size, "二级标题"),
             (ElementType.HEADING, 3): (self.rules.h3Font, self.rules.h3Size, "三级标题"),
+            (ElementType.HEADING, 4): (self.rules.h4Font, self.rules.h4Size, "四级标题"),
             (ElementType.PARAGRAPH, 0): (self.rules.bFont, self.rules.bSize, "正文段落"),
         }
 

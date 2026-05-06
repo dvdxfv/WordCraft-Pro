@@ -608,6 +608,11 @@ html,body{height:100%;font-family:-apple-system,'SF Pro Text','PingFang SC','Mic
 }
 .fr input[type=number]{flex:0 0 52px;min-width:52px}
 .fr select[id$=SizeCN]{flex:0 0 112px}
+.fr.title-style-row{gap:4px}
+.fr.title-style-row label{width:68px;font-size:10px}
+.fr.title-style-row select[id$=Font]{flex:0 0 62px;padding-left:6px;padding-right:6px}
+.fr.title-style-row select[id$=SizeCN]{flex:0 0 56px;padding-left:6px;padding-right:6px}
+.fr.title-style-row input[id$=NumFormat]{flex:1 1 48px;min-width:44px;padding-left:6px;padding-right:6px}
 .fr input:focus,.fr select:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(0,122,255,.1)}
 .fr .unit{font-size:10px;color:var(--text3);width:22px;flex-shrink:0}
 
@@ -1147,9 +1152,10 @@ html,body{height:100%;font-family:-apple-system,'SF Pro Text','PingFang SC','Mic
 
           <div class="fg">
             <div class="fg-title">标题样式</div>
-            <div class="fr"><label>一级</label><select id="fH1Font"><option value="黑体" selected style="font-family: 黑体">黑体</option><option value="宋体" style="font-family: 宋体">宋体</option><option value="楷体" style="font-family: 楷体">楷体</option><option value="仿宋" style="font-family: 仿宋">仿宋</option><option value="微软雅黑" style="font-family: 微软雅黑">微软雅黑</option><option value="Arial" style="font-family: Arial">Arial</option><option value="Times New Roman" style="font-family: 'Times New Roman'">Times New Roman</option></select><select id="fH1SizeCN" onchange="cnSizeToPt('fH1SizeCN','fH1Size')"><option value="">字号</option><option value="42">初号</option><option value="36">小初</option><option value="26">一号</option><option value="24">小一</option><option value="22">二号</option><option value="18">小二</option><option value="16" selected>三号</option><option value="15">小三</option><option value="14">四号</option><option value="12">小四</option><option value="10.5">五号</option><option value="9">小五</option><option value="7.5">六号</option><option value="6.5">小六</option><option value="5.5">七号</option><option value="5">八号</option></select><input type="number" id="fH1Size" value="16" min="5" max="72" step="0.5" style="flex:0 0 44px"></div>
-            <div class="fr"><label>二级</label><select id="fH2Font"><option value="黑体" selected style="font-family: 黑体">黑体</option><option value="宋体" style="font-family: 宋体">宋体</option><option value="楷体" style="font-family: 楷体">楷体</option><option value="仿宋" style="font-family: 仿宋">仿宋</option><option value="微软雅黑" style="font-family: 微软雅黑">微软雅黑</option><option value="Arial" style="font-family: Arial">Arial</option><option value="Times New Roman" style="font-family: 'Times New Roman'">Times New Roman</option></select><select id="fH2SizeCN" onchange="cnSizeToPt('fH2SizeCN','fH2Size')"><option value="">字号</option><option value="42">初号</option><option value="36">小初</option><option value="26">一号</option><option value="24">小一</option><option value="22">二号</option><option value="18">小二</option><option value="16">三号</option><option value="15">小三</option><option value="14" selected>四号</option><option value="12">小四</option><option value="10.5">五号</option><option value="9">小五</option><option value="7.5">六号</option><option value="6.5">小六</option><option value="5.5">七号</option><option value="5">八号</option></select><input type="number" id="fH2Size" value="14" min="5" max="72" step="0.5" style="flex:0 0 44px"></div>
-            <div class="fr"><label>三级</label><select id="fH3Font"><option value="黑体" selected style="font-family: 黑体">黑体</option><option value="宋体" style="font-family: 宋体">宋体</option><option value="楷体" style="font-family: 楷体">楷体</option><option value="仿宋" style="font-family: 仿宋">仿宋</option><option value="微软雅黑" style="font-family: 微软雅黑">微软雅黑</option><option value="Arial" style="font-family: Arial">Arial</option><option value="Times New Roman" style="font-family: 'Times New Roman'">Times New Roman</option></select><select id="fH3SizeCN" onchange="cnSizeToPt('fH3SizeCN','fH3Size')"><option value="">字号</option><option value="42">初号</option><option value="36">小初</option><option value="26">一号</option><option value="24">小一</option><option value="22">二号</option><option value="18">小二</option><option value="16">三号</option><option value="15">小三</option><option value="14">四号</option><option value="12" selected>小四</option><option value="10.5">五号</option><option value="9">小五</option><option value="7.5">六号</option><option value="6.5">小六</option><option value="5.5">七号</option><option value="5">八号</option></select><input type="number" id="fH3Size" value="12" min="5" max="72" step="0.5" style="flex:0 0 44px"></div>
+            <div class="fr title-style-row"><label>一级标题样式</label><select id="fH1Font"><option value="黑体" selected style="font-family: 黑体">黑体</option><option value="宋体" style="font-family: 宋体">宋体</option><option value="楷体" style="font-family: 楷体">楷体</option><option value="仿宋" style="font-family: 仿宋">仿宋</option><option value="微软雅黑" style="font-family: 微软雅黑">微软雅黑</option><option value="Arial" style="font-family: Arial">Arial</option><option value="Times New Roman" style="font-family: 'Times New Roman'">Times New Roman</option></select><select id="fH1SizeCN" onchange="cnSizeToPt('fH1SizeCN','fH1Size')"><option value="">字号</option><option value="42">初号</option><option value="36">小初</option><option value="26">一号</option><option value="24">小一</option><option value="22">二号</option><option value="18">小二</option><option value="16" selected>三号</option><option value="15">小三</option><option value="14">四号</option><option value="12">小四</option><option value="10.5">五号</option><option value="9">小五</option><option value="7.5">六号</option><option value="6.5">小六</option><option value="5.5">七号</option><option value="5">八号</option></select><input type="hidden" id="fH1Size" value="16"><input id="fH1NumFormat" value="1" placeholder="编号"></div>
+            <div class="fr title-style-row"><label>二级标题样式</label><select id="fH2Font"><option value="黑体" selected style="font-family: 黑体">黑体</option><option value="宋体" style="font-family: 宋体">宋体</option><option value="楷体" style="font-family: 楷体">楷体</option><option value="仿宋" style="font-family: 仿宋">仿宋</option><option value="微软雅黑" style="font-family: 微软雅黑">微软雅黑</option><option value="Arial" style="font-family: Arial">Arial</option><option value="Times New Roman" style="font-family: 'Times New Roman'">Times New Roman</option></select><select id="fH2SizeCN" onchange="cnSizeToPt('fH2SizeCN','fH2Size')"><option value="">字号</option><option value="42">初号</option><option value="36">小初</option><option value="26">一号</option><option value="24">小一</option><option value="22">二号</option><option value="18">小二</option><option value="16">三号</option><option value="15">小三</option><option value="14" selected>四号</option><option value="12">小四</option><option value="10.5">五号</option><option value="9">小五</option><option value="7.5">六号</option><option value="6.5">小六</option><option value="5.5">七号</option><option value="5">八号</option></select><input type="hidden" id="fH2Size" value="14"><input id="fH2NumFormat" value="1.1" placeholder="编号"></div>
+            <div class="fr title-style-row"><label>三级标题样式</label><select id="fH3Font"><option value="黑体" selected style="font-family: 黑体">黑体</option><option value="宋体" style="font-family: 宋体">宋体</option><option value="楷体" style="font-family: 楷体">楷体</option><option value="仿宋" style="font-family: 仿宋">仿宋</option><option value="微软雅黑" style="font-family: 微软雅黑">微软雅黑</option><option value="Arial" style="font-family: Arial">Arial</option><option value="Times New Roman" style="font-family: 'Times New Roman'">Times New Roman</option></select><select id="fH3SizeCN" onchange="cnSizeToPt('fH3SizeCN','fH3Size')"><option value="">字号</option><option value="42">初号</option><option value="36">小初</option><option value="26">一号</option><option value="24">小一</option><option value="22">二号</option><option value="18">小二</option><option value="16">三号</option><option value="15">小三</option><option value="14">四号</option><option value="12" selected>小四</option><option value="10.5">五号</option><option value="9">小五</option><option value="7.5">六号</option><option value="6.5">小六</option><option value="5.5">七号</option><option value="5">八号</option></select><input type="hidden" id="fH3Size" value="12"><input id="fH3NumFormat" value="1.1.1" placeholder="编号"></div>
+            <div class="fr title-style-row"><label>四级标题样式</label><select id="fH4Font"><option value="黑体" selected style="font-family: 黑体">黑体</option><option value="宋体" style="font-family: 宋体">宋体</option><option value="楷体" style="font-family: 楷体">楷体</option><option value="仿宋" style="font-family: 仿宋">仿宋</option><option value="微软雅黑" style="font-family: 微软雅黑">微软雅黑</option><option value="Arial" style="font-family: Arial">Arial</option><option value="Times New Roman" style="font-family: 'Times New Roman'">Times New Roman</option></select><select id="fH4SizeCN" onchange="cnSizeToPt('fH4SizeCN','fH4Size')"><option value="">字号</option><option value="42">初号</option><option value="36">小初</option><option value="26">一号</option><option value="24">小一</option><option value="22">二号</option><option value="18">小二</option><option value="16">三号</option><option value="15">小三</option><option value="14">四号</option><option value="12">小四</option><option value="10.5" selected>五号</option><option value="9">小五</option><option value="7.5">六号</option><option value="6.5">小六</option><option value="5.5">七号</option><option value="5">八号</option></select><input type="hidden" id="fH4Size" value="10.5"><input id="fH4NumFormat" value="1.1.1.1" placeholder="编号"></div>
           </div>
 
           <div class="fg">
@@ -1157,7 +1163,7 @@ html,body{height:100%;font-family:-apple-system,'SF Pro Text','PingFang SC','Mic
             <div class="fr"><label>西文</label><select id="fWFont"><option value="Times New Roman">Times NR</option><option value="Arial">Arial</option><option value="Calibri">Calibri</option></select></div>
             <div class="fr"><label>中文</label><select id="fBFont"><option value="宋体" selected style="font-family: 宋体">宋体</option><option value="黑体" style="font-family: 黑体">黑体</option><option value="楷体" style="font-family: 楷体">楷体</option><option value="仿宋" style="font-family: 仿宋">仿宋</option><option value="微软雅黑" style="font-family: 微软雅黑">微软雅黑</option><option value="Arial" style="font-family: Arial">Arial</option><option value="Times New Roman" style="font-family: 'Times New Roman'">Times New Roman</option></select><select id="fBSizeCN" onchange="cnSizeToPt('fBSizeCN','fBSize')"><option value="">字号</option><option value="42">初号</option><option value="36">小初</option><option value="26">一号</option><option value="24">小一</option><option value="22">二号</option><option value="18">小二</option><option value="16">三号</option><option value="15">小三</option><option value="14">四号</option><option value="12" selected>小四</option><option value="10.5">五号</option><option value="9">小五</option><option value="7.5">六号</option><option value="6.5">小六</option><option value="5.5">七号</option><option value="5">八号</option></select><input type="number" id="fBSize" value="12" min="5" max="72" step="0.5" style="flex:0 0 44px"></div>
             <div class="fr"><label>首行缩进</label><input type="number" id="fIndent" value="2" step="0.5" min="0"><span class="unit">字符</span></div>
-            <div class="fr"><label>行距</label><input type="number" id="fLH" value="1.5" step="0.5" min="1" max="3"><span class="unit">倍</span></div>
+            <div class="fr"><label>行距</label><select id="fLineSpacingMode"><option value="multiple" selected>倍数</option><option value="exact">固定值</option></select><input type="number" id="fLH" value="1.5" step="0.5" min="1" max="72"><span class="unit" id="fLineSpacingUnit">倍</span></div>
             <div class="fr"><label>对齐</label><select id="fAlign"><option value="justify">两端对齐</option><option value="left">左对齐</option><option value="center">居中</option><option value="right">右对齐</option></select></div>
           </div>
 
@@ -1489,12 +1495,13 @@ function _getSemanticHeadingLevel(el){
   const role=String((meta&&meta.structure_role)||'').toLowerCase();
   if(role==='heading'){
     const lvl=Number(meta&&meta.heading_level);
-    if(Number.isFinite(lvl)&&lvl>0)return Math.min(Math.max(Math.round(lvl),1),3);
+    if(Number.isFinite(lvl)&&lvl>0)return Math.min(Math.max(Math.round(lvl),1),4);
   }
   const t=String((el&&el.type)||'').toLowerCase();
   if(t==='h1')return 1;
   if(t==='h2')return 2;
   if(t==='h3')return 3;
+  if(t==='h4')return 4;
   return 0;
 }
 function _getSemanticElementType(el){
@@ -1504,7 +1511,8 @@ function _getSemanticElementType(el){
     const lvl=_getSemanticHeadingLevel(el);
     if(lvl===1)return'h1';
     if(lvl===2)return'h2';
-    return'h3';
+    if(lvl===3)return'h3';
+    return'h4';
   }
   if(role==='toc')return'toc';
   if(role==='reference')return'ref';
@@ -2179,10 +2187,18 @@ function applyTemplateFields(t){
   if(t.h2s!=null)document.getElementById('fH2Size').value=t.h2s;
   if(t.h3)document.getElementById('fH3Font').value=t.h3;
   if(t.h3s!=null)document.getElementById('fH3Size').value=t.h3s;
+  if(t.h4)document.getElementById('fH4Font').value=t.h4;
+  if(t.h4s!=null)document.getElementById('fH4Size').value=t.h4s;
+  if(t.h1NumFormat!=null)document.getElementById('fH1NumFormat').value=t.h1NumFormat;
+  if(t.h2NumFormat!=null)document.getElementById('fH2NumFormat').value=t.h2NumFormat;
+  if(t.h3NumFormat!=null)document.getElementById('fH3NumFormat').value=t.h3NumFormat;
+  if(t.h4NumFormat!=null)document.getElementById('fH4NumFormat').value=t.h4NumFormat;
   if(t.bf)document.getElementById('fBFont').value=t.bf;
   if(t.bs!=null)document.getElementById('fBSize').value=t.bs;
   if(t.indent!=null)document.getElementById('fIndent').value=t.indent;
+  if(t.lineSpacingMode!=null)document.getElementById('fLineSpacingMode').value=t.lineSpacingMode;
   if(t.lh!=null)document.getElementById('fLH').value=t.lh;
+  _syncLineSpacingUnit();
 }
 
 function loadTemplate(){
@@ -2241,8 +2257,15 @@ function collectCurrentSettings(){
     h1:document.getElementById('fH1Font').value,h1s:+document.getElementById('fH1Size').value,
     h2:document.getElementById('fH2Font').value,h2s:+document.getElementById('fH2Size').value,
     h3:document.getElementById('fH3Font').value,h3s:+document.getElementById('fH3Size').value,
+    h4:document.getElementById('fH4Font').value,h4s:+document.getElementById('fH4Size').value,
+    h1NumFormat:document.getElementById('fH1NumFormat').value,
+    h2NumFormat:document.getElementById('fH2NumFormat').value,
+    h3NumFormat:document.getElementById('fH3NumFormat').value,
+    h4NumFormat:document.getElementById('fH4NumFormat').value,
     bf:document.getElementById('fBFont').value,bs:+document.getElementById('fBSize').value,
-    indent:+document.getElementById('fIndent').value,lh:+document.getElementById('fLH').value,
+    indent:+document.getElementById('fIndent').value,
+    lineSpacingMode:document.getElementById('fLineSpacingMode').value,
+    lh:+document.getElementById('fLH').value,
   };
 }
 
@@ -2762,8 +2785,15 @@ function _collectFormatRules(){
     h1Font:g('fH1Font')?.value||'黑体', h1Size:parseFloat(g('fH1Size')?.value)||16,
     h2Font:g('fH2Font')?.value||'黑体', h2Size:parseFloat(g('fH2Size')?.value)||14,
     h3Font:g('fH3Font')?.value||'黑体', h3Size:parseFloat(g('fH3Size')?.value)||12,
+    h4Font:g('fH4Font')?.value||'黑体', h4Size:parseFloat(g('fH4Size')?.value)||10.5,
+    h1NumFormat:g('fH1NumFormat')?.value||'',
+    h2NumFormat:g('fH2NumFormat')?.value||'',
+    h3NumFormat:g('fH3NumFormat')?.value||'',
+    h4NumFormat:g('fH4NumFormat')?.value||'',
     bFont:g('fBFont')?.value||'宋体',   bSize:parseFloat(g('fBSize')?.value)||12,
     lineSpacing:parseFloat(g('fLH')?.value)||1.5,
+    lineSpacingMode:g('fLineSpacingMode')?.value||'multiple',
+    lineSpacingValue:parseFloat(g('fLH')?.value)||1.5,
     savedAt:new Date().toISOString(),
   };
 }
@@ -2807,6 +2837,16 @@ async function showSaveTemplateDialog(){
 }
 
 function cnSizeToPt(cnId,ptId){const cn=document.getElementById(cnId);if(cn?.value)document.getElementById(ptId).value=cn.value;}
+function _syncLineSpacingUnit(){
+  const mode=document.getElementById('fLineSpacingMode')?.value||'multiple';
+  const unit=document.getElementById('fLineSpacingUnit');
+  const input=document.getElementById('fLH');
+  if(unit)unit.textContent=mode==='exact'?'pt':'倍';
+  if(input){
+    input.step=mode==='exact'?'1':'0.5';
+    input.min=mode==='exact'?'1':'1';
+  }
+}
 const PAPER_CM={A4:{w:21,h:29.7},A3:{w:29.7,h:42},B5:{w:17.6,h:25},Letter:{w:21.59,h:27.94}};
 const PX_PER_CM=37.8;
 function applyPageLayout(){
@@ -2843,11 +2883,15 @@ async function applyFormat(){
   const h2Size=document.getElementById('fH2Size').value;
   const h3Font=document.getElementById('fH3Font').value;
   const h3Size=document.getElementById('fH3Size').value;
+  const h4Font=document.getElementById('fH4Font').value;
+  const h4Size=document.getElementById('fH4Size').value;
   const bFont=document.getElementById('fBFont').value;
   const wFont=document.getElementById('fWFont').value;
   const bSize=document.getElementById('fBSize').value;
   const indent=document.getElementById('fIndent').value;
+  const lineSpacingMode=document.getElementById('fLineSpacingMode').value;
   const lh=document.getElementById('fLH').value;
+  const cssLineHeight=lineSpacingMode==='exact'?`${lh}pt`:lh;
   const align=document.getElementById('fAlign').value;
   applyPageLayout();
 
@@ -2857,8 +2901,10 @@ async function applyFormat(){
           heading1_font:h1Font,heading1_size:h1Size,
           heading2_font:h2Font,heading2_size:h2Size,
           heading3_font:h3Font,heading3_size:h3Size,
+          heading4_font:h4Font,heading4_size:h4Size,
           body_font:bFont,body_size:bSize,
-          line_height:lh
+          line_height:lh,
+          line_spacing_mode:lineSpacingMode
         };
         const data=await window.WC_API.applyFormat(page.innerHTML,JSON.stringify(rules));
         if(data.success&&data.formatted_content){
@@ -2867,10 +2913,11 @@ async function applyFormat(){
         showToast('排版规则已成功应用');
       }else{
         // 降级处理：本地应用样式
-        page.style.cssText+=`;font-family:"${bFont}","${wFont}",serif;font-size:${bSize}pt;line-height:${lh}`;
+        page.style.cssText+=`;font-family:"${bFont}","${wFont}",serif;font-size:${bSize}pt;line-height:${cssLineHeight}`;
         page.querySelectorAll('h1').forEach(h=>{h.style.fontFamily=`"${h1Font}","黑体",sans-serif`;h.style.fontSize=h1Size+'pt';});
         page.querySelectorAll('h2').forEach(h=>{h.style.fontFamily=`"${h2Font}","黑体",sans-serif`;h.style.fontSize=h2Size+'pt';});
         page.querySelectorAll('h3').forEach(h=>{h.style.fontFamily=`"${h3Font}","黑体",sans-serif`;h.style.fontSize=h3Size+'pt';});
+        page.querySelectorAll('h4').forEach(h=>{h.style.fontFamily=`"${h4Font}","黑体",sans-serif`;h.style.fontSize=h4Size+'pt';});
         page.querySelectorAll('p').forEach(p=>{p.style.textIndent=indent+'em';p.style.textAlign=align;});
         setStatus('排版规则已应用');
         showToast('排版规则已成功应用（本地处理）');
@@ -2878,10 +2925,11 @@ async function applyFormat(){
     }catch(e){
       console.error('applyFormat 失败:',e);
       // 降级处理：本地应用样式
-      page.style.cssText+=`;font-family:"${bFont}","${wFont}",serif;font-size:${bSize}pt;line-height:${lh}`;
+      page.style.cssText+=`;font-family:"${bFont}","${wFont}",serif;font-size:${bSize}pt;line-height:${cssLineHeight}`;
       page.querySelectorAll('h1').forEach(h=>{h.style.fontFamily=`"${h1Font}","黑体",sans-serif`;h.style.fontSize=h1Size+'pt';});
       page.querySelectorAll('h2').forEach(h=>{h.style.fontFamily=`"${h2Font}","黑体",sans-serif`;h.style.fontSize=h2Size+'pt';});
       page.querySelectorAll('h3').forEach(h=>{h.style.fontFamily=`"${h3Font}","黑体",sans-serif`;h.style.fontSize=h3Size+'pt';});
+      page.querySelectorAll('h4').forEach(h=>{h.style.fontFamily=`"${h4Font}","黑体",sans-serif`;h.style.fontSize=h4Size+'pt';});
       page.querySelectorAll('p').forEach(p=>{p.style.textIndent=indent+'em';p.style.textAlign=align;});
       setStatus('排版规则已应用');
       showToast('排版规则已成功应用');
@@ -2915,14 +2963,8 @@ async function handleTemplateUpload(e){
     }else{showToast('上传失败：'+(data.error||'未知错误'));}
   }catch(err){showToast('上传失败：'+err.message);console.error(err);}
 }
-async function runAIParse(){
-  const text=document.getElementById('aiInput').value.trim();
-  if(!text){showToast('请先输入排版需求描述');return;}
-  const btn=document.getElementById('btnAIParse');
-  if(btn){btn.disabled=true;btn.style.opacity='0.6';}
-  showToast('AI 解析中…');
-  try{
-    const sys=`你是排版规则解析器。从用户提供的文档内容中提取排版参数，以纯 JSON 对象返回（不要 markdown 代码块，不要任何解释文字）。
+function _buildAIParsePrimaryPrompt(){
+  return `你是排版规则解析器。从用户提供的文档内容中提取排版参数，以纯 JSON 对象返回（不要 markdown 代码块，不要任何解释文字）。
 
 中文字号别名对照（必须转换为磅值）：
 初号=42 小初=36 一号=26 小一=24 二号=22 小二=18 三号=16 小三=15 四号=14 小四=12 五号=10.5 小五=9 六号=7.5 小六=6.5
@@ -2930,12 +2972,12 @@ async function runAIParse(){
 返回 JSON 字段（不确定的字段填 null，禁止猜测）：
 【文件标题】titleFont(封面/文件主标题字体), titleSize(pt), titleAlign(center/left/right)
 【正文标题序号层级】
-  h1Font(一级序号"一、"字体), h1Size(pt), h1Bold(true/false)
-  h2Font(二级序号"（一）"字体), h2Size(pt), h2Bold(true/false)
-  h3Font(三级序号"1."或"——"字体), h3Size(pt), h3Bold(true/false)
-  h4Font(四级序号"（1）"字体), h4Size(pt), h4Bold(true/false)
+  h1Font(一级序号"一、"字体), h1Size(pt), h1Bold(true/false), h1NumFormat(一级编号格式，如"一"/"1"/"第一章"，不确定填null)
+  h2Font(二级序号"（一）"字体), h2Size(pt), h2Bold(true/false), h2NumFormat(二级编号格式，如"（一）"/"1.1"，不确定填null)
+  h3Font(三级序号"1."或"——"字体), h3Size(pt), h3Bold(true/false), h3NumFormat(三级编号格式，如"1."/"1.1.1"，不确定填null)
+  h4Font(四级序号"（1）"字体), h4Size(pt), h4NumFormat(四级编号格式，如"（1）"/"1.1.1.1"，不确定填null)
 【正文】bodyFont(正文字体), bodySize(pt), westFont(西文/数字字体), westSize(pt)
-【段落】indent(首行缩进字符数), lineHeight(行距倍数), align(正文对齐方式)
+【段落】indent(首行缩进字符数), lineSpacingMode("multiple"=倍数行距 or "exact"=固定值), lineSpacingValue(行距数值：倍数模式填倍数如1.5，固定值模式填磅值如20), align(正文对齐方式)
 【页边距 cm】marginTop, marginBottom, marginLeft, marginRight
 【页眉】headerFont, headerSize(pt), headerAlign(center/left/right)
 【页脚】footerFont, footerSize(pt), footerFormat(如"-1-"或"第1页")
@@ -2944,58 +2986,124 @@ async function runAIParse(){
 【附加说明】notes(其他重要规则，不超过80字)
 
 严格约束：
-- lineHeight 必须在 1.0-5.0 之间。如"1.5倍行距"→1.5；"单倍"→1.0；"双倍"→2.0；读到异常大数填 null。
+- lineSpacingMode 必须是 "multiple" 或 "exact"，不确定填 null。lineSpacingValue：倍数模式时在 1.0-5.0 之间；固定值模式时在 6-100 pt 之间；超出范围填 null。
 - 边距必须在 0.5-10 cm 之间，超出填 null。
 - 字号必须在 5-72 pt 之间，超出填 null。
 - 字体名保留原文（如"方正小标宋简体"、"仿宋GB2312"、"Times New Roman"），不翻译。
 - 仅当文档明确指定才填值，"未指定/不确定"一律填 null。
 
 只返回 JSON 对象，不加代码块标记，不加任何解释。`;
-    const data=await window.WC_API.callAI(sys,text,{max_tokens:2000});
-    if(data.error)throw new Error(data.error);
-    const reply=data.content||'';
-    let parsed;
-    try{
-      // 先尝试整体解析
-      parsed=JSON.parse(reply.trim());
-    }catch(e0){
-      let m=reply.match(/\{[\s\S]*\}/);
-      let jsonStr=m?m[0]:null;
-      if(!jsonStr){
-        // 响应被截断（无结尾 }）——截到最后一个完整字段后修复
-        const start=reply.indexOf('{');
-        if(start<0)throw new Error('AI 未返回有效 JSON：'+reply.slice(0,100));
-        jsonStr=reply.slice(start);
-        // 去掉末尾不完整的字段（如 ,"notes":"未截" → ）再补 }
-        jsonStr=jsonStr.replace(/,?\s*"[^"]*"\s*:\s*(?:"[^"]*)?$/, '')+'}';
-      }
-      try{parsed=JSON.parse(jsonStr);}
-      catch(e1){throw new Error('JSON 解析失败，请重试：'+reply.slice(0,120));}
+}
+function _buildAIParseFallbackPrompt(){
+  return `你是排版规则解析器。请从模板要求文本里提取最明确、最核心的排版字段，并只返回 JSON 对象。
+
+中文字号别名对照（必须转换为磅值）：
+初号=42 小初=36 一号=26 小一=24 二号=22 小二=18 三号=16 小三=15 四号=14 小四=12 五号=10.5 小五=9 六号=7.5 小六=6.5
+
+如果文本里明确出现，就尽量提取这些字段；不确定则填 null：
+titleFont, titleSize, titleAlign,
+h1Font, h1Size, h1NumFormat,
+h2Font, h2Size, h2NumFormat,
+h3Font, h3Size, h3Bold, h3NumFormat,
+h4Font, h4Size, h4NumFormat,
+bodyFont, bodySize, westFont, westSize,
+indent, lineHeight, align,
+marginTop, marginBottom, marginLeft, marginRight,
+headerFont, headerSize, headerAlign,
+footerFont, footerSize, footerFormat,
+tableNameFont, tableNameSize, tableNamePos, tableContentFont, tableContentSize, tableNumFormat,
+figNameFont, figNameSize, figNamePos, figNumFormat,
+notes
+
+要求：
+- 优先提取明确写出的规则，不要因为缺少某些字段就把全部字段都填 null。
+- 行距如果读到“1.5倍/单倍/双倍”，写入 lineHeight。
+- 编号格式如果读到“一 / （一） / 1. / （1）”或“1 / 1.1 / 1.1.1 / 1.1.1.1”，写入对应 h1NumFormat-h4NumFormat。
+- 只返回 JSON，不要解释。`;
+}
+function _extractAIParseJson(reply){
+  try{return JSON.parse((reply||'').trim());}catch(e0){}
+  let m=(reply||'').match(/\{[\s\S]*\}/);
+  let jsonStr=m?m[0]:null;
+  if(!jsonStr){
+    const start=(reply||'').indexOf('{');
+    if(start<0)throw new Error('AI 未返回有效 JSON：'+(reply||'').slice(0,100));
+    jsonStr=(reply||'').slice(start);
+    jsonStr=jsonStr.replace(/,?\s*"[^"]*"\s*:\s*(?:"[^"]*)?$/, '')+'}';
+  }
+  try{return JSON.parse(jsonStr);}
+  catch(e1){throw new Error('JSON 解析失败，请重试：'+(reply||'').slice(0,120));}
+}
+function _sanitizeAIParseRules(o){
+  if(!o||typeof o!=='object'||Array.isArray(o))return {};
+  if((o.lineSpacingMode==null||o.lineSpacingValue==null)&&o.lineHeight!=null){
+    const lh=parseFloat(o.lineHeight);
+    if(isFinite(lh)&&lh>=1.0&&lh<=5.0){
+      o.lineSpacingMode='multiple';
+      o.lineSpacingValue=lh;
     }
-    // 客户端再次校验数值合理性，剔除异常值（防止 AI 偶尔失误）
-    const sanitize=(o)=>{
-      const lh=parseFloat(o.lineHeight);
-      if(!isFinite(lh)||lh<1.0||lh>5.0)o.lineHeight=null;
-      ['marginTop','marginBottom','marginLeft','marginRight'].forEach(k=>{
-        const v=parseFloat(o[k]);
-        if(!isFinite(v)||v<0.5||v>10)o[k]=null;
-      });
-      ['h1Size','h2Size','h3Size','bodySize'].forEach(k=>{
-        const v=parseFloat(o[k]);
-        if(!isFinite(v)||v<5||v>72)o[k]=null;
-      });
-      return o;
+  }
+  const lh=parseFloat(o.lineHeight);
+  if(!isFinite(lh)||lh<1.0||lh>5.0)o.lineHeight=null;
+  if(o.lineSpacingMode==='multiple'){
+    const sv=parseFloat(o.lineSpacingValue);
+    if(!isFinite(sv)||sv<1.0||sv>5.0)o.lineSpacingValue=null;
+  }else if(o.lineSpacingMode==='exact'){
+    const sv=parseFloat(o.lineSpacingValue);
+    if(!isFinite(sv)||sv<6||sv>100)o.lineSpacingValue=null;
+  }else{
+    o.lineSpacingMode=null;
+    o.lineSpacingValue=null;
+  }
+  ['marginTop','marginBottom','marginLeft','marginRight'].forEach(k=>{
+    const v=parseFloat(o[k]);
+    if(!isFinite(v)||v<0.5||v>10)o[k]=null;
+  });
+  ['titleSize','h1Size','h2Size','h3Size','h4Size','bodySize','westSize','headerSize','footerSize','tableNameSize','tableContentSize','figNameSize'].forEach(k=>{
+    const v=parseFloat(o[k]);
+    if(!isFinite(v)||v<5||v>72)o[k]=null;
+  });
+  return o;
+}
+function _countAIParseFields(o){
+  return Object.entries(o||{}).filter(([k,v])=>{
+    if(v==null||v==='')return false;
+    if(k==='notes')return String(v).trim().length>=4;
+    return true;
+  }).length;
+}
+async function runAIParse(){
+  const text=document.getElementById('aiInput').value.trim();
+  if(!text){showToast('请先输入排版需求描述');return;}
+  const btn=document.getElementById('btnAIParse');
+  if(btn){btn.disabled=true;btn.style.opacity='0.6';}
+  showToast('AI 解析中…');
+  try{
+    const parseWithPrompt=async(sys)=>{
+      const data=await window.WC_API.callAI(sys,text,{max_tokens:2000});
+      if(data.error)throw new Error(data.error);
+      return _sanitizeAIParseRules(_extractAIParseJson(data.content||''));
     };
-    window._aiParsedRules=sanitize(parsed);
+    let parsed=await parseWithPrompt(_buildAIParsePrimaryPrompt());
+    let parsedFieldCount=_countAIParseFields(parsed);
+    if(parsedFieldCount<4){
+      const fallbackParsed=await parseWithPrompt(_buildAIParseFallbackPrompt());
+      const fallbackFieldCount=_countAIParseFields(fallbackParsed);
+      if(fallbackFieldCount>parsedFieldCount){
+        parsed=fallbackParsed;
+        parsedFieldCount=fallbackFieldCount;
+      }
+    }
+    window._aiParsedRules=parsed;
     const labelMap={
       titleFont:'文件标题字体',titleSize:'文件标题字号(pt)',titleAlign:'文件标题对齐',
-      h1Font:'一级序号字体(一、)',h1Size:'一级字号(pt)',h1Bold:'一级加粗',
-      h2Font:'二级序号字体(（一）)',h2Size:'二级字号(pt)',h2Bold:'二级加粗',
-      h3Font:'三级序号字体(1./——)',h3Size:'三级字号(pt)',h3Bold:'三级加粗',
-      h4Font:'四级序号字体(（1）)',h4Size:'四级字号(pt)',h4Bold:'四级加粗',
+      h1Font:'一级序号字体(一、)',h1Size:'一级字号(pt)',h1Bold:'一级加粗',h1NumFormat:'一级编号格式',
+      h2Font:'二级序号字体(（一）)',h2Size:'二级字号(pt)',h2Bold:'二级加粗',h2NumFormat:'二级编号格式',
+      h3Font:'三级序号字体(1./——)',h3Size:'三级字号(pt)',h3Bold:'三级加粗',h3NumFormat:'三级编号格式',
+      h4Font:'四级序号字体(（1）)',h4Size:'四级字号(pt)',h4Bold:'四级加粗',h4NumFormat:'四级编号格式',
       bodyFont:'正文字体',bodySize:'正文字号(pt)',
       westFont:'西文/数字字体',westSize:'西文字号(pt)',
-      indent:'首行缩进(字符)',lineHeight:'行距(倍)',align:'正文对齐',
+      indent:'首行缩进(字符)',lineHeight:'行距(倍)',lineSpacingMode:'行距模式(multiple/exact)',lineSpacingValue:'行距数值',align:'正文对齐',
       marginTop:'上边距(cm)',marginBottom:'下边距(cm)',marginLeft:'左边距(cm)',marginRight:'右边距(cm)',
       headerFont:'页眉字体',headerSize:'页眉字号(pt)',headerAlign:'页眉对齐',
       footerFont:'页脚字体',footerSize:'页脚字号(pt)',footerFormat:'页码格式',
@@ -3031,12 +3139,15 @@ function applyAIRules(){
   set('fH1Font',rules.h1Font);set('fH1Size',rules.h1Size);
   set('fH2Font',rules.h2Font);set('fH2Size',rules.h2Size);
   set('fH3Font',rules.h3Font);set('fH3Size',rules.h3Size);
+  set('fH4Font',rules.h4Font);set('fH4Size',rules.h4Size);
   set('fBFont',rules.bodyFont);set('fBSize',rules.bodySize);
   set('fWFont',rules.westFont);
-  set('fIndent',rules.indent);set('fLH',rules.lineHeight);
+  set('fIndent',rules.indent);set('fLH',rules.lineSpacingValue!=null?rules.lineSpacingValue:rules.lineHeight);
+  set('fLineSpacingMode',rules.lineSpacingMode);
   set('fAlign',rules.align);
   set('fMT',rules.marginTop);set('fMB',rules.marginBottom);
   set('fML',rules.marginLeft);set('fMR',rules.marginRight);
+  _syncLineSpacingUnit();
   showToast('AI 规则已填入排版面板');
 }
 function saveAIFormatRequirements(){
@@ -3054,14 +3165,21 @@ function saveAIFormatRequirements(){
     // 文件主标题
     titleFont: str(r.titleFont), titleSize: pt(r.titleSize), titleAlign: str(r.titleAlign),
     // 各级序号
-    h1Font: str(r.h1Font)||'黑体', h1Size: pt(r.h1Size)||16, h1Bold: r.h1Bold===true||r.h1Bold==='true',
-    h2Font: str(r.h2Font)||'黑体', h2Size: pt(r.h2Size)||14, h2Bold: r.h2Bold===true||r.h2Bold==='true',
-    h3Font: str(r.h3Font)||'黑体', h3Size: pt(r.h3Size)||12, h3Bold: r.h3Bold===true||r.h3Bold==='true',
+    h1Font: str(r.h1Font), h1Size: pt(r.h1Size), h1Bold: r.h1Bold===true||r.h1Bold==='true',
+    h2Font: str(r.h2Font), h2Size: pt(r.h2Size), h2Bold: r.h2Bold===true||r.h2Bold==='true',
+    h3Font: str(r.h3Font), h3Size: pt(r.h3Size), h3Bold: r.h3Bold===true||r.h3Bold==='true',
     h4Font: str(r.h4Font), h4Size: pt(r.h4Size),
+    h1NumFormat: str(r.h1NumFormat),
+    h2NumFormat: str(r.h2NumFormat),
+    h3NumFormat: str(r.h3NumFormat),
+    h4NumFormat: str(r.h4NumFormat),
     // 正文
-    bFont: str(r.bodyFont)||'宋体', bSize: pt(r.bodySize)||12,
+    bFont: str(r.bodyFont), bSize: pt(r.bodySize),
     westFont: str(r.westFont), westSize: pt(r.westSize),
-    lineSpacing: pt(r.lineHeight)||1.5, indent: pt(r.indent),
+    lineSpacing: pt(r.lineSpacingValue)||pt(r.lineHeight),
+    lineSpacingMode: str(r.lineSpacingMode),
+    lineSpacingValue: pt(r.lineSpacingValue)||pt(r.lineHeight),
+    indent: pt(r.indent),
     // 页边距
     marginTop: pt(r.marginTop), marginBottom: pt(r.marginBottom),
     marginLeft: pt(r.marginLeft), marginRight: pt(r.marginRight),
@@ -3110,6 +3228,7 @@ function _buildQAHtml(fn){
     if(t==='h1')return `<h1>${txt}</h1>`;
     if(t==='h2')return `<h2>${txt}</h2>`;
     if(t==='h3')return `<h3>${txt}</h3>`;
+    if(t==='h4')return `<h4>${txt}</h4>`;
     return `<p>${txt}</p>`;
   }).join('\n');
 }
@@ -3462,9 +3581,15 @@ function _collectCurrentFormatRules(){
     h1Font:g('fH1Font','黑体'), h1SizePt:+g('fH1Size',16),
     h2Font:g('fH2Font','黑体'), h2SizePt:+g('fH2Size',14),
     h3Font:g('fH3Font','黑体'), h3SizePt:+g('fH3Size',12),
+    h4Font:g('fH4Font','黑体'), h4SizePt:+g('fH4Size',10.5),
+    h1NumFormat:g('fH1NumFormat',''),
+    h2NumFormat:g('fH2NumFormat',''),
+    h3NumFormat:g('fH3NumFormat',''),
+    h4NumFormat:g('fH4NumFormat',''),
     bodyFont:g('fBFont','宋体'), bodySizePt:+g('fBSize',12),
     westFont:g('fWFont','Times New Roman'),
     indentChars:+g('fIndent',2),
+    lineSpacingMode:g('fLineSpacingMode','multiple'),
     lineHeight:g('fLH','1.5'),
     align:g('fAlign','justify'),
     marginTopCm:+g('fMT',2.5), marginBottomCm:+g('fMB',2.5),
@@ -4139,11 +4264,20 @@ function exportDocAsPdf(tab){
   el.innerHTML=docPage.innerHTML;
   // Apply format panel font settings inline so print inherits them
   const h1Font=document.getElementById('fH1Font')?.value||'黑体';
+  const h2Font=document.getElementById('fH2Font')?.value||h1Font;
+  const h3Font=document.getElementById('fH3Font')?.value||h2Font;
+  const h4Font=document.getElementById('fH4Font')?.value||h3Font;
   const bFont=document.getElementById('fBFont')?.value||'宋体';
   const bSize=parseFloat(document.getElementById('fBSize')?.value)||12;
+  const lineSpacingMode=document.getElementById('fLineSpacingMode')?.value||'multiple';
   const lh=parseFloat(document.getElementById('fLH')?.value)||1.5;
+  const cssLineHeight=lineSpacingMode==='exact'?`${lh}pt`:lh;
   el.style.cssText=`font-family:'${bFont}',serif;font-size:${bSize}pt;line-height:${lh}`;
-  el.querySelectorAll('h1,h2,h3').forEach(h=>h.style.fontFamily=`'${h1Font}',sans-serif`);
+  el.style.lineHeight=cssLineHeight;
+  el.querySelectorAll('h1').forEach(h=>h.style.fontFamily=`'${h1Font}',sans-serif`);
+  el.querySelectorAll('h2').forEach(h=>h.style.fontFamily=`'${h2Font}',sans-serif`);
+  el.querySelectorAll('h3').forEach(h=>h.style.fontFamily=`'${h3Font}',sans-serif`);
+  el.querySelectorAll('h4').forEach(h=>h.style.fontFamily=`'${h4Font}',sans-serif`);
   showToast('正在打开打印对话框，请选择"另存为 PDF"');
   window.addEventListener('afterprint',()=>{ el.innerHTML=''; },{once:true});
   window.print();
@@ -4382,16 +4516,25 @@ async function exportDocAsDocxRebuild(tab){
   const h2Size=parseFloat(document.getElementById('fH2Size').value)||14;
   const h3Font=document.getElementById('fH3Font').value||'黑体';
   const h3Size=parseFloat(document.getElementById('fH3Size').value)||12;
+  const h4Font=document.getElementById('fH4Font').value||'黑体';
+  const h4Size=parseFloat(document.getElementById('fH4Size').value)||10.5;
   const bFont=document.getElementById('fBFont').value||'宋体';
   const bSize=parseFloat(document.getElementById('fBSize').value)||12;
   const wFont=document.getElementById('fWFont').value||'Times New Roman';
   const indent=parseFloat(document.getElementById('fIndent').value)||2;
+  const lineSpacingMode=document.getElementById('fLineSpacingMode')?.value||'multiple';
   const lh=parseFloat(document.getElementById('fLH').value)||1.5;
   const hp=pt=>Math.round(pt*2);
   try{
     const{Document,Packer,Paragraph,TextRun,HeadingLevel,AlignmentType,LineRuleType}=docx;
     const firstLineTwips=Math.round(indent*bSize*0.035/2.54*1440);
-    const defaultLineSpacing=Math.round(lh*240);
+    const defaultLineSpacing=lineSpacingMode==='exact'?Math.round(lh*20):Math.round(lh*240);
+    const defaultLineRule=lineSpacingMode==='exact'&&LineRuleType?(LineRuleType.EXACT||'exact'):undefined;
+    const _defaultSpacing=(extra={})=>{
+      const spacing={line:defaultLineSpacing,...extra};
+      if(defaultLineRule)spacing.lineRule=defaultLineRule;
+      return spacing;
+    };
     const _safeTwips=(v,fallback=0)=>{
       const n=Number(v);
       if(!Number.isFinite(n))return fallback;
@@ -4458,6 +4601,7 @@ async function exportDocAsDocxRebuild(tab){
       if(type==='h1')return[new TextRun({text:t,font:{name:wFont,eastAsia:h1Font},size:hp(h1Size),bold:true})];
       if(type==='h2')return[new TextRun({text:t,font:{name:wFont,eastAsia:h2Font},size:hp(h2Size),bold:true})];
       if(type==='h3')return[new TextRun({text:t,font:{name:wFont,eastAsia:h3Font},size:hp(h3Size),bold:true})];
+      if(type==='h4')return[new TextRun({text:t,font:{name:wFont,eastAsia:h4Font},size:hp(h4Size),bold:true})];
       if(type==='ref'||type==='caption')return[new TextRun({text:t,font:{name:wFont,eastAsia:bFont},size:hp(10.5)})];
       if(type==='li')return[new TextRun({text:'• '+t,font:{name:wFont,eastAsia:bFont},size:hp(bSize)})];
       return[new TextRun({text:t,font:{name:wFont,eastAsia:bFont},size:hp(bSize)})];
@@ -4467,6 +4611,7 @@ async function exportDocAsDocxRebuild(tab){
       if(s==='heading 1'||s==='标题 1'||s==='title')return HeadingLevel.HEADING_1;
       if(s==='heading 2'||s==='标题 2')return HeadingLevel.HEADING_2;
       if(s==='heading 3'||s==='标题 3')return HeadingLevel.HEADING_3;
+      if(s==='heading 4'||s==='标题 4')return HeadingLevel.HEADING_4;
       return null;
     };
     const paraItems=content.map(it=>{
@@ -4479,7 +4624,7 @@ async function exportDocAsDocxRebuild(tab){
       // Round-trip path: use per-paragraph metadata when we have it.
       if(fmt){
         // Pick eastAsia fallback from paragraph type (headings use heading fonts).
-        const ea=semanticType==='h1'?h1Font:semanticType==='h2'?h2Font:semanticType==='h3'?h3Font:bFont;
+        const ea=semanticType==='h1'?h1Font:semanticType==='h2'?h2Font:semanticType==='h3'?h3Font:semanticType==='h4'?h4Font:bFont;
         let kids;
         if(runs&&runs.length)kids=runs.map(r=>_buildRun(r));
         else if(t)kids=_defaultChildren(t,semanticType);
@@ -4488,7 +4633,8 @@ async function exportDocAsDocxRebuild(tab){
         const heading=_headingByStyle(fmt.style)||(
           semanticHeadingLevel===1?HeadingLevel.HEADING_1:
           semanticHeadingLevel===2?HeadingLevel.HEADING_2:
-          semanticHeadingLevel===3?HeadingLevel.HEADING_3:null
+          semanticHeadingLevel===3?HeadingLevel.HEADING_3:
+          semanticHeadingLevel===4?HeadingLevel.HEADING_4:null
         );
         if(heading)opts.heading=heading;
         else if(fmt.style&&fmt.style!=='Normal')opts.style=fmt.style;
@@ -4525,9 +4671,10 @@ async function exportDocAsDocxRebuild(tab){
       if(semanticType==='h1')return new Paragraph({children:_defaultChildren(t,'h1'),heading:HeadingLevel.HEADING_1,spacing:{before:240,after:120}});
       if(semanticType==='h2')return new Paragraph({children:_defaultChildren(t,'h2'),heading:HeadingLevel.HEADING_2,spacing:{before:200,after:100}});
       if(semanticType==='h3')return new Paragraph({children:_defaultChildren(t,'h3'),heading:HeadingLevel.HEADING_3,spacing:{before:160,after:80}});
-      if(semanticType==='li')return new Paragraph({children:_defaultChildren(t,'li'),indent:{left:480},spacing:{line:defaultLineSpacing,after:0}});
+      if(semanticType==='h4')return new Paragraph({children:_defaultChildren(t,'h4'),heading:HeadingLevel.HEADING_4,spacing:{before:120,after:60}});
+      if(semanticType==='li')return new Paragraph({children:_defaultChildren(t,'li'),indent:{left:480},spacing:_defaultSpacing({after:0})});
       if(semanticType==='ref'||semanticType==='caption')return new Paragraph({children:_defaultChildren(t,semanticType)});
-      return new Paragraph({children:_defaultChildren(t,'p'),indent:{firstLine:firstLineTwips},spacing:{line:defaultLineSpacing,after:0}});
+      return new Paragraph({children:_defaultChildren(t,'p'),indent:{firstLine:firstLineTwips},spacing:_defaultSpacing({after:0})});
     });
     // Section properties: prefer uploaded-doc values when available.
     const srcSections=Array.isArray(docSections[tab.name])?docSections[tab.name]:[];
@@ -5219,7 +5366,7 @@ window.onload = function() {
   }
   
   // 初始化排版面板中的字体选择框
-  const fontSelects = ['fH1Font', 'fH2Font', 'fH3Font', 'fBFont'];
+  const fontSelects = ['fH1Font', 'fH2Font', 'fH3Font', 'fH4Font', 'fBFont'];
   fontSelects.forEach(id => {
     const select = document.getElementById(id);
     if (select) {
@@ -5231,6 +5378,11 @@ window.onload = function() {
       updateFontFamilyDisplay(select);
     }
   });
+  const lineSpacingMode = document.getElementById('fLineSpacingMode');
+  if (lineSpacingMode) {
+    lineSpacingMode.onchange = _syncLineSpacingUnit;
+    _syncLineSpacingUnit();
+  }
   
   // 控制后端监控按钮的显示
   const backendBtn = document.getElementById('backendMonitorBtn');

@@ -8,9 +8,10 @@ from core.qa_models import IssueSeverity, IssueCategory
 
 
 def _make_rules(h1f="FONT_A", h1s=16.0, h2f="FONT_A", h2s=14.0, h3f="FONT_A", h3s=12.0,
-                bf="FONT_BODY", bs=12.0) -> FormatRules:
+                h4f="FONT_A", h4s=12.0, bf="FONT_BODY", bs=12.0) -> FormatRules:
     return FormatRules(h1Font=h1f, h1Size=h1s, h2Font=h2f, h2Size=h2s,
-                       h3Font=h3f, h3Size=h3s, bFont=bf, bSize=bs)
+                       h3Font=h3f, h3Size=h3s, h4Font=h4f, h4Size=h4s,
+                       bFont=bf, bSize=bs)
 
 
 def _make_doc(*elements: DocElement) -> DocumentModel:
@@ -47,6 +48,23 @@ class TestFormatRulesModel:
         r = FormatRules.from_dict({"h1Size": "16.0", "bSize": "12"})
         assert r.h1Size == 16.0
         assert r.bSize == 12.0
+
+    def test_from_dict_keeps_batch20a_fields(self):
+        r = FormatRules.from_dict({
+            "h4Font": "FONT_H4",
+            "h4Size": "10.5",
+            "h1NumFormat": "1",
+            "h2NumFormat": "1.1",
+            "h3NumFormat": "1.1.1",
+            "h4NumFormat": "1.1.1.1",
+            "lineSpacingMode": "exact",
+            "lineSpacingValue": "20",
+        })
+        assert r.h4Font == "FONT_H4"
+        assert r.h4Size == 10.5
+        assert r.h4NumFormat == "1.1.1.1"
+        assert r.lineSpacingMode == "exact"
+        assert r.lineSpacingValue == 20.0
 
 
 class TestFormatCheckerNoIssues:
@@ -146,7 +164,7 @@ class TestFormatCheckerIntegration:
         assert len(report.issues) == 1
         assert "二级标题" in report.issues[0].title
 
-    def test_deeper_pseudo_heading_reuses_h3_rules(self):
+    def test_h4_pseudo_heading_uses_h4_rules(self):
         doc = _make_doc(
             _para(
                 "2.2.1 Deep Pseudo Section",
@@ -155,9 +173,16 @@ class TestFormatCheckerIntegration:
                 metadata={"structure_role": "heading", "heading_level": 4},
             )
         )
-        report = FormatChecker(_make_rules(h3f="FONT_A", h3s=12.0)).check(doc)
+        report = FormatChecker(_make_rules(h4f="FONT_A", h4s=12.0)).check(doc)
         assert len(report.issues) == 1
-        assert "三级标题" in report.issues[0].title
+        assert "四级标题" in report.issues[0].title
+
+    def test_h4_heading_mismatch_detected(self):
+        report = FormatChecker(_make_rules(h4f="FONT_A", h4s=10.5)).check(
+            _make_doc(_heading(4, "1.1.1.1 Detail", "FONT_B", 12))
+        )
+        assert any(i.rule_id == "format_font_heading_4" for i in report.issues)
+        assert any(i.rule_id == "format_size_heading_4" for i in report.issues)
 
 
 class TestQAEngineFormatRulesIntegration:
