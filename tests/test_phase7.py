@@ -41,7 +41,7 @@ class TestLLMConfig:
             os.path.join(os.path.dirname(__file__), "..", "config.yaml")
         )
         assert config.provider == "doubao"
-        assert config.api_key == "d9523eb2-f741-4122-ab0f-e6ed95ce59f2"
+        assert config.api_key is not None and len(config.api_key) > 0
         assert config.model == "Doubao-Seed-1.6"
 
 

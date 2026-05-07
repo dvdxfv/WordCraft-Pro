@@ -140,8 +140,8 @@ def page(context: BrowserContext) -> Page:
 
 @pytest.fixture()
 def credentials() -> tuple[str, str]:
-    email = os.getenv("WC_TEST_EMAIL", "13513645422@163.com")
-    password = os.getenv("WC_TEST_PASSWORD", "20010802xx")
+    email = os.getenv("WC_TEST_EMAIL", "")
+    password = os.getenv("WC_TEST_PASSWORD", "")
     return email, password
 
 
