@@ -1,7 +1,8 @@
 import base64
 import json
+import sys
 import time
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 
 from app import Api
 
@@ -75,6 +76,108 @@ def test_ai_qa_chunk_can_skip_quota_charge_after_first_chunk():
 
     assert data.get("entitlement_denied") is not True
     assert data.get("error_code") != "QUOTA_EXCEEDED"
+
+
+def test_call_ai_records_token_usage_for_dashboard_stats(monkeypatch):
+    class _FakeUsage:
+        @staticmethod
+        def model_dump():
+            return {"total_tokens": 321, "prompt_tokens": 123, "completion_tokens": 198}
+
+    class _FakeCompletions:
+        @staticmethod
+        def create(**_kwargs):
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content="ok"))],
+                usage=_FakeUsage(),
+            )
+
+    class _FakeOpenAI:
+        def __init__(self, **_kwargs):
+            self.chat = SimpleNamespace(completions=_FakeCompletions())
+
+    class _FakeSupabase:
+        def __init__(self):
+            self.logged = []
+            self.usage_counter_calls = []
+
+        @staticmethod
+        def get_user_entitlements(_user_id, access_token=None):
+            del access_token
+            return {
+                "tier": "free",
+                "status": "active",
+                "source": "system",
+                "usage": {
+                    "ai_qa_used": 0,
+                    "ai_parse_used": 0,
+                    "rule_check_used_today": 0,
+                },
+                "limits": {
+                    "ai_qa_per_period": 3,
+                    "ai_parse_per_period": 3,
+                    "rule_checks_per_day": 10,
+                },
+                "features": {
+                    "ai_qa": True,
+                    "ai_parse": True,
+                    "deep_xref": False,
+                    "personal_rule_library": False,
+                    "team_rule_share": False,
+                    "batch_check": False,
+                },
+            }
+
+        def record_token_usage(self, user_id, amount, purpose, model="", prompt_tokens=0, completion_tokens=0, access_token=None):
+            self.logged.append({
+                "user_id": user_id,
+                "amount": amount,
+                "purpose": purpose,
+                "model": model,
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "access_token": access_token,
+            })
+            return True
+
+        def increment_usage_counter(self, user_id, counter_name, amount, access_token=None):
+            self.usage_counter_calls.append((user_id, counter_name, amount, access_token))
+            return {"user_id": user_id, counter_name: amount}
+
+    fake_openai = ModuleType("openai")
+    fake_openai.OpenAI = _FakeOpenAI
+    monkeypatch.setitem(sys.modules, "openai", fake_openai)
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+
+    api = Api(supabase_enabled=False)
+    api._supabase = _FakeSupabase()
+    api._session = {
+        "user_id": "user-123",
+        "access_token": "token-123",
+        "user_info": {
+            "id": "user-123",
+            "email": "user@example.com",
+            "plan_tier": "free",
+            "plan_status": "active",
+            "plan_source": "system",
+            "feature_flags": {},
+        },
+    }
+
+    data = _json(api.callAI("system", "user", {"purpose": "ai_parse", "model": "deepseek-v4-flash"}))
+
+    assert data["content"] == "ok"
+    assert data["usage"]["total_tokens"] == 321
+    assert api._supabase.logged == [{
+        "user_id": "user-123",
+        "amount": 321,
+        "purpose": "ai_parse",
+        "model": "deepseek-v4-flash",
+        "prompt_tokens": 123,
+        "completion_tokens": 198,
+        "access_token": "token-123",
+    }]
+    assert api._supabase.usage_counter_calls == [("user-123", "ai_parse_used", 1, "token-123")]
 
 
 def test_free_user_cannot_save_personal_format_rules():

@@ -676,3 +676,18 @@ See [CLAUDE.md](CLAUDE.md) for remaining batch history (batch 1-7) and current s
 - `python -m pytest tests/test_plan_gating.py tests/test_team_workspace_contract.py tests/test_supabase_plan_migration.py -q`
 - `python -m pytest tests/test_batch_regression.py -q`
 - `python -m pytest tests/test_format_checker.py -q`
+## Recent fixes (2026-05-07) - Token 统计链路补充修复
+
+### 管理后台 Token 统计链路修复
+
+**涉及文件**: `app.py`、`core/supabase_client.py`、`tests/test_plan_gating.py`
+
+- 修复 `dashboard.html` 中 Token 看板长期显示 `0` 的问题
+- `callAI()` 成功后现在会统一归一化 `usage.total_tokens / prompt_tokens / completion_tokens`，并写入后台统计链
+- Python 后端写 `token_logs`、更新 `usage_counters` 时显式透传当前登录会话的 `access_token`，避免 `token_logs` 在 RLS 下按匿名写入被拒绝
+- 补齐 Python 侧 Supabase SDK 依赖，并规避仓库内同名 `supabase/` 目录遮住 `supabase-py` 的导入冲突
+- 新增回归测试，锁定“成功的 `callAI()` 会把 token 用量写入后台统计”
+- 实测验证：
+  - 本地 `http://127.0.0.1:5000/api/callAI` 返回 `usage.total_tokens = 13`
+  - Supabase `token_logs` 新增 `usage_amount = 13`
+  - `admin_token_daily_stats` 当日总量同步增长

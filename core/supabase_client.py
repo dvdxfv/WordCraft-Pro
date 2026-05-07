@@ -5,11 +5,32 @@ Supabase 客户端模块
 """
 
 import os
+import sys
 import json
 import logging
+from pathlib import Path
 from typing import Optional
 from datetime import datetime, timedelta, timezone
-from supabase import create_client, Client
+
+
+def _load_supabase_sdk():
+    repo_root = Path(__file__).resolve().parents[1]
+    original_sys_path = list(sys.path)
+    try:
+        filtered = []
+        for entry in sys.path:
+            current = Path(entry or os.getcwd()).resolve()
+            if current == repo_root:
+                continue
+            filtered.append(entry)
+        sys.path[:] = filtered
+        from supabase import create_client, Client  # type: ignore
+        return create_client, Client
+    finally:
+        sys.path[:] = original_sys_path
+
+
+create_client, Client = _load_supabase_sdk()
 
 logger = logging.getLogger(__name__)
 
@@ -185,7 +206,8 @@ class SupabaseClient:
                 self.client.postgrest.auth(self.key)
 
     def increment_usage_counter(self, user_id: str, counter_name: str, amount: int = 1,
-                                period_key: str | None = None, day_key: str | None = None) -> dict:
+                                period_key: str | None = None, day_key: str | None = None,
+                                access_token: str | None = None) -> dict:
         from core.entitlements import current_day_key, current_period_key
 
         allowed = {"ai_qa_used", "ai_parse_used", "rule_check_used_today"}
@@ -193,12 +215,14 @@ class SupabaseClient:
             raise ValueError(f"Unsupported usage counter: {counter_name}")
         period_key = period_key or current_period_key()
         day_key = day_key or current_day_key()
-        row = self.get_or_create_usage_counter(user_id, period_key, day_key)
+        row = self.get_or_create_usage_counter(user_id, period_key, day_key, access_token=access_token)
         new_value = int(row.get(counter_name) or 0) + int(amount)
         updates = {counter_name: new_value, "updated_at": datetime.now(timezone.utc).isoformat()}
         if counter_name == "rule_check_used_today":
             updates["day_key"] = day_key
         try:
+            if access_token:
+                self.client.postgrest.auth(access_token)
             if row.get("id"):
                 result = self.client.table("usage_counters").update(updates).eq("id", row["id"]).execute()
             else:
@@ -210,6 +234,9 @@ class SupabaseClient:
         except Exception as e:
             logger.error("更新使用计数失败: %s", e)
             return {**row, **updates}
+        finally:
+            if access_token:
+                self.client.postgrest.auth(self.key)
 
     def get_user_entitlements(self, user_id: str, access_token: str | None = None) -> dict:
         from core.entitlements import build_entitlements, current_day_key, current_period_key
@@ -553,7 +580,7 @@ class SupabaseClient:
         """获取用户 Token 用量"""
         try:
             # 获取配额
-            profile = self.get_profile(user_id)
+            profile = self.get_profile(user_id, access_token=access_token)
             quota = profile.get('token_quota', 100000) if profile else 100000
             used = profile.get('token_used', 0) if profile else 0
             
@@ -585,11 +612,14 @@ class SupabaseClient:
                 "month_usage": 0,
             }
 
-    def record_token_usage(self, user_id: str, amount: int, purpose: str, 
-                           model: str = "", prompt_tokens: int = 0, completion_tokens: int = 0) -> bool:
+    def record_token_usage(self, user_id: str, amount: int, purpose: str,
+                           model: str = "", prompt_tokens: int = 0, completion_tokens: int = 0,
+                           access_token: str | None = None) -> bool:
         """记录 Token 使用"""
         try:
             # 插入使用记录
+            if access_token:
+                self.client.postgrest.auth(access_token)
             log_entry = {
                 "user_id": user_id,
                 "usage_amount": amount,
@@ -601,7 +631,7 @@ class SupabaseClient:
             self.client.table("token_logs").insert(log_entry).execute()
             
             # 更新用户档案中的已用量
-            profile = self.get_profile(user_id)
+            profile = self.get_profile(user_id, access_token=access_token)
             if profile:
                 new_used = profile.get('token_used', 0) + amount
                 self.client.table("profiles").update({"token_used": new_used}).eq("id", user_id).execute()
@@ -610,6 +640,9 @@ class SupabaseClient:
         except Exception as e:
             logger.error("记录 Token 使用失败: %s", e)
             return False
+        finally:
+            if access_token:
+                self.client.postgrest.auth(self.key)
 
     # ------------------------------------------------------------------
     #  Templates 表操作

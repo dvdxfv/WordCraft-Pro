@@ -316,10 +316,82 @@ class Api:
             row["rule_check_used_today"] = 0
         return row
 
+    @staticmethod
+    def _normalize_ai_usage_payload(usage) -> dict:
+        if not usage:
+            return {}
+        if isinstance(usage, dict):
+            return dict(usage)
+        if hasattr(usage, "model_dump"):
+            try:
+                return dict(usage.model_dump())
+            except Exception:
+                pass
+        if hasattr(usage, "dict"):
+            try:
+                return dict(usage.dict())
+            except Exception:
+                pass
+        normalized = {}
+        for key in ("total_tokens", "prompt_tokens", "completion_tokens"):
+            value = getattr(usage, key, None)
+            if value is not None:
+                normalized[key] = value
+        return normalized
+
+    def _record_ai_token_usage(self, purpose: str, model: str, usage) -> None:
+        usage_data = self._normalize_ai_usage_payload(usage)
+        try:
+            amount = int(usage_data.get("total_tokens") or 0)
+        except (TypeError, ValueError):
+            amount = 0
+        if amount <= 0:
+            return
+
+        try:
+            prompt_tokens = int(usage_data.get("prompt_tokens") or 0)
+        except (TypeError, ValueError):
+            prompt_tokens = 0
+        try:
+            completion_tokens = int(usage_data.get("completion_tokens") or 0)
+        except (TypeError, ValueError):
+            completion_tokens = 0
+
+        try:
+            self._ensure_supabase_initialized()
+            user_id = self._session.get("user_id") if self._session else None
+            access_token = self._session.get("access_token") if self._session else None
+            if self._supabase and user_id:
+                self._supabase.record_token_usage(
+                    user_id,
+                    amount,
+                    purpose,
+                    model=model,
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    access_token=access_token,
+                )
+                return
+            from core.token_tracker import TokenTracker
+            TokenTracker().record_usage(
+                amount,
+                purpose=purpose,
+                model=model,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+            )
+        except Exception as exc:
+            logger.warning("Failed to persist AI token usage: %s", exc)
+
     def _increment_usage(self, counter_name: str, amount: int = 1) -> dict:
         user_id = self._local_user_id()
         if self._supabase and self._session.get("user_id"):
-            return self._supabase.increment_usage_counter(user_id, counter_name, amount)
+            return self._supabase.increment_usage_counter(
+                user_id,
+                counter_name,
+                amount,
+                access_token=(self._session or {}).get("access_token"),
+            )
         row = self._get_usage_counter(user_id)
         row[counter_name] = int(row.get(counter_name) or 0) + int(amount)
         return row
@@ -2270,12 +2342,14 @@ class Api:
             resp = client.chat.completions.create(**req)
             content = (resp.choices[0].message.content or "").strip()
             usage = getattr(resp, "usage", None)
+            usage_payload = self._normalize_ai_usage_payload(usage)
+            self._record_ai_token_usage(purpose, model, usage_payload)
             if charge_quota:
                 if purpose == "ai_qa":
                     self._increment_usage("ai_qa_used")
                 else:
                     self._increment_usage("ai_parse_used")
-            return json.dumps({"content": content, "usage": usage.model_dump() if usage else {}}, ensure_ascii=False)
+            return json.dumps({"content": content, "usage": usage_payload}, ensure_ascii=False)
         except Exception as exc:
             return json.dumps({"error": str(exc)}, ensure_ascii=False)
 
