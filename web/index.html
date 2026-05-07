@@ -1474,6 +1474,8 @@ let rawHtmlContents={};  // stores original mammoth HTML for rich preview
 const tabQAState={};   // per-tab live QA issue list (survives tab switches)
 const tabXrefState={}; // per-tab live xref result {targets, matches}
 const tabAcceptedEdits={}; // per-tab accepted edits [{original,suggestion,issueIdx}] for clone export
+const tabAcceptedFormatEdits={}; // per-tab accepted format edits [{issueIdx,qaElementIndex,sourceIndex,kind,spec}]
+const tabOriginalFormatState={}; // per-tab original element fmt/runs snapshots keyed by sourceIndex
 const tabXrefAcceptedEdits={}; // per-tab xref adopted refs [{target_label,bookmark_name,element_index}] for REF field export
 let _currentXrefIssues=[]; // active tab's xref adoption issues
 let _savedFormatRules=null; // user-saved format requirements for QA compliance checking
@@ -1536,6 +1538,206 @@ function _collectQAElements(fn){
     const txt=typeof el?.text==='string'?el.text.trim():'';
     return !!txt&&!_isExcludedFromQABodyElement(el);
   });
+}
+function _cloneSimple(v){
+  return v==null?v:JSON.parse(JSON.stringify(v));
+}
+function _getQAElementRef(fn,qaElementIndex){
+  const els=Array.isArray(docContents[fn])?docContents[fn]:[];
+  let qaIdx=-1;
+  for(let sourceIndex=0;sourceIndex<els.length;sourceIndex++){
+    const el=els[sourceIndex];
+    const txt=typeof el?.text==='string'?el.text.trim():'';
+    if(!txt||_isExcludedFromQABodyElement(el))continue;
+    qaIdx++;
+    if(qaIdx===qaElementIndex)return{element:el,sourceIndex};
+  }
+  return null;
+}
+function _ensureOriginalFormatSnapshot(fn,sourceIndex){
+  if(sourceIndex<0)return;
+  if(!tabOriginalFormatState[fn])tabOriginalFormatState[fn]={};
+  if(tabOriginalFormatState[fn][sourceIndex])return;
+  const el=docContents[fn]?.[sourceIndex];
+  if(!el)return;
+  tabOriginalFormatState[fn][sourceIndex]={
+    runs:_cloneSimple(el.runs)||null,
+    fmt:_cloneSimple(el.fmt)||null,
+  };
+}
+function _restoreManagedFormatStyles(){
+  const page=document.getElementById('docPage');
+  if(!page)return;
+  page.querySelectorAll('[data-wc-format-managed="1"]').forEach(node=>{
+    const prev=node.getAttribute('data-wc-format-orig-style');
+    if(prev===null)return;
+    if(prev)node.setAttribute('style',prev);
+    else node.removeAttribute('style');
+    node.removeAttribute('data-wc-format-managed');
+    node.removeAttribute('data-wc-format-orig-style');
+  });
+}
+function _markManagedFormatNode(node){
+  if(!node||node.nodeType!==1)return false;
+  if(node.getAttribute('data-wc-format-managed')==='1')return true;
+  node.setAttribute('data-wc-format-managed','1');
+  node.setAttribute('data-wc-format-orig-style',node.getAttribute('style')||'');
+  return true;
+}
+function _resolveFormatIssueKind(ruleId=''){
+  if(ruleId.startsWith('format_font_'))return'font';
+  if(ruleId.startsWith('format_size_'))return'size';
+  if(ruleId==='format_line_spacing')return'lineSpacing';
+  return'';
+}
+function _buildFormatSpecForIssue(q,element){
+  const kind=_resolveFormatIssueKind(q?.ruleId||'');
+  if(!kind)return null;
+  if(kind==='lineSpacing'){
+    const mode=(document.getElementById('fLineSpacingMode')?.value||'multiple').trim().toLowerCase();
+    const value=parseFloat(document.getElementById('fLH')?.value);
+    if(!mode||!Number.isFinite(value)||value<=0)return null;
+    return{kind,mode,value};
+  }
+  const semanticType=_getSemanticElementType(element||{});
+  let fontId='fBFont',sizeId='fBSize';
+  if(semanticType==='h1'){fontId='fH1Font';sizeId='fH1Size';}
+  else if(semanticType==='h2'){fontId='fH2Font';sizeId='fH2Size';}
+  else if(semanticType==='h3'){fontId='fH3Font';sizeId='fH3Size';}
+  else if(semanticType==='h4'){fontId='fH4Font';sizeId='fH4Size';}
+  if(kind==='font'){
+    const eastAsiaFont=document.getElementById(fontId)?.value||'';
+    const westFont=document.getElementById('fWFont')?.value||'Times New Roman';
+    if(!eastAsiaFont)return null;
+    return{kind,eastAsiaFont,westFont};
+  }
+  const sizePt=parseFloat(document.getElementById(sizeId)?.value);
+  if(!Number.isFinite(sizePt)||sizePt<=0)return null;
+  return{kind,sizePt};
+}
+function _touchDocElementFormat(fn,edit){
+  if(!fn||!edit||edit.sourceIndex<0)return;
+  const el=docContents[fn]?.[edit.sourceIndex];
+  if(!el)return;
+  _ensureOriginalFormatSnapshot(fn,edit.sourceIndex);
+  if(!Array.isArray(el.runs))el.runs=[];
+  if(!el.fmt||typeof el.fmt!=='object')el.fmt={};
+  if(edit.kind==='font'){
+    const font=edit.spec?.eastAsiaFont;
+    if(!font)return;
+    el.runs.forEach(run=>{
+      if(!run||typeof run!=='object')return;
+      if(!(run.text||'').trim())return;
+      run.font_eastAsia=font;
+      run.font_name=font;
+    });
+  }else if(edit.kind==='size'){
+    const sizePt=edit.spec?.sizePt;
+    if(!Number.isFinite(sizePt)||sizePt<=0)return;
+    el.runs.forEach(run=>{
+      if(!run||typeof run!=='object')return;
+      if(!(run.text||'').trim())return;
+      run.font_size_pt=sizePt;
+    });
+  }else if(edit.kind==='lineSpacing'){
+    const mode=edit.spec?.mode;
+    const value=edit.spec?.value;
+    if(!mode||!Number.isFinite(value)||value<=0)return;
+    if(mode==='exact'){
+      el.fmt.line_spacing_rule='EXACTLY';
+      el.fmt.line_spacing=null;
+      el.fmt.line_spacing_twips=Math.round(value*20);
+    }else{
+      el.fmt.line_spacing_rule=null;
+      el.fmt.line_spacing=value;
+      el.fmt.line_spacing_twips=null;
+    }
+  }
+}
+function _rebuildAcceptedFormatState(fn){
+  if(!fn)return;
+  const originals=tabOriginalFormatState[fn]||{};
+  Object.entries(originals).forEach(([sourceIndex,snapshot])=>{
+    const idx=Number(sourceIndex);
+    const el=docContents[fn]?.[idx];
+    if(!el)return;
+    el.runs=_cloneSimple(snapshot.runs)||null;
+    el.fmt=_cloneSimple(snapshot.fmt)||null;
+  });
+  (tabAcceptedFormatEdits[fn]||[]).forEach(edit=>_touchDocElementFormat(fn,edit));
+}
+function _applyAcceptedFormatStyles(fn){
+  _restoreManagedFormatStyles();
+  const page=document.getElementById('docPage');
+  if(!page||!fn)return;
+  const blocks=Array.from(page.querySelectorAll('p,li,td,th'));
+  (tabAcceptedFormatEdits[fn]||[]).forEach(edit=>{
+    const block=Number.isInteger(edit.qaElementIndex)&&edit.qaElementIndex>=0?blocks[edit.qaElementIndex]:null;
+    if(!block)return;
+    const nodes=[block,...block.querySelectorAll('*')];
+    if(edit.kind==='font'){
+      const font=edit.spec?.eastAsiaFont;
+      const west=edit.spec?.westFont||'Times New Roman';
+      if(!font)return;
+      const css=`"${font}","${west}",serif`;
+      nodes.forEach(node=>{
+        if(!_markManagedFormatNode(node))return;
+        node.style.setProperty('font-family',css,'important');
+      });
+    }else if(edit.kind==='size'){
+      const sizePt=edit.spec?.sizePt;
+      if(!Number.isFinite(sizePt)||sizePt<=0)return;
+      nodes.forEach(node=>{
+        if(!_markManagedFormatNode(node))return;
+        node.style.setProperty('font-size',`${sizePt}pt`,'important');
+      });
+    }else if(edit.kind==='lineSpacing'){
+      const mode=edit.spec?.mode;
+      const value=edit.spec?.value;
+      if(!mode||!Number.isFinite(value)||value<=0)return;
+      if(!_markManagedFormatNode(block))return;
+      block.style.setProperty('line-height',mode==='exact'?`${value}pt`:String(value),'important');
+    }
+  });
+}
+function _upsertAcceptedFormatEdit(fn,edit){
+  if(!fn||!edit)return;
+  if(!tabAcceptedFormatEdits[fn])tabAcceptedFormatEdits[fn]=[];
+  const list=tabAcceptedFormatEdits[fn];
+  const idx=list.findIndex(item=>item.issueIdx===edit.issueIdx);
+  if(idx>=0)list[idx]=edit;
+  else list.push(edit);
+  _rebuildAcceptedFormatState(fn);
+  _applyAcceptedFormatStyles(fn);
+}
+function _removeAcceptedFormatEdit(fn,issueIdx){
+  if(!fn||!tabAcceptedFormatEdits[fn])return;
+  tabAcceptedFormatEdits[fn]=tabAcceptedFormatEdits[fn].filter(edit=>edit.issueIdx!==issueIdx);
+  _rebuildAcceptedFormatState(fn);
+  _applyAcceptedFormatStyles(fn);
+}
+function _acceptFormatIssue(i){
+  const q=window.currentQAData?.[i];
+  const fn=activeTabIdx>=0?openTabs[activeTabIdx].name:null;
+  if(!q||!fn||q.cat!=='格式问题')return false;
+  const ref=_getQAElementRef(fn,q.elementIndex);
+  if(!ref)return false;
+  const spec=_buildFormatSpecForIssue(q,ref.element);
+  if(!spec)return false;
+  _upsertAcceptedFormatEdit(fn,{
+    issueIdx:i,
+    qaElementIndex:q.elementIndex,
+    sourceIndex:ref.sourceIndex,
+    kind:spec.kind,
+    spec,
+  });
+  const hl=document.querySelector(`[data-issue-id="${i}"]`);
+  if(hl){
+    hl.className='hl-accepted';
+    hl.removeAttribute('data-tip');
+    hl.dataset.acceptedId=i;
+  }
+  return true;
 }
 try{
   const _sfr=localStorage.getItem('wc_format_rules');
@@ -1941,6 +2143,7 @@ function renderDocument(){
       let fix=document.getElementById('docx-bg-fix');
       if(!fix){fix=document.createElement('style');fix.id='docx-bg-fix';document.head.appendChild(fix);}
       _refreshDocxBgFix();
+      _applyAcceptedFormatStyles(tab.name);
     }).catch(e=>{page.classList.remove('is-docx');page.innerHTML='<p style="color:#d70015;padding:20px">docx 渲染失败：'+esc(e.message)+'</p>';});
     return;
   }
@@ -1975,6 +2178,7 @@ function renderDocument(){
   });
   flushLi();
   page.innerHTML=parts.join('');
+  _applyAcceptedFormatStyles(tab.name);
 }
 function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function setupDocEvents(){
@@ -2134,7 +2338,7 @@ function _markIssueAccepted(i){
   }
   // Track edit pair for clone export
   const fn=activeTabIdx>=0?openTabs[activeTabIdx].name:null;
-  if(fn&&q.hlText&&q.suggestion&&q.hlText!==q.suggestion){
+  if(fn&&q.cat!=='格式问题'&&q.hlText&&q.suggestion&&q.hlText!==q.suggestion){
     if(!tabAcceptedEdits[fn])tabAcceptedEdits[fn]=[];
     if(!tabAcceptedEdits[fn].some(e=>e.issueIdx===i))
       tabAcceptedEdits[fn].push({original:q.hlText,suggestion:q.suggestion,issueIdx:i});
@@ -2148,6 +2352,12 @@ function acceptSuggestion(btn,e){
   if(!hl?.dataset?.tip)return;
   const d=JSON.parse(hl.dataset.tip);
   const issueId=hl.dataset.issueId!=null?parseInt(hl.dataset.issueId):-1;
+  const q=issueId>=0?window.currentQAData?.[issueId]:null;
+  if(issueId>=0&&q?.cat==='格式问题'){
+    if(_acceptFormatIssue(issueId))_markIssueAccepted(issueId);
+    const tip=btn.closest('.anno-tip');if(tip){tip.remove();activeTip=null;}
+    return;
+  }
   if(d.suggestion){
     hl.textContent=d.suggestion;
     hl.className='hl-accepted';
@@ -3304,6 +3514,7 @@ async function runQA(){
           suggestion:it.suggestion||'',
           hlText:it.location_text||'',
           hlClass:clsMap[sev]||'hl-info',
+          ruleId:it.rule_id||'',
           elementIndex:Number.isInteger(it.element_index)?it.element_index:-1,
           startPos:Number.isInteger(it.start_pos)?it.start_pos:-1,
           endPos:Number.isInteger(it.end_pos)?it.end_pos:-1,
@@ -3459,6 +3670,10 @@ function locateIssue(i){
 }
 function acceptIssue(i){
   const q=window.currentQAData[i];if(!q||q.status!=='pending')return;
+  if(_acceptFormatIssue(i)){
+    _markIssueAccepted(i);
+    return;
+  }
   const hl=document.querySelector(`[data-issue-id="${i}"]`);
   if(hl){
     if(q.suggestion)hl.textContent=q.suggestion;
@@ -3485,6 +3700,8 @@ function acceptAllIssues(){const c=window.currentQAData.filter(q=>q.status==='pe
 function rejectAllIssues(){const c=window.currentQAData.filter(q=>q.status==='pending').length;window.currentQAData.forEach((_,i)=>rejectIssue(i));showToast('已忽略 '+c+' 个问题');}
 function undoAcceptedIssue(i){
   const q=window.currentQAData[i];if(!q||q.status!=='accepted')return;
+  const fn=activeTabIdx>=0?openTabs[activeTabIdx].name:null;
+  if(fn&&q.cat==='格式问题')_removeAcceptedFormatEdit(fn,i);
   const hl=document.querySelector(`[data-accepted-id="${i}"]`)||document.querySelector(`[data-issue-id="${i}"]`);
   if(hl){
     hl.textContent=q.hlText||hl.textContent;
@@ -3498,7 +3715,6 @@ function undoAcceptedIssue(i){
     card.classList.remove('accepted');
     const undoBtn=card.querySelector('.undo-accept');if(undoBtn)undoBtn.remove();
   }
-  const fn=activeTabIdx>=0?openTabs[activeTabIdx].name:null;
   if(fn&&tabAcceptedEdits[fn])tabAcceptedEdits[fn]=tabAcceptedEdits[fn].filter(e=>e.issueIdx!==i);
   document.getElementById('batchBar').style.display='flex';
   showToast('已撤销采纳');
@@ -4508,7 +4724,8 @@ async function exportDocAsDocxClone(tab){
 
 async function exportDocAsDocx(tab){
   const isWordLike=tab&&(tab.type==='docx'||tab.type==='doc');
-  if(isWordLike&&docxBuffers[tab.name]&&typeof JSZip!=='undefined'){
+  const hasAcceptedFormatEdits=!!(tabAcceptedFormatEdits[tab.name]&&tabAcceptedFormatEdits[tab.name].length);
+  if(isWordLike&&docxBuffers[tab.name]&&typeof JSZip!=='undefined'&&!hasAcceptedFormatEdits){
     try{return await exportDocAsDocxClone(tab);}
     catch(cloneErr){console.warn('[WC] clone export failed, falling back to rebuild',cloneErr);}
   }
