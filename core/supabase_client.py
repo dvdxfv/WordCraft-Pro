@@ -9,7 +9,6 @@ import os
 import sys
 import json
 import logging
-import re
 import uuid
 from pathlib import Path
 from typing import Optional
@@ -760,13 +759,10 @@ class SupabaseClient:
     @staticmethod
     def _build_template_storage_path(user_id: str, file_path: str, file_name: str) -> str:
         raw_name = (file_name or "").strip() or "template"
-        base_name, given_ext = os.path.splitext(raw_name)
+        _, given_ext = os.path.splitext(raw_name)
         source_ext = os.path.splitext(file_path or "")[1]
-        ext = given_ext or source_ext or ".docx"
-        safe_base = re.sub(r"[^\w\u4e00-\u9fff.-]+", "_", base_name or "template").strip("._")
-        if not safe_base:
-            safe_base = "template"
-        unique_name = f"{safe_base}_{uuid.uuid4().hex}{ext.lower()}"
+        ext = (given_ext or source_ext or ".docx").lower()
+        unique_name = f"template_{uuid.uuid4().hex}{ext}"
         return f"{user_id}/{unique_name}"
 
     def upload_template_file(self, user_id: str, file_path: str, file_name: str) -> Optional[str]:

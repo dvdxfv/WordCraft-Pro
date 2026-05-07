@@ -38,6 +38,8 @@ def test_build_template_storage_path_keeps_extension_and_generates_unique_name()
     assert path2.startswith("user-1/")
     assert path1.endswith(".docx")
     assert path2.endswith(".docx")
+    assert path1.split("/", 1)[1].startswith("template_")
+    assert path2.split("/", 1)[1].startswith("template_")
     assert path1 != path2
 
 
@@ -58,6 +60,7 @@ def test_upload_template_file_uses_unique_storage_path_and_detected_mime():
         storage_path, file_content, options = bucket.upload_calls[0]
         assert storage_path.startswith("user-1/")
         assert storage_path.endswith(".docx")
+        assert storage_path.split("/", 1)[1].startswith("template_")
         assert file_content == b"test-template"
         assert options["content-type"] == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     finally:
