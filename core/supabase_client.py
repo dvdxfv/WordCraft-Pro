@@ -39,8 +39,10 @@ class SupabaseClient:
     """封装 Supabase 客户端操作"""
 
     def __init__(self, url: Optional[str] = None, key: Optional[str] = None):
-        self.url = url or os.environ.get('SUPABASE_URL', 'https://nzujajuefdsheggulpze.supabase.co')
-        self.key = key or os.environ.get('SUPABASE_KEY', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im56dWphanVlZmRzaGVnZ3VscHplIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYyNDY0MDMsImV4cCI6MjA5MTgyMjQwM30.N3jsg3tIi6ezlmp_MvQYvbUo41SzR5kEBECawel5KDE')
+        self.url = url or os.environ.get('SUPABASE_URL', '')
+        self.key = key or os.environ.get('SUPABASE_KEY', '')
+        if not self.url or not self.key:
+            raise ValueError("SUPABASE_URL 和 SUPABASE_KEY 必须通过环境变量配置")
         
         self.client: Client = create_client(self.url, self.key)
         logger.info("Supabase 客户端初始化成功: %s", self.url)
