@@ -11,16 +11,20 @@ markdown-it-py>=2.2.0        # Markdown 解析
 # ===== LLM 集成 =====
 openai>=1.0.0                # OpenAI API 客户端（兼容国产API）
 
+# ===== Web 服务 =====
+flask>=3.0.0                 # Web 框架
+flask-cors>=4.0.0            # 跨域支持
+
+# ===== Supabase =====
+supabase>=2.0.0              # Supabase 客户端
+
 # ===== 工具库 =====
 PyYAML>=6.0                  # YAML 配置文件
 pydantic>=2.5.0              # 数据校验
 chardet>=5.2.0               # 字符编码检测
 pypinyin>=0.50.0             # 拼音转换（错别字辅助）
+psutil>=5.9.0                # 系统资源监控（性能测试用）
 
 # ===== 开发/测试 =====
 pytest>=7.4.0                # 单元测试
-pytest-qt>=4.2.0             # Qt 测试支持
 anyio>=4.0.0                 # 异步测试支持
-
-# ===== 打包分发 =====
-PyInstaller>=6.0.0           # Windows/macOS 打包

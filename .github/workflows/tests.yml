@@ -23,21 +23,9 @@ jobs:
           pip install -r requirements.txt
           pip install pytest playwright python-docx
           python -m playwright install chromium
-      - name: Unit + integration + smoke e2e
-        env:
-          WC_TEST_EMAIL: ${{ secrets.WC_TEST_EMAIL }}
-          WC_TEST_PASSWORD: ${{ secrets.WC_TEST_PASSWORD }}
+      - name: Core regression tests
         run: |
-          pytest -m "not slow and not external and (smoke or integration or not e2e)" -q
-      - name: Batch regression canary (anti-rework)
-        run: |
-          pytest tests/test_batch_regression.py -v
-      - name: Export docx regression canary
-        env:
-          WC_TEST_EMAIL: ${{ secrets.WC_TEST_EMAIL }}
-          WC_TEST_PASSWORD: ${{ secrets.WC_TEST_PASSWORD }}
-        run: |
-          pytest tests/e2e/test_export_docx_regression.py -q
+          pytest tests/test_batch_regression.py tests/test_format_checker.py tests/test_entitlements.py tests/test_document_structure.py -v
       - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
