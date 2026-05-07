@@ -37,9 +37,10 @@ class TestLLMConfig:
         assert config.max_tokens == 4096
 
     def test_config_from_yaml(self):
-        config = LLMConfig.from_yaml(
-            os.path.join(os.path.dirname(__file__), "..", "config.yaml")
-        )
+        config_path = os.path.join(os.path.dirname(__file__), "..", "config.yaml")
+        if not os.path.exists(config_path):
+            pytest.skip("config.yaml not present in CI environment")
+        config = LLMConfig.from_yaml(config_path)
         assert config.provider == "doubao"
         assert config.api_key is not None and len(config.api_key) > 0
         assert config.model == "Doubao-Seed-1.6"
@@ -91,6 +92,8 @@ class TestCreateLLMClient:
 
     def test_create_from_config_path(self):
         config_path = os.path.join(os.path.dirname(__file__), "..", "config.yaml")
+        if not os.path.exists(config_path):
+            pytest.skip("config.yaml not present in CI environment")
         client = create_llm_client(config_path=config_path)
         assert isinstance(client, DoubaoClient)
 
