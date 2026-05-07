@@ -239,6 +239,37 @@
     border-color:var(--border-hover);
     background:var(--accent-dim);
   }
+  .btn-secondary{
+    background:transparent;
+    color:var(--text);
+    padding:14px 34px;
+    border-radius:28px;
+    font-size:15px;
+    font-weight:500;
+    border:1px solid rgba(255,255,255,0.35);
+    cursor:pointer;
+    transition:all 0.3s ease;
+  }
+  .btn-secondary:hover{
+    border-color:rgba(255,255,255,0.65);
+    background:rgba(255,255,255,0.06);
+    box-shadow:0 0 16px rgba(255,255,255,0.08);
+  }
+  .btn-text{
+    background:transparent;
+    color:var(--text-muted);
+    padding:14px 20px;
+    border-radius:28px;
+    font-size:14px;
+    font-weight:400;
+    border:none;
+    cursor:pointer;
+    transition:color 0.2s ease;
+    letter-spacing:0.01em;
+  }
+  .btn-text:hover{
+    color:var(--text);
+  }
 
   /* MOCKUP */
   .mockup-wrap{
@@ -1102,7 +1133,8 @@
   <p class="hero-sub">一键解析、自动排版、质量检查、交叉引用校验，支持自然语言描述排版需求，由 DeepSeek-V4 提供 AI 能力。</p>
   <div class="hero-actions">
     <button class="btn-primary" onclick="enterApp()">进入应用</button>
-    <button class="btn-ghost" onclick="document.getElementById('features').scrollIntoView({behavior:'smooth'})">查看功能详情</button>
+    <button class="btn-secondary" onclick="document.getElementById('download').scrollIntoView({behavior:'smooth'})">使用说明</button>
+    <button class="btn-text" onclick="document.getElementById('features').scrollIntoView({behavior:'smooth'})">查看功能详情 ↓</button>
   </div>
 
   <!-- MOCKUP -->
@@ -1469,7 +1501,7 @@
     <h2>立即开始使用 WordCraft Pro</h2>
     <p>规则检查永久免费，AI 深度检查按需付费，论文季专属优惠进行中。</p>
     <div class="cta-actions" style="justify-content: center;">
-      <button class="btn-ghost" style="font-size:16px;padding:16px 40px;background: white; color: black; box-shadow: 0 0 30px rgba(255,255,255,0.3);">查看使用文档</button>
+      <button class="btn-ghost" style="font-size:16px;padding:16px 40px;background: white; color: black; box-shadow: 0 0 30px rgba(255,255,255,0.3);" onclick="window.open('docs.html','_blank')">查看使用文档</button>
     </div>
     <div style="margin-top:16px">
       <div class="pill-tag">
@@ -1492,7 +1524,7 @@
   <div class="footer-links">
     <a href="#">README</a>
     <a href="#">GitHub</a>
-    <a href="#">使用文档</a>
+    <a href="docs.html" target="_blank">使用文档</a>
     <a href="#pricing-emergency">论文格式急诊</a>
     <a href="#" title="即将上线" onclick="event.preventDefault();return false;" style="cursor:not-allowed;opacity:0.4">📱 微信联系（敬请期待）</a>
   </div>

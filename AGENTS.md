@@ -12,30 +12,26 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 7. 每周至少一次 `/retro`，追踪返工热点与漏测模式。
 ## Current status
 
-第十五批（含 run 样式修复）+ 第十四批（含 Phase 3 E2E）+ 第十三批已完成（2026-04-27）。
+**第二十批（20A + 20B）已完成（2026-05-07）**
 
-- 2026-04-28：已完成一轮交叉引用修复收口：
-  - 后端贯通 `scan_index`，引用结果按正文扫描顺序输出
-  - 前端交叉引用列表改为按 `scan_index` 展示，并合并连续多引用（如 `[1][2]`、`[2][3][6][7]`）
-  - `TargetScanner` 已恢复章节目标识别，`tests/test_phase5.py` 由 5 failed 修复至 **32 passed**
-  - 当前新增跳转定位修复：交叉引用点击从“按第几个同号引用猜测”改为“结合段落上下文定位”
+**20A — 自定义排版能力补齐**
+- 格式面板补 H4 字体/字号、H1-H4 编号格式字段
+- 行距从单值升级为”模式 + 数值”（lineSpacingMode / lineSpacingValue）
+- FormatRules 模型接住 H4 和行距模式，QA 链路完整消费
+- 计划链接：`PLANS/batch20a_custom_format_editor_upgrade.md`
 
-- Batch14 全量测试通过：`tests/test_format_checker.py`（23）+ `tests/test_batch_regression.py`（27）+ `tests/e2e/test_format_qa_workflow.py`（3）= **53 tests passed**。
+**20B — AI 解析排版改进 + 行距检查**
+- `runAIParse()` 回归修复：inner try-catch、no_thinking、max_tokens:4000
+- Primary + Fallback prompt 重写：notes 专用规则、8 条抽取指令
+- `_sanitizeAIParseRules()`：lineHeight > 5 映射 exact 模式修复；lineSpacingValue 无 mode 时自动推断
+- `_collectFormatRules()`：去掉硬编码默认值（黑体/宋体/16/1.5/multiple），未填字段不再触发误报
+- `app.py:callAI()`：支持 `no_thinking` 标志，DeepSeek 可按需关闭推理模式
+- `FormatChecker`：新增行距检查（SINGLE/1.0 默认值跳过，上限 5 条）
+- 计划链接：`PLANS/batch20b_ai_parse_template_alignment.md`
 
-- 完成项细节统一维护在 [CHANGELOG.md](docs/CHANGELOG.md)（第十三至第十五批）。
-- 计划文档索引：
-  - 第十四批：`PLANS/batch14_format_qa.md`
-  - 第十五批：`PLANS/batch15_ai_format_parser_improvement.md`
+全量测试通过：`tests/test_format_checker.py`（33）+ `tests/test_batch_regression.py`（50）+ JS `test_ai_parse_normalize.js`（17）= **83 Python + 17 JS passed**
 
----
-
-## Next batch（第十五批之后）
-
-**待办 1：第十五批后续优化与稳定性收口（优先）**
-- 现状：第十四批 Phase 3 E2E 已闭环（3/3 通过），第十五批核心能力已完成。
-- 目标：继续围绕格式规则解析精度、回归稳定性与交互体验做增量优化。
-- 当前收口重点：继续观察交叉引用点击跳转在重复引用号场景下的稳定性，必要时补充更强的段落唯一标识。
-- 计划链接：`PLANS/batch15_ai_format_parser_improvement.md`
+- 完成项细节统一维护在 [CHANGELOG.md](docs/CHANGELOG.md)。
 
 ---
 
@@ -270,14 +266,14 @@ See [BUSINESS.md](docs/BUSINESS.md) for monetization strategy and pricing detail
 
 ---
 
-See [CHANGELOG.md](docs/CHANGELOG.md) for detailed fix history（第一至十四批修复记录）. Deployment notes: `DEPLOYMENT.md`（暂未提供）.
+See [CHANGELOG.md](docs/CHANGELOG.md) for detailed fix history（第八批至第二十批修复记录）. Deployment notes: `DEPLOYMENT.md`（暂未提供）.
 
 ## Test Coverage（回归测试）
 
-`tests/test_batch_regression.py` — 27 个测试，覆盖第一至第十三批所有已修复问题。
+`tests/test_batch_regression.py` — 50 个测试，覆盖第一至第十八批所有已修复问题。
 **每次修改代码后必须运行此文件**，任何已修复问题回退都会在此处失败。
 
-`tests/test_format_checker.py` — 23 个单元测试，覆盖第十四批 Phase 1 Core（FormatRules + FormatChecker + QAEngine 集成）。
+`tests/test_format_checker.py` — 33 个单元测试，覆盖第十四批 Phase 1 Core + 第二十批行距检查（FormatRules + FormatChecker + QAEngine 集成）。
 
 ```bash
 python -m pytest tests/test_batch_regression.py -v
@@ -294,3 +290,4 @@ python -m pytest tests/test_format_checker.py -v
 | `TestCrossRefNoDuplicateMatches` | 第九/十批 | matches 含 element_index；app.runXRef 序列化完整 |
 | `TestBatch13XRefAdoption` | 第十三批 | runXRef 返回 xref_issues；字段结构完整；有效引用为 unreferenced 类型；bookmark_name 存在；target_label 去重 |
 | `TestFormatRulesModel` / `TestFormatCheckerNoIssues` / `TestFormatCheckerFontMismatch` / `TestFormatCheckerSizeMismatch` / `TestFormatCheckerRateLimiting` / `TestQAEngineFormatRulesIntegration` | 第十四批 | FormatRules 序列化；FormatChecker 字体/字号检测；MAX_PER_TYPE 限速；QAEngine 集成 |
+| `TestFormatCheckerLineSpacing` | 第二十批 | 行距精确/倍数匹配与误报；SINGLE/1.0 默认跳过；MAX_LINE_SPACING_ISSUES 上限；容差边界 |

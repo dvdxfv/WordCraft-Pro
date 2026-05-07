@@ -29,7 +29,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `FormatChecker`：新增行距检查（SINGLE/1.0 默认值跳过，上限 5 条）
 - 计划链接：`PLANS/batch20b_ai_parse_template_alignment.md`
 
-全量测试通过：`tests/test_format_checker.py`（34）+ `tests/test_batch_regression.py`（27）+ JS `test_ai_parse_normalize.js`（17）= **83 Python + 17 JS passed**
+全量测试通过：`tests/test_format_checker.py`（33）+ `tests/test_batch_regression.py`（50）+ JS `test_ai_parse_normalize.js`（17）= **83 Python + 17 JS passed**
 
 - 完成项细节统一维护在 [CHANGELOG.md](docs/CHANGELOG.md)。
 
@@ -270,10 +270,10 @@ See [CHANGELOG.md](docs/CHANGELOG.md) for detailed fix history（第一至十四
 
 ## Test Coverage（回归测试）
 
-`tests/test_batch_regression.py` — 27 个测试，覆盖第一至第十三批所有已修复问题。
+`tests/test_batch_regression.py` — 50 个测试，覆盖第一至第十八批所有已修复问题。
 **每次修改代码后必须运行此文件**，任何已修复问题回退都会在此处失败。
 
-`tests/test_format_checker.py` — 34 个单元测试，覆盖第十四批 Phase 1 Core + 第二十批行距检查（FormatRules + FormatChecker + QAEngine 集成）。
+`tests/test_format_checker.py` — 33 个单元测试，覆盖第十四批 Phase 1 Core + 第二十批行距检查（FormatRules + FormatChecker + QAEngine 集成）。
 
 ```bash
 python -m pytest tests/test_batch_regression.py -v

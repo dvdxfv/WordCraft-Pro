@@ -85,11 +85,17 @@ wordcraft-pro/
 │   ├── document_model.py    # 统一文档模型（所有模块的数据核心）
 │   ├── formatter.py         # 排版引擎：规则 → 文档模型
 │   ├── exporter.py          # 导出引擎：文档模型 → .docx
-│   ├── qa_engine.py         # QA 调度：错别字 → 一致性 → 逻辑
+│   ├── qa_engine.py         # QA 调度：错别字 → 一致性 → 格式 → 交叉引用
+│   ├── format_checker.py    # 格式合规检查（字体、字号、行距）
+│   ├── formatting_rules.py  # FormatRules 数据模型
 │   ├── typo_checker.py      # 错别字检查器（词典 + 的地得）
+│   ├── typo_lib.py          # 错别字词库聚合（内置 + TSV + SIGHAN）
 │   ├── consistency_checker.py # 数据一致性检查
+│   ├── punctuation_checker.py # 标点/空格规范检查
 │   ├── logic_checker.py     # 逻辑合理性检查
 │   ├── crossref_engine.py   # 交叉引用扫描与校验
+│   ├── entitlements.py      # 用户计划权益判断（免费/付费）
+│   ├── token_tracker.py     # AI token 用量记录
 │   ├── template_manager.py  # YAML 模板加载与管理
 │   └── supabase_client.py   # Supabase Auth / DB / Storage 封装
 │
@@ -118,15 +124,21 @@ wordcraft-pro/
 │   ├── index.html           # 单页应用（~2500 行，无构建步骤）
 │   ├── flask_app.py         # Flask 路由（薄包装层，仅转发到 app.py）
 │   ├── run_web.py           # 静态服务器 + API 代理（端口 8081）
-│   └── wordcraft_landing.html # 登录/欢迎页
+│   ├── wordcraft_landing.html # 落地页（注册/登录入口）
+│   ├── dashboard.html       # 管理后台（用量统计、用户管理）
+│   ├── login.html           # 登录页
+│   └── confirm.html         # 邮箱确认页
 │
 ├── docs/                    # 开发文档
 │   └── 问题分析与优化计划.md  # Bug 记录与修复历史
 │
-└── tests/                   # 单元测试
+└── tests/                   # 单元测试与回归测试
+    ├── test_batch_regression.py  # 50 个回归测试（第一至十八批）
+    ├── test_format_checker.py    # 33 个格式检查单元测试（第十四/二十批）
     ├── test_phase1.py ~ test_phase7.py
     ├── test_core_functions.py
-    └── test_webapp.py
+    ├── test_ai_parse_normalize.js # 17 个 JS 单元测试（AI Parse 规范化）
+    └── e2e/                      # E2E 回归测试
 ```
 
 ---
@@ -319,9 +331,9 @@ python -m pytest tests/test_phase1.py::TestClassName::test_method_name -v
 | 桌面版 | pywebview 桌面模式已放弃，仅维护 Web 版 |
 | `.doc` 转换 | 需要 LibreOffice 或 Microsoft Word；两者均未安装时解析失败 |
 | 微信登录 | 微信 OAuth 功能开发中，当前仅支持邮箱密码登录 |
-| AI 深度 QA | `runAIQA()` 按钮为桩函数（提示需配置 API Key） |
+| AI 深度 QA | 需配置 API Key；免费用户每日有额度限制（见 `core/entitlements.py`） |
 | PDF 导出 | 前端和后端均未实现 PDF 格式导出 |
-| 管理后台日志 | `/logs` 端点返回"开发中..."，功能未实现 |
+| 管理后台 | `dashboard.html` 提供用量统计；部分日志端点仍在开发中 |
 | Supabase 限制 | Free Plan 数据库在 7 天无连接后自动暂停；存储上限 1 GB |
 
 ---
