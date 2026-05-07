@@ -4,10 +4,13 @@ Supabase 客户端模块
 封装 Supabase Python 客户端，提供用户认证、数据库操作、Storage 操作
 """
 
+import mimetypes
 import os
 import sys
 import json
 import logging
+import re
+import uuid
 from pathlib import Path
 from typing import Optional
 from datetime import datetime, timedelta, timezone
@@ -754,15 +757,28 @@ class SupabaseClient:
     #  Storage 操作
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _build_template_storage_path(user_id: str, file_path: str, file_name: str) -> str:
+        raw_name = (file_name or "").strip() or "template"
+        base_name, given_ext = os.path.splitext(raw_name)
+        source_ext = os.path.splitext(file_path or "")[1]
+        ext = given_ext or source_ext or ".docx"
+        safe_base = re.sub(r"[^\w\u4e00-\u9fff.-]+", "_", base_name or "template").strip("._")
+        if not safe_base:
+            safe_base = "template"
+        unique_name = f"{safe_base}_{uuid.uuid4().hex}{ext.lower()}"
+        return f"{user_id}/{unique_name}"
+
     def upload_template_file(self, user_id: str, file_path: str, file_name: str) -> Optional[str]:
         """上传模板文件到 Storage"""
         try:
             with open(file_path, 'rb') as f:
                 file_content = f.read()
             
-            storage_path = f"{user_id}/{file_name}"
-            result = self.client.storage.from_("templates").upload(storage_path, file_content, {
-                "content-type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            storage_path = self._build_template_storage_path(user_id, file_path, file_name)
+            content_type = mimetypes.guess_type(storage_path)[0] or "application/octet-stream"
+            self.client.storage.from_("templates").upload(storage_path, file_content, {
+                "content-type": content_type
             })
             
             # 获取公开 URL
