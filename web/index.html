@@ -2413,12 +2413,16 @@ function acceptSuggestion(btn,e){
     const tip=btn.closest('.anno-tip');if(tip){tip.remove();activeTip=null;}
     return;
   }
-  if(d.suggestion){
+  const isReplaceable=!q||q.cat==='错别字';
+  if(d.suggestion&&isReplaceable){
     hl.textContent=d.suggestion;
     hl.className='hl-accepted';
     hl.removeAttribute('data-tip');
     if(issueId>=0)hl.dataset.acceptedId=issueId;
-    // Keep data-issue-id for undo
+  } else {
+    hl.className='hl-accepted';
+    hl.removeAttribute('data-tip');
+    if(issueId>=0)hl.dataset.acceptedId=issueId;
   }
   const tip=btn.closest('.anno-tip');if(tip){tip.remove();activeTip=null;}
   if(issueId>=0)_markIssueAccepted(issueId);
@@ -3777,11 +3781,10 @@ function acceptIssue(i){
   }
   const hl=document.querySelector(`[data-issue-id="${i}"]`);
   if(hl){
-    if(q.suggestion)hl.textContent=q.suggestion;
+    if(q.suggestion&&q.cat==='错别字')hl.textContent=q.suggestion;
     hl.className='hl-accepted';
     hl.removeAttribute('data-tip');
     hl.dataset.acceptedId=i;
-    // Keep data-issue-id for undo
   }
   _markIssueAccepted(i);
 }
