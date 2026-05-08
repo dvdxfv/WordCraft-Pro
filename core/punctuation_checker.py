@@ -106,6 +106,9 @@ class PunctuationChecker:
                 continue
             text = elem.content
             et = elem.element_type.value if hasattr(elem.element_type, 'value') else str(elem.element_type)
+            meta = elem.metadata if isinstance(elem.metadata, dict) else {}
+            is_heading = elem.element_type == ElementType.HEADING
+            is_cover_toc = meta.get("exclude_from_format_body") or meta.get("exclude_from_xref_targets")
 
             if self.check_mixed_punct:
                 self._check_mixed_punct(text, idx, et, report)
@@ -117,7 +120,7 @@ class PunctuationChecker:
                 self._check_fullwidth_digit(text, idx, et, report)
             if self.check_repeat_char:
                 self._check_repeat_char(text, idx, et, report)
-            if self.check_sentence_gap:
+            if self.check_sentence_gap and not is_heading and not is_cover_toc:
                 self._check_sentence_gap(text, idx, et, report)
             if self.check_unit_norm:
                 self._check_unit_norm(text, idx, et, report)
@@ -346,6 +349,10 @@ class PunctuationChecker:
     def _check_sentence_gap(self, text: str, idx: int, et: str, report: QAReport):
         # 形态：中文字符之间出现空格，且前后都不是标点。
         # 单空格（如"发生 研究表明"）和多空格均纳入检测；单空格置信度稍低。
+        # 短标签/封面填表元素豁免（CJK 字符总量 < 20，几乎不可能是正文句子）
+        cjk_count = sum(1 for c in text if '一' <= c <= '鿿')
+        if cjk_count < 20:
+            return
         pattern = re.compile(rf"([{_CJK}])(\s+)([{_CJK}])")
         for m in pattern.finditer(text):
             left = m.group(1)
@@ -354,9 +361,12 @@ class PunctuationChecker:
             # 允许在已有句末标点后的排版空格
             if m.start() > 0 and text[m.start() - 1] in "。！？；:：":
                 continue
-            is_single = len(spaces.strip("\n\r")) <= 1
-            confidence = 0.65 if is_single else 0.72
-            space_desc = "一个空格" if is_single else f"{len(spaces)}个空格"
+            # 多于1个空格：填表线或排版对齐，非句间遗漏句号
+            raw_spaces = spaces.replace('\t', ' ')
+            if len(raw_spaces.strip('\n\r')) > 1:
+                continue
+            confidence = 0.65
+            space_desc = "一个空格"
             report.add_issue(QAIssue(
                 category=IssueCategory.FORMAT,
                 severity=IssueSeverity.WARNING,

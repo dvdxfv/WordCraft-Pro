@@ -195,6 +195,9 @@ class QAEngine:
         checker_report = runner(doc)
         if not checker_report:
             return
+        # 将子 checker 的 metadata 合并到主 report（不覆盖已有键）
+        for k, v in checker_report.metadata.items():
+            report.metadata.setdefault(k, v)
         for issue in checker_report.issues:
             if self._should_ignore(issue):
                 continue
