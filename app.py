@@ -1968,13 +1968,16 @@ class Api:
                     from core.format_checker import FormatRules
 
                     _rules_dict = None
-                    if format_rules_json is not None:
+                    _frontend_explicit = format_rules_json is not None
+                    if _frontend_explicit and format_rules_json != 'null':
                         _rules_dict = json.loads(format_rules_json) if isinstance(format_rules_json, str) else format_rules_json
                         _rules_dict = self._normalize_format_rules(_rules_dict)
                         if not self._is_trusted_format_rules(_rules_dict):
                             _rules_dict = None
 
-                    if _rules_dict is None and os.path.exists(self._FORMAT_RULES_FILE):
+                    # 只有前端完全没有传 format_rules 时，才 fallback 读磁盘；
+                    # 前端明确传了 null 表示本次不使用排版规范，不再 fallback。
+                    if not _frontend_explicit and _rules_dict is None and os.path.exists(self._FORMAT_RULES_FILE):
                         with open(self._FORMAT_RULES_FILE, "r", encoding="utf-8") as _f:
                             _rules_dict = json.load(_f)
                         if isinstance(_rules_dict, str):

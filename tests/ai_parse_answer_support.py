@@ -119,9 +119,9 @@ def parse_ai_parse_answer(answer_path: Path) -> dict[str, object]:
                     rules.update(spacing)
 
         if current == "正文":
-            if label == "字体":
+            if label in {"字体", "正文字体"}:
                 rules["bodyFont"] = value
-            elif label == "字号":
+            elif label in {"字号", "正文字号"}:
                 pt = _parse_size_pt(value)
                 if pt is not None:
                     rules["bodySize"] = pt

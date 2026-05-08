@@ -764,6 +764,9 @@ html,body{height:100%;font-family:-apple-system,'SF Pro Text','PingFang SC','Mic
   background:var(--green-bg);padding:4px 8px;border-radius:6px;
 }
 .issue-suggestion::before{content:'💡 '}
+.replace-hint{display:inline-block;font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;margin-left:6px;vertical-align:middle;white-space:nowrap}
+.replace-hint.will-replace{background:var(--green);color:#fff}
+.replace-hint.mark-only{background:var(--bg3);color:var(--text3);border:1px solid var(--border)}
 .issue-actions{display:flex;gap:4px}
 .issue-btn{
   padding:3px 8px;border-radius:6px;border:none;
@@ -1226,7 +1229,10 @@ html,body{height:100%;font-family:-apple-system,'SF Pro Text','PingFang SC','Mic
             <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M17 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V7l-4-4zm-5 16a3 3 0 110-6 3 3 0 010 6zm3-10H5V5h10v4z"/></svg>
             另存为模板（Pro）
           </button>
-          <div id="formatRulesSavedHint" style="display:none;font-size:11px;color:#22a665;margin-top:4px">✓ 已保存规范，QA 检查时自动校验</div>
+          <div id="formatRulesSavedHint" style="display:none;margin-top:4px">
+            <div style="font-size:11px;color:#22a665;margin-bottom:4px">✓ 已保存规范，QA 检查时自动校验</div>
+            <button class="fbtn" onclick="clearSavedFormatRules()" style="width:100%;background:var(--bg3);color:var(--text2);border:1px solid var(--border)">✕ 清除规范</button>
+          </div>
         </div>
 
         <div id="teamWorkspacePanel" style="display:none;margin-top:8px;padding:8px;border:1px solid var(--line);border-radius:10px;background:#fafafa">
@@ -1282,7 +1288,10 @@ html,body{height:100%;font-family:-apple-system,'SF Pro Text','PingFang SC','Mic
               <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg>
               保存为检查规范
             </button>
-            <div id="aiFormatRulesSavedHint" style="display:none;font-size:11px;color:#22a665;margin-top:4px">✓ 已保存规范，QA 检查时自动校验</div>
+            <div id="aiFormatRulesSavedHint" style="display:none;margin-top:4px">
+              <div style="font-size:11px;color:#22a665;margin-bottom:4px">✓ 已保存规范，QA 检查时自动校验</div>
+              <button class="fbtn" onclick="clearSavedFormatRules()" style="width:100%;background:var(--bg3);color:var(--text2);border:1px solid var(--border)">✕ 清除规范</button>
+            </div>
           </div>
           <button class="fbtn" id="btnSaveAIAsTemplate" onclick="saveAIRulesAsTemplate()" style="margin-top:6px;width:100%;background:#6c5ce7;color:#fff">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M17 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V7l-4-4zm-5 16a3 3 0 110-6 3 3 0 010 6zm3-10H5V5h10v4z"/></svg>
@@ -1392,7 +1401,7 @@ html,body{height:100%;font-family:-apple-system,'SF Pro Text','PingFang SC','Mic
       <span id="onlineDot" style="width:6px;height:6px;border-radius:50%;background:#8e8e93;flex-shrink:0"></span>
       <span id="onlineText">检测中</span>
     </span>
-    <span id="versionLabel" style="cursor:default;color:var(--text3)">WordCraft Pro v0.9</span>
+    <span id="versionLabel" style="cursor:default;color:var(--text3)">WordCraft Pro v1.0</span>
   </div>
 </div>
 
@@ -1540,6 +1549,16 @@ function _isUserSavedFormatRules(rules){
 function _clearSavedFormatRulesCache(){
   _savedFormatRules=null;
   try{localStorage.removeItem('wc_format_rules');}catch(e){}
+}
+async function clearSavedFormatRules(){
+  _clearSavedFormatRulesCache();
+  ['formatRulesSavedHint','aiFormatRulesSavedHint'].forEach(id=>{
+    const h=document.getElementById(id);if(h)h.style.display='none';
+  });
+  // 向后端写一个 savedByUser:false 的记录，让下次加载时 _is_trusted_format_rules 返回 false，
+  // 防止 Supabase 里的旧规范在刷新后重新出现。
+  try{await window.WC_API.saveFormatRequirements({savedByUser:false,saveSource:'cleared'},'personal');}catch(e){}
+  showToast('已清除保存的规范，QA 不再做格式校验');
 }
 function _isExcludedFromQABodyElement(el){
   if(!el||typeof el!=='object')return false;
@@ -1792,15 +1811,8 @@ function _acceptFormatIssue(i){
   }
   return true;
 }
-try{
-  const _sfr=localStorage.getItem('wc_format_rules');
-  if(_sfr){
-    const parsed=JSON.parse(_sfr);
-    if(_isUserSavedFormatRules(parsed))_savedFormatRules=parsed;
-    else _clearSavedFormatRulesCache();
-  }
-}catch(e){}
-(function(){const h=document.getElementById('formatRulesSavedHint');if(h&&_isUserSavedFormatRules(_savedFormatRules))h.style.display='block';})();
+// 每次打开应用从清除状态开始，用户需在当前会话内明确保存才生效。
+_clearSavedFormatRulesCache();
 
 function _setQAGateUI(ready){
   const runBtn=document.querySelector('[onclick="runQA()"]');
@@ -1885,15 +1897,9 @@ async function loadFormatRequirementsFromBackend(){
     const resp=await fetch('/api/loadFormatRequirements',{method:'POST'});
     if(resp.ok){
       const data=await resp.json();
-      if(data.success&&data.rules){
-        const rules=typeof data.rules==='string'?JSON.parse(data.rules):data.rules;
-        if(_isUserSavedFormatRules(rules)){
-          _savedFormatRules=rules;
-          try{localStorage.setItem('wc_format_rules',JSON.stringify(rules));}catch(e){}
-        }else{
-          _clearSavedFormatRulesCache();
-        }
-      }
+      // 启动时不自动恢复规范：即使后端有已保存规范也不加载，
+      // 用户须在当前会话内明确点击"保存为检查规范"才生效。
+      if(data.success) _clearSavedFormatRulesCache();
     }
   }catch(e){
     console.warn('Failed to load format rules from backend, using localStorage:',e);
@@ -3674,10 +3680,12 @@ function renderQAIssues(qaData){
   qaData.forEach((q,i)=>{
     const div=document.createElement('div');
     const isAccepted=q.status==='accepted',isRejected=q.status==='rejected';
+    const isDirect=q.suggestion&&(q.cat==='错别字'||_isDirectReplacement(q.suggestion));
     div.className=`issue ${q.sev} fade-in${isAccepted?' accepted':''}${isRejected?' rejected':''}`;
     div.style.animationDelay=(i*40)+'ms';
     div.dataset.sev=q.sev;div.dataset.cat=q.cat;div.dataset.id=i;div.id='issue-'+i;
-    div.innerHTML=`<div class="issue-top"><span class="issue-badge">${badge[q.sev]}</span><span class="issue-title">[${esc(q.cat)}] ${esc(q.title)}</span></div><div class="issue-desc">${esc(q.desc)}</div>${q.suggestion?`<div class="issue-suggestion">${esc(q.suggestion)}</div>`:''}<div class="issue-actions"><button class="issue-btn locate" onclick="event.stopPropagation();locateIssue(${i})">📍 定位</button><button class="issue-btn accept" onclick="event.stopPropagation();acceptIssue(${i})">✓ 采纳</button><button class="issue-btn reject" onclick="event.stopPropagation();rejectIssue(${i})">✗ 忽略</button>${isAccepted?`<button class="issue-btn undo-accept" onclick="event.stopPropagation();undoAcceptedIssue(${i})">↩ 撤销</button>`:''}</div>`;
+    const suggHtml=q.suggestion?`<div class="issue-suggestion">${esc(q.suggestion)}<span class="replace-hint ${isDirect?'will-replace':'mark-only'}">${isDirect?'→ 替换':'仅标记'}</span></div>`:'';
+    div.innerHTML=`<div class="issue-top"><span class="issue-badge">${badge[q.sev]}</span><span class="issue-title">[${esc(q.cat)}] ${esc(q.title)}</span></div><div class="issue-desc">${esc(q.desc)}</div>${suggHtml}<div class="issue-actions"><button class="issue-btn locate" onclick="event.stopPropagation();locateIssue(${i})">📍 定位</button><button class="issue-btn accept" onclick="event.stopPropagation();acceptIssue(${i})">${isDirect?'✓ 替换':'✓ 采纳'}</button><button class="issue-btn reject" onclick="event.stopPropagation();rejectIssue(${i})">✗ 忽略</button>${isAccepted?`<button class="issue-btn undo-accept" onclick="event.stopPropagation();undoAcceptedIssue(${i})">↩ 撤销</button>`:''}</div>`;
     div.onclick=()=>locateIssue(i);
     el.appendChild(div);
   });
@@ -3788,6 +3796,10 @@ function locateIssue(i){
   const card=document.getElementById('issue-'+i);
   if(card){card.style.background='var(--accent-bg)';setTimeout(()=>card.style.background='',2000);}
 }
+function _isDirectReplacement(suggestion){
+  if(!suggestion||suggestion.length>30)return false;
+  return !/[，。？！；]|建议|应[该当]?|请|需要|检查|修改为|统一/.test(suggestion);
+}
 function acceptIssue(i){
   const q=window.currentQAData[i];if(!q||q.status!=='pending')return;
   if(_acceptFormatIssue(i)){
@@ -3796,7 +3808,7 @@ function acceptIssue(i){
   }
   const hl=document.querySelector(`[data-issue-id="${i}"]`);
   if(hl){
-    if(q.suggestion&&q.cat==='错别字')hl.textContent=q.suggestion;
+    if(q.suggestion&&(q.cat==='错别字'||_isDirectReplacement(q.suggestion)))hl.textContent=q.suggestion;
     hl.className='hl-accepted';
     hl.removeAttribute('data-tip');
     hl.dataset.acceptedId=i;

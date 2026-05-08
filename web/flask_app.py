@@ -261,8 +261,7 @@ def run_qa():
     cats_str = _json.dumps(categories) if isinstance(categories, list) else (categories or '["typo","consistency","logic","format","crossref"]')
     elements = data.get('elements')
     elements_str = _json.dumps(elements) if elements is not None else None
-    format_rules = data.get('format_rules')
-    format_rules_str = _json.dumps(format_rules) if format_rules is not None else None
+    format_rules_str = _json.dumps(data['format_rules']) if 'format_rules' in data else None
     result = api.runQA(content, cats_str, elements_json=elements_str, format_rules_json=format_rules_str)
     return result
 
