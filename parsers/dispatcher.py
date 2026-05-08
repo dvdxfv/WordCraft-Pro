@@ -259,3 +259,164 @@ def _convert_doc_to_docx(doc_path: str) -> str:
             word_com_error=word_com_error,
         )
     )
+
+
+def _emf_to_png_bytes(emf_data: bytes, src_ext: str = ".emf") -> Optional[bytes]:
+    """将 EMF/WMF bytes 转为 PNG bytes；失败返回 None。"""
+    import sys
+    import logging as _log
+    _logger = _log.getLogger(__name__)
+
+    with tempfile.NamedTemporaryFile(suffix=src_ext, delete=False) as f:
+        f.write(emf_data)
+        emf_path = f.name
+    png_path = emf_path[: -len(src_ext)] + ".png"
+
+    try:
+        if sys.platform == "win32":
+            src = emf_path.replace("'", "''")
+            dst = png_path.replace("'", "''")
+            # 渲染到 150 DPI 以获得更清晰输出；白底；高质量模式
+            ps = (
+                "Add-Type -AssemblyName System.Drawing;"
+                f"$m=[System.Drawing.Imaging.Metafile]::new('{src}');"
+                "$dpi=150;$scale=$dpi/$m.HorizontalResolution;"
+                "$w=[int]($m.Width*$scale);$h=[int]($m.Height*$scale);"
+                "if($w -le 0){$w=$m.Width;$h=$m.Height};"
+                "$b=[System.Drawing.Bitmap]::new($w,$h);"
+                "$b.SetResolution($dpi,$dpi);"
+                "$g=[System.Drawing.Graphics]::FromImage($b);"
+                "$g.Clear([System.Drawing.Color]::White);"
+                "$g.SmoothingMode=[System.Drawing.Drawing2D.SmoothingMode]::HighQuality;"
+                "$g.InterpolationMode=[System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic;"
+                "$g.DrawImage($m,0,0,$w,$h);"
+                f"$b.Save('{dst}',[System.Drawing.Imaging.ImageFormat]::Png);"
+                "$g.Dispose();$b.Dispose();$m.Dispose()"
+            )
+            result = subprocess.run(
+                ["powershell", "-NonInteractive", "-Command", ps],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            if result.returncode == 0 and os.path.isfile(png_path):
+                with open(png_path, "rb") as fp:
+                    return fp.read()
+            _logger.debug("PowerShell EMF→PNG 失败: %s", result.stderr.strip())
+
+        # LibreOffice 兜底
+        lo_cmd = _find_libreoffice_command()
+        if lo_cmd:
+            import shutil
+            out_dir = tempfile.mkdtemp(prefix="wordcraft_emf_")
+            try:
+                r = subprocess.run(
+                    [lo_cmd, "--headless", "--convert-to", "png",
+                     "--outdir", out_dir, emf_path],
+                    capture_output=True,
+                    timeout=30,
+                )
+                png_lo = os.path.join(out_dir, Path(emf_path).stem + ".png")
+                if r.returncode == 0 and os.path.isfile(png_lo):
+                    with open(png_lo, "rb") as fp:
+                        return fp.read()
+            finally:
+                shutil.rmtree(out_dir, ignore_errors=True)
+
+    except Exception as exc:
+        _logger.debug("EMF→PNG 转换异常: %s", exc)
+    finally:
+        try:
+            os.unlink(emf_path)
+        except Exception:
+            pass
+        try:
+            os.unlink(png_path)
+        except Exception:
+            pass
+
+    return None
+
+
+_METAFILE_EXTS = {".emf", ".wmf"}
+
+
+def convert_emf_images_in_docx(docx_bytes: bytes) -> bytes:
+    """
+    扫描 docx zip 内 word/media/ 下所有 EMF/WMF 图片，转为 PNG。
+    按扩展名检测（.emf / .wmf），System.Drawing.Metafile 处理两种格式。
+    返回修改后 docx bytes；若无 metafile 或转换全部失败，返回原始 bytes 对象。
+    """
+    import io
+    import zipfile
+    import logging as _log
+    _logger = _log.getLogger(__name__)
+
+    try:
+        # 第一遍：检测并转换 EMF/WMF
+        mf_to_png: dict[str, bytes] = {}
+        with zipfile.ZipFile(io.BytesIO(docx_bytes)) as z:
+            for name in z.namelist():
+                if not name.startswith("word/media/"):
+                    continue
+                ext = ("." + name.rsplit(".", 1)[-1]).lower() if "." in name else ""
+                if ext not in _METAFILE_EXTS:
+                    continue
+                data = z.read(name)
+                if not data:
+                    continue
+                png = _emf_to_png_bytes(data, ext)
+                if png:
+                    mf_to_png[name] = png
+                    _logger.info("Metafile→PNG 成功: %s (%d B)", name, len(png))
+                else:
+                    _logger.warning("Metafile→PNG 失败，保留原文件: %s", name)
+
+        if not mf_to_png:
+            return docx_bytes  # 无 metafile 或全部失败，原样返回
+
+        # 第二遍：重建 zip
+        out = io.BytesIO()
+        with zipfile.ZipFile(io.BytesIO(docx_bytes)) as zin, \
+             zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zout:
+
+            for item in zin.infolist():
+                name = item.filename
+                data = zin.read(name)
+
+                if name in mf_to_png:
+                    # EMF/WMF 条目 → 写入 PNG
+                    png_name = name.rsplit(".", 1)[0] + ".png"
+                    info = zipfile.ZipInfo(png_name)
+                    info.compress_type = zipfile.ZIP_DEFLATED
+                    zout.writestr(info, mf_to_png[name])
+
+                elif name.endswith(".rels"):
+                    # 更新关系文件：media/imageN.emf/.wmf → media/imageN.png
+                    text = data.decode("utf-8")
+                    for mf_zip_path in mf_to_png:
+                        media_file = mf_zip_path.split("/")[-1]         # imageN.emf
+                        png_file = media_file.rsplit(".", 1)[0] + ".png"  # imageN.png
+                        text = text.replace(
+                            f"media/{media_file}", f"media/{png_file}"
+                        )
+                    zout.writestr(item, text.encode("utf-8"))
+
+                elif name == "[Content_Types].xml":
+                    text = data.decode("utf-8")
+                    if "image/png" not in text:
+                        text = text.replace(
+                            "</Types>",
+                            '<Default Extension="png" ContentType="image/png"/></Types>',
+                        )
+                    zout.writestr(item, text.encode("utf-8"))
+
+                else:
+                    zout.writestr(item, data)
+
+        return out.getvalue()
+
+    except Exception as exc:
+        import logging as _log2
+        _log2.getLogger(__name__).warning("EMF→PNG docx 重建失败，返回原始: %s", exc)
+        return docx_bytes

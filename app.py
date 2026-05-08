@@ -1200,10 +1200,10 @@ class Api:
         with tempfile.NamedTemporaryFile(suffix=f".{ext}", delete=False) as tmp:
             # 支持 base64 编码内容（二进制文件）
             try:
-                decoded = base64.b64decode(file_content)
-                tmp.write(decoded)
+                raw_bytes = base64.b64decode(file_content)
             except Exception:
-                tmp.write(file_content.encode('utf-8') if isinstance(file_content, str) else file_content)
+                raw_bytes = file_content.encode('utf-8') if isinstance(file_content, str) else file_content
+            tmp.write(raw_bytes)
             path = tmp.name
 
         name = file_name
@@ -1271,12 +1271,26 @@ class Api:
         except Exception:
             pass
 
-        return json.dumps({
+        # EMF→PNG 转换：将 docx 内的 EMF 图片替换为 PNG，前端 docxBuffers 存修改后版本
+        docx_b64 = None
+        if ext == "docx":
+            try:
+                from parsers.dispatcher import convert_emf_images_in_docx
+                converted = convert_emf_images_in_docx(raw_bytes)
+                if converted is not raw_bytes:
+                    docx_b64 = base64.b64encode(converted).decode("ascii")
+            except Exception as emf_err:
+                logger.warning("EMF→PNG 转换失败，忽略: %s", emf_err)
+
+        result: dict = {
             "success": True, "name": name, "size": size,
             "type": ext, "elements": elements, "element_count": len(elements),
             "sections": sections, "styles": styles_meta,
             "fielded_refs": fielded_refs,
-        }, ensure_ascii=False)
+        }
+        if docx_b64:
+            result["docx_b64"] = docx_b64
+        return json.dumps(result, ensure_ascii=False)
 
     def saveFile(self, content: str, file_name: str = "document.html") -> str:
         try:

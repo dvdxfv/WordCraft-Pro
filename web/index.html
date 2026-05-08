@@ -938,6 +938,13 @@ html,body{height:100%;font-family:-apple-system,'SF Pro Text','PingFang SC','Mic
 
 /* ── IMAGE ALIGNMENT ── */
 .doc-page img{max-width:100%;height:auto;cursor:pointer}
+/* docx-preview: images are inside a sized container (span/div with explicit w/h).
+   height:auto would use the PNG's intrinsic ratio instead of the document extent,
+   causing images to appear squashed. Use height:100% to fill the container. */
+.doc-page.is-docx img{height:100%;max-width:none}
+/* docx-preview: anchor (floating) images use position:absolute inside the section.
+   Ensure sections don't clip them. */
+.doc-page.is-docx section{overflow:visible!important}
 .doc-page p[style*="text-align:center"] img,
 .doc-page p[style*="text-align: center"] img,
 .doc-page .img-center{display:block;margin:0 auto}
@@ -2200,7 +2207,7 @@ function renderDocument(){
     page.appendChild(container);
     docxPreview.renderAsync(docxBuffers[tab.name],container,null,{
       className:'docx-rendered',inWrapper:true,ignoreWidth:false,
-      ignoreHeight:false,breakPages:true,useBase64URL:true
+      ignoreHeight:false,breakPages:true
     }).then(()=>{
       if(myToken!==_docxRenderToken)return;
       // docx-preview injects its own <style> tags into <head> AFTER our stylesheet,
@@ -4448,6 +4455,15 @@ async function _fetchRoundTripDocMeta(fileKey,ab,backendFileName){
     if(Array.isArray(j.sections))docSections[fileKey]=j.sections;
     if(j.styles&&typeof j.styles==='object')docStyles[fileKey]=j.styles;
     if(Array.isArray(j.fielded_refs))docFieldedRefs[fileKey]=j.fielded_refs;
+    // 如果后端完成了 EMF→PNG 转换，用修改后的 docx bytes 覆盖本地 buffer
+    if(j.docx_b64){
+      try{
+        const bin=atob(j.docx_b64);
+        const arr=new Uint8Array(bin.length);
+        for(let i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i);
+        docxBuffers[fileKey]=arr.buffer;
+      }catch(e){/* 转换失败则保留原始 buffer，占位框兜底 */}
+    }
     return j.elements;
   }
   docRoundTripReady[fileKey]=false;
@@ -5539,6 +5555,19 @@ function _setupImgToolbarOnPage(){
     if(e.target.tagName==='IMG'){_showImgToolbar(e.target,e);e.stopPropagation();}
     else if(!_imgToolbar||!_imgToolbar.contains(e.target)){_removeImgToolbar();}
   });
+  // 捕获阶段处理破图（EMF/WMF 等浏览器不支持的格式）→ 换成占位框
+  page.addEventListener('error',e=>{
+    const img=e.target;
+    if(img.tagName!=='IMG'||img.dataset.errHandled)return;
+    img.dataset.errHandled='1';
+    const ph=document.createElement('div');
+    ph.style.cssText=`display:inline-flex;align-items:center;justify-content:center;background:#f5f5f7;border:1px dashed #c0c0c0;color:#aaa;font-size:11px;border-radius:3px;vertical-align:middle;`;
+    ph.style.width=img.style.width||(img.width?img.width+'px':'120px');
+    ph.style.height=img.style.height||(img.height?img.height+'px':'80px');
+    ph.title='图片格式不支持浏览器预览（如 EMF/WMF）';
+    ph.textContent='[图片]';
+    img.replaceWith(ph);
+  },true);
 }
 
 // ── SUPABASE REALTIME ──
