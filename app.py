@@ -2051,7 +2051,7 @@ class Api:
 
             from core.document_model import DocumentModel, DocElement, ElementType
             from core.crossref_engine import TargetScanner, RefPointScanner, CrossRefMatcher
-            from core.crossref_models import CrossRefStatus
+            from core.crossref_models import CrossRefStatus, RefTargetType
             from html.parser import HTMLParser
 
             class _Strip(HTMLParser):
@@ -2112,6 +2112,11 @@ class Api:
             targets = scanner.scan(doc)
             ref_scanner = RefPointScanner()
             ref_points = ref_scanner.scan(doc)  # 单遍扫描，scan_index 已在此赋值
+
+            # runXRef 只输出参考文献交叉引用建议，图表/章节/公式由 QA CrossRefChecker 处理
+            targets = [t for t in targets if t.target_type == RefTargetType.REFERENCE]
+            ref_points = [rp for rp in ref_points if rp.target_type == RefTargetType.REFERENCE]
+
             matcher = CrossRefMatcher()
             report = matcher.match(targets, ref_points)
 

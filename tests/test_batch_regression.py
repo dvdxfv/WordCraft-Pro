@@ -1019,11 +1019,14 @@ class TestBatch18StructureRecognition:
         assert chapter_targets[0].element_index == 1, "应来自索引 1（真章节）而非 0（目录）"
 
     def test_runxref_carries_metadata_through_elements_json(self):
-        """app.py.runXRef 通过 elements_json 接收 metadata 后，TargetScanner 跳过目录章节。"""
+        """app.py.runXRef 通过 elements_json 接收 metadata，只输出参考文献目标。
+
+        runXRef 现在只输出 REFERENCE 类型目标；章节/图表等由 QA CrossRefChecker 处理。
+        elements_json 路径（含 metadata）仍须正常工作，以参考文献目标验证。
+        """
         from app import Api
 
         api = Api()
-        # elements_json：目录条目带 exclude_from_xref_targets=True，真章节不带
         elements = [
             {"type": "h1", "text": "目录"},
             {"type": "p", "text": "第3章 模型 ......15",
@@ -1031,15 +1034,20 @@ class TestBatch18StructureRecognition:
                           "exclude_from_xref_targets": True,
                           "exclude_from_format_body": True}},
             {"type": "h1", "text": "第3章 模型与方法"},
-            {"type": "p", "text": "正文中提到第3章的内容"},
+            {"type": "p", "text": "研究方法见[1]"},
+            {"type": "h1", "text": "参考文献"},
+            {"type": "ref", "text": "[1] 作者. 标题. 期刊, 2023."},
         ]
         elements_json = json.dumps(elements, ensure_ascii=False)
-        # content 留空，强制走 elements_json 路径
         result = json.loads(api.runXRef("", [], elements_json=elements_json))
         assert result.get("success") is True
         targets = result.get("targets", [])
-        # 只应有 1 个 chapter target（真章节），目录条目被跳过
+        # runXRef 只输出参考文献目标，章节/图表不再出现
         chapter_targets = [t for t in targets if t.get("type") == "chapter"]
-        assert len(chapter_targets) == 1, (
-            f"目录条目不应进入 targets，实际 chapter targets={chapter_targets}"
+        assert len(chapter_targets) == 0, (
+            f"runXRef 应只输出参考文献目标，不含章节，实际={chapter_targets}"
+        )
+        ref_targets = [t for t in targets if t.get("type") == "reference"]
+        assert len(ref_targets) == 1, (
+            f"应识别到 1 条参考文献目标，实际={ref_targets}"
         )
