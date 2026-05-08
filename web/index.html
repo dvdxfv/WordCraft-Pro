@@ -3326,6 +3326,11 @@ function _extractAIParseJson(reply){
   try{return JSON.parse(jsonStr);}
   catch(e1){throw new Error('JSON 解析失败，请重试：'+(reply||'').slice(0,120));}
 }
+function _ptToCnSize(pt){
+  const map=[[42,'初号'],[36,'小初'],[26,'一号'],[24,'小一'],[22,'二号'],[18,'小二'],[16,'三号'],[15,'小三'],[14,'四号'],[12,'小四'],[10.5,'五号'],[9,'小五'],[7.5,'六号'],[6.5,'小六'],[5.5,'七号'],[5,'小七']];
+  const found=map.find(([p])=>Math.abs(p-pt)<0.1);
+  return found?found[1]:'';
+}
 function _sanitizeAIParseRules(o){
   if(!o||typeof o!=='object'||Array.isArray(o))return {};
   if((o.lineSpacingMode==null||o.lineSpacingValue==null)&&o.lineHeight!=null){
@@ -3425,7 +3430,9 @@ async function runAIParse(){
         const input=isLong
           ?`<textarea data-key="${k}" rows="2" style="flex:1;border:1px solid #ddd;border-radius:3px;padding:2px 6px;font-size:12px;resize:vertical;font-family:inherit" onchange="if(window._aiParsedRules)window._aiParsedRules['${k}']=this.value">${esc}</textarea>`
           :`<input type="text" data-key="${k}" value="${esc}" style="flex:1;border:1px solid #ddd;border-radius:3px;padding:2px 6px;font-size:12px" onchange="if(window._aiParsedRules)window._aiParsedRules['${k}']=this.value">`;
-        return `<div style="display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid #eee"><span style="color:#666;flex:0 0 140px;font-size:11px">${labelMap[k]||k}</span>${input}</div>`;
+        const alias=k.endsWith('Size')&&v!=null?_ptToCnSize(parseFloat(v)):'';
+        const hint=alias?`<span style="color:#888;font-size:11px;white-space:nowrap;flex-shrink:0">${alias}</span>`:'';
+        return `<div style="display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid #eee"><span style="color:#666;flex:0 0 140px;font-size:11px">${labelMap[k]||k}</span>${input}${hint}</div>`;
       }).join('');
     document.getElementById('aiRulesBody').innerHTML=rows
       ||'<div style="color:#999;padding:8px;text-align:center">未提取到有效字段，请补充描述</div>';
