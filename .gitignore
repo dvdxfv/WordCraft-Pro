@@ -61,8 +61,7 @@ AGENTS.md
 
 # Internal development docs
 docs/AI 模型切换指南.md
-docs/AI_PARSE_TEMPLATE_GAP_ANALYSIS.md
-docs/DEPLOY_WINDOWS_SERVER.md
+docs/Windows服务器部署指南.md
 docs/supabase-现状.md
 docs/superpowers/
 docs/的、地、得 最全规范用法（含专项易错辨析）.md
@@ -73,6 +72,11 @@ docs/BUSINESS.md
 samples/
 tests/artifacts/
 web/test_template.docx
+
+# temp 目录诊断输出（脚本本身保留，数据文件不提交）
+temp/*.txt
+temp/*.docx
+temp/*.md
 
 # Binary tools (download separately)
 tools/autocorrect/
