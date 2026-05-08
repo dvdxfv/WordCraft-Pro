@@ -766,6 +766,7 @@ html,body{height:100%;font-family:-apple-system,'SF Pro Text','PingFang SC','Mic
 .issue-suggestion::before{content:'💡 '}
 .replace-hint{display:inline-block;font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;margin-left:6px;vertical-align:middle;white-space:nowrap}
 .replace-hint.will-replace{background:var(--green);color:#fff}
+.replace-hint.will-format-fix{background:#2563eb;color:#fff}
 .replace-hint.mark-only{background:var(--bg3);color:var(--text3);border:1px solid var(--border)}
 .issue-actions{display:flex;gap:4px}
 .issue-btn{
@@ -1672,6 +1673,21 @@ function _resolveFormatIssueKind(ruleId=''){
 function _buildFormatSpecForIssue(q,element){
   const kind=_resolveFormatIssueKind(q?.ruleId||'');
   if(!kind)return null;
+  // 优先使用 fix_payload 中的目标值（无需格式面板已配置）
+  const fp=q?.fix_payload;
+  if(fp){
+    if(fp.attr==='font_name'&&fp.value){
+      const westFont=(document.getElementById('fWFont')?.value||'Times New Roman');
+      return{kind:'font',eastAsiaFont:fp.value,westFont};
+    }
+    if(fp.attr==='font_size'&&Number.isFinite(fp.value)&&fp.value>0){
+      return{kind:'size',sizePt:fp.value};
+    }
+    if(fp.attr==='line_spacing'&&Number.isFinite(fp.value)&&fp.value>0){
+      return{kind:'lineSpacing',mode:fp.mode||'multiple',value:fp.value};
+    }
+  }
+  // 回退：从格式面板输入读取
   if(kind==='lineSpacing'){
     const mode=(document.getElementById('fLineSpacingMode')?.value||'multiple').trim().toLowerCase();
     const value=parseFloat(document.getElementById('fLH')?.value);
@@ -3687,12 +3703,16 @@ function renderQAIssues(qaData){
   qaData.forEach((q,i)=>{
     const div=document.createElement('div');
     const isAccepted=q.status==='accepted',isRejected=q.status==='rejected';
-    const isDirect=q.suggestion&&(q.cat==='错别字'||_isDirectReplacement(q.suggestion));
+    const isDirect=q.suggestion&&(q.fix_type==='text_replace'||q.cat==='错别字'||(!q.fix_type&&_isDirectReplacement(q.suggestion)));
+    const isFormatFix=q.fix_type==='format_attr'&&q.fix_payload;
+    const hintCls=isDirect?'will-replace':isFormatFix?'will-format-fix':'mark-only';
+    const hintTxt=isDirect?'→ 替换':isFormatFix?'→ 格式修复':'仅标记';
+    const acceptBtnTxt=isDirect?'✓ 替换':isFormatFix?'✓ 格式修复':'✓ 采纳';
     div.className=`issue ${q.sev} fade-in${isAccepted?' accepted':''}${isRejected?' rejected':''}`;
     div.style.animationDelay=(i*40)+'ms';
     div.dataset.sev=q.sev;div.dataset.cat=q.cat;div.dataset.id=i;div.id='issue-'+i;
-    const suggHtml=q.suggestion?`<div class="issue-suggestion">${esc(q.suggestion)}<span class="replace-hint ${isDirect?'will-replace':'mark-only'}">${isDirect?'→ 替换':'仅标记'}</span></div>`:'';
-    div.innerHTML=`<div class="issue-top"><span class="issue-badge">${badge[q.sev]}</span><span class="issue-title">[${esc(q.cat)}] ${esc(q.title)}</span></div><div class="issue-desc">${esc(q.desc)}</div>${suggHtml}<div class="issue-actions"><button class="issue-btn locate" onclick="event.stopPropagation();locateIssue(${i})">📍 定位</button><button class="issue-btn accept" onclick="event.stopPropagation();acceptIssue(${i})">${isDirect?'✓ 替换':'✓ 采纳'}</button><button class="issue-btn reject" onclick="event.stopPropagation();rejectIssue(${i})">✗ 忽略</button>${isAccepted?`<button class="issue-btn undo-accept" onclick="event.stopPropagation();undoAcceptedIssue(${i})">↩ 撤销</button>`:''}</div>`;
+    const suggHtml=q.suggestion?`<div class="issue-suggestion">${esc(q.suggestion)}<span class="replace-hint ${hintCls}">${hintTxt}</span></div>`:'';
+    div.innerHTML=`<div class="issue-top"><span class="issue-badge">${badge[q.sev]}</span><span class="issue-title">[${esc(q.cat)}] ${esc(q.title)}</span></div><div class="issue-desc">${esc(q.desc)}</div>${suggHtml}<div class="issue-actions"><button class="issue-btn locate" onclick="event.stopPropagation();locateIssue(${i})">📍 定位</button><button class="issue-btn accept" onclick="event.stopPropagation();acceptIssue(${i})">${acceptBtnTxt}</button><button class="issue-btn reject" onclick="event.stopPropagation();rejectIssue(${i})">✗ 忽略</button>${isAccepted?`<button class="issue-btn undo-accept" onclick="event.stopPropagation();undoAcceptedIssue(${i})">↩ 撤销</button>`:''}</div>`;
     div.onclick=()=>locateIssue(i);
     el.appendChild(div);
   });
@@ -3809,13 +3829,16 @@ function _isDirectReplacement(suggestion){
 }
 function acceptIssue(i){
   const q=window.currentQAData[i];if(!q||q.status!=='pending')return;
-  if(_acceptFormatIssue(i)){
-    _markIssueAccepted(i);
-    return;
+  const fixType=q.fix_type||null;
+  // 格式修复路径：fix_type="format_attr" 或旧式 cat==='格式问题'
+  if(fixType==='format_attr'||(fixType===null&&q.cat==='格式问题')){
+    if(_acceptFormatIssue(i)){_markIssueAccepted(i);return;}
   }
+  if(!fixType)console.warn('[WARN] issue missing fix_type, falling back to heuristic:',i,q.rule_id||q.title);
   const hl=document.querySelector(`[data-issue-id="${i}"]`);
+  const isTextReplace=fixType==='text_replace'||q.cat==='错别字'||(fixType===null&&_isDirectReplacement(q.suggestion));
   if(hl){
-    if(q.suggestion&&(q.cat==='错别字'||_isDirectReplacement(q.suggestion)))hl.textContent=q.suggestion;
+    if(q.suggestion&&isTextReplace)hl.textContent=q.suggestion;
     hl.className='hl-accepted';
     hl.removeAttribute('data-tip');
     hl.dataset.acceptedId=i;

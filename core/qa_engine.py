@@ -18,6 +18,7 @@ from core.consistency_checker import ConsistencyChecker
 from core.crossref_checker import CrossRefChecker
 from core.punctuation_checker import PunctuationChecker
 from core.autocorrect_checker import AutoCorrectChecker
+from core.xref_citation_checker import XRefCitationStyleChecker
 from core.performance import get_optimizer, get_async_checker
 
 
@@ -60,6 +61,10 @@ class QAEngine:
         crossref_config = qa_config.get("crossref_check", {})
         self.crossref_checker = CrossRefChecker()
         self.crossref_checker.enabled = crossref_config.get("enabled", True)
+
+        xref_citation_config = qa_config.get("xref_citation_check", {})
+        self.xref_citation_checker = XRefCitationStyleChecker()
+        self.xref_citation_checker.enabled = xref_citation_config.get("enabled", True)
 
         punct_config = qa_config.get("punctuation_check", {})
         self.punct_checker = PunctuationChecker()
@@ -139,6 +144,13 @@ class QAEngine:
         self._run_checker(
             enabled=("crossref" in categories and self.crossref_checker.enabled),
             runner=self.crossref_checker.check,
+            doc=doc,
+            report=report,
+            seen_fingerprints=seen_fingerprints,
+        )
+        self._run_checker(
+            enabled=("crossref" in categories and self.xref_citation_checker.enabled),
+            runner=self.xref_citation_checker.check,
             doc=doc,
             report=report,
             seen_fingerprints=seen_fingerprints,

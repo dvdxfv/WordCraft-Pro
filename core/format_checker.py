@@ -151,6 +151,15 @@ class FormatChecker:
                     rule_id=f"format_font_{tk}",
                     checker="FormatChecker",
                     confidence=0.9,
+                    fixable=True,
+                    fix_type="format_attr",
+                    fix_payload={
+                        "attr": "font_name",
+                        "scope": "paragraph",
+                        "value": exp_font,
+                        "para_idx": idx,
+                        "para_fingerprint": elem.content[:40].strip(),
+                    },
                 ))
 
             if actual_size and exp_size and abs(actual_size - exp_size) > self.SIZE_TOL:
@@ -165,6 +174,15 @@ class FormatChecker:
                     rule_id=f"format_size_{tk}",
                     checker="FormatChecker",
                     confidence=0.9,
+                    fixable=True,
+                    fix_type="format_attr",
+                    fix_payload={
+                        "attr": "font_size",
+                        "scope": "paragraph",
+                        "value": exp_size,
+                        "para_idx": idx,
+                        "para_fingerprint": elem.content[:40].strip(),
+                    },
                 ))
 
             # 行距检查：只对解析器已明确设置行距（非默认 SINGLE/1.0）的元素进行比对
@@ -200,6 +218,16 @@ class FormatChecker:
                             rule_id="format_line_spacing",
                             checker="FormatChecker",
                             confidence=0.85,
+                            fixable=True,
+                            fix_type="format_attr",
+                            fix_payload={
+                                "attr": "line_spacing",
+                                "scope": "paragraph",
+                                "mode": ls_mode,
+                                "value": ls_value,
+                                "para_idx": idx,
+                                "para_fingerprint": elem.content[:40].strip(),
+                            },
                         ))
 
         return report

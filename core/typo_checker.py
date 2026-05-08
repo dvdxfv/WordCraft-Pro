@@ -87,6 +87,8 @@ class TypoChecker:
                     start_pos=pos,
                     end_pos=pos + len(wrong),
                     confidence=0.8,
+                    fixable=True,
+                    fix_type="text_replace",
                 )
                 if description:
                     issue.description += "。" + description
@@ -148,5 +150,7 @@ class TypoChecker:
                     element_type=elem.element_type.value,
                     location_text=match.group(0),
                     confidence=0.8,
+                    fixable=True,
+                    fix_type="text_replace",
                 )
                 report.add_issue(issue)

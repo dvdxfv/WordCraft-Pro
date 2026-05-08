@@ -67,6 +67,11 @@ class QAIssue:
     # 置信度
     confidence: float = 0.0           # 0~1，检查结果的置信度
 
+    # 可程序修复标注（规则层明确知道修复值时才设置）
+    fixable: bool = False
+    fix_type: Optional[str] = None    # "text_replace" | "format_attr" | "xref" | None
+    fix_payload: Optional[dict] = None  # 修复参数，由各 checker 填充
+
     def to_dict(self) -> dict:
         return {
             "issue_id": self.issue_id,
@@ -86,6 +91,9 @@ class QAIssue:
             "related_index": self.related_index,
             "related_text": self.related_text,
             "confidence": self.confidence,
+            "fixable": self.fixable,
+            "fix_type": self.fix_type,
+            "fix_payload": self.fix_payload,
         }
 
     @classmethod
