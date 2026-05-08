@@ -52,3 +52,32 @@ This file records the status of the legacy test suite before the layered refacto
 4. E2E fixtures include service bootstrap, login helper, upload helper, download capture.
 5. Export regression test writes machine-readable comparison report.
 
+## Current Repository Gates
+
+The repository now treats the following as the minimum cross-layer gate after
+normal product changes:
+
+```bash
+python -m pytest tests/test_batch_regression.py -v
+python -m pytest tests/test_format_checker.py -v
+python -m pytest tests/e2e/test_batch7_e2e.py -m "e2e and no_login" -v
+```
+
+Interpretation:
+
+- `test_batch_regression.py` protects historical backend regression points
+- `test_format_checker.py` protects format-checking core logic
+- `test_batch7_e2e.py -m "e2e and no_login"` protects critical frontend JS
+  behavior without needing a real Supabase login
+
+## Smoke corpus source
+
+The current real-sample smoke corpus is external to the repo:
+
+- sample root: `G:\开发项目\备份\samples`
+- manifest: `samples/manifest.json`
+- manifest audit script: `tests/scripts/run_sample_smoke_manifest.py`
+- executable smoke pytest: `python -m pytest tests/test_real_sample_smoke.py -m smoke -v`
+- executable smoke report: `python tests/scripts/run_real_sample_smoke.py`
+- AI parse baseline: `python -m pytest tests/e2e/test_ai_parse_template_baseline.py -m "e2e and no_login" -v`
+

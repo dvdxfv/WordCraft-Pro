@@ -419,7 +419,7 @@ But they are still **supporting gates**, not the full smoke system.
 
 ### 1. Real sample inventory
 
-Need a maintained sample directory with labels such as:
+Need a maintained sample root with labels such as:
 
 - `format-spec`
 - `xref-heavy`
@@ -427,6 +427,14 @@ Need a maintained sample directory with labels such as:
 - `bad-format`
 - `legacy-doc`
 - `mixed-style`
+
+Current external sample root:
+
+- `G:\开发项目\备份\samples`
+
+Current manifest:
+
+- `samples/manifest.json`
 
 ### 2. Batch sample runner
 
@@ -486,4 +494,20 @@ If we only look at current pytest filenames, we will miss the real question:
 5. Keep mandatory regression gates:
    - `tests/test_batch_regression.py`
    - `tests/test_format_checker.py`
+   - `tests/e2e/test_batch7_e2e.py -m "e2e and no_login"`
+
+---
+
+## Planning Rule
+
+Every active batch plan that changes product behavior should map its testing
+strategy onto this matrix instead of using a vague line like "run regression".
+
+At minimum, each plan should answer:
+
+- which feature chain is changing
+- which automated regression test protects the historical bug class
+- whether no-login browser coverage is needed
+- whether real-sample smoke is required
+- what remains as residual risk after the automated checks
 

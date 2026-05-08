@@ -34,6 +34,58 @@ _SAMPLE_CANDIDATES = (
     ROOT / "samples" / "南海鸢乌贼捕捞量智能反演文献综述_导出.docx",
 )
 DEFAULT_SAMPLE_DOC = next((p for p in _SAMPLE_CANDIDATES if p.exists()), _SAMPLE_CANDIDATES[0])
+SUPABASE_JS_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"
+SUPABASE_STUB_JS = """
+window.supabase = {
+  createClient() {
+    const chain = {
+      select() { return chain; },
+      eq() { return chain; },
+      gte() { return chain; },
+      or() { return chain; },
+      delete() { return chain; },
+      update() { return chain; },
+      async single() { return { data: null, error: { code: 'PGRST116' } }; },
+      async order() { return { data: [], error: null }; },
+      async upsert() { return { error: null }; },
+      insert() {
+        return {
+          select() {
+            return {
+              async single() {
+                return { data: { id: 'e2e-doc' }, error: null };
+              },
+            };
+          },
+        };
+      },
+    };
+    return {
+      auth: {
+        async getSession() {
+          return {
+            data: {
+              session: {
+                access_token: 'e2e-token',
+                user: { id: 'e2e-user', email: 'e2e@example.com' },
+              },
+            },
+            error: null,
+          };
+        },
+      },
+      from() { return chain; },
+      storage: {
+        from() {
+          return {
+            async remove() { return { data: [], error: null }; },
+          };
+        },
+      },
+    };
+  },
+};
+"""
 
 
 def _is_port_open(host: str, port: int) -> bool:
@@ -146,6 +198,14 @@ def credentials() -> tuple[str, str]:
 
 
 @pytest.fixture()
+def login_credentials(credentials: tuple[str, str]) -> tuple[str, str]:
+    email, password = credentials
+    if not email or not password:
+        pytest.skip("WC_TEST_EMAIL / WC_TEST_PASSWORD not set; skipping login-required E2E tests")
+    return email, password
+
+
+@pytest.fixture()
 def sample_doc_path() -> Path:
     if not DEFAULT_SAMPLE_DOC.exists():
         pytest.skip(f"sample doc not found: {DEFAULT_SAMPLE_DOC}")
@@ -173,7 +233,22 @@ def upload_document(page: Page, file_path: Path) -> None:
 
 
 @pytest.fixture()
-def logged_in_page(page: Page, credentials: tuple[str, str]) -> Page:
-    login_to_index(page, credentials)
+def logged_in_page(page: Page, login_credentials: tuple[str, str]) -> Page:
+    login_to_index(page, login_credentials)
+    return page
+
+
+@pytest.fixture()
+def anonymous_index_page(page: Page) -> Page:
+    page.route(
+        SUPABASE_JS_URL,
+        lambda route: route.fulfill(
+            status=200,
+            content_type="application/javascript",
+            body=SUPABASE_STUB_JS,
+        ),
+    )
+    page.goto(FRONTEND_INDEX_URL, wait_until="domcontentloaded")
+    page.wait_for_selector("#docPage", timeout=30000)
     return page
 
