@@ -2187,19 +2187,27 @@ function renderDocument(){
   page.classList.remove('is-docx');
   // High-fidelity renderers (docx-preview / PDF.js / SheetJS)
   if(docxBuffers[tab.name]){
+    const myToken=++_docxRenderToken;
+    const container=document.createElement('div');
     page.innerHTML='';
     page.classList.add('is-docx');
-    docxPreview.renderAsync(docxBuffers[tab.name],page,null,{
+    page.appendChild(container);
+    docxPreview.renderAsync(docxBuffers[tab.name],container,null,{
       className:'docx-rendered',inWrapper:true,ignoreWidth:false,
       ignoreHeight:false,breakPages:true,useBase64URL:true
     }).then(()=>{
+      if(myToken!==_docxRenderToken)return;
       // docx-preview injects its own <style> tags into <head> AFTER our stylesheet,
       // so they win !important ties. We re-inject our override last to beat them.
       let fix=document.getElementById('docx-bg-fix');
       if(!fix){fix=document.createElement('style');fix.id='docx-bg-fix';document.head.appendChild(fix);}
       _refreshDocxBgFix();
       _applyAcceptedFormatStyles(tab.name);
-    }).catch(e=>{page.classList.remove('is-docx');page.innerHTML='<p style="color:#d70015;padding:20px">docx 渲染失败：'+esc(e.message)+'</p>';});
+    }).catch(e=>{
+      if(myToken!==_docxRenderToken)return;
+      page.classList.remove('is-docx');
+      page.innerHTML='<p style="color:#d70015;padding:20px">docx 渲染失败：'+esc(e.message)+'</p>';
+    });
     return;
   }
   if(pdfBuffers[tab.name]){_renderPdfToContainer(pdfBuffers[tab.name],page);return;}
@@ -4401,6 +4409,7 @@ _fi.addEventListener('change',_handleFileSelect);document.body.appendChild(_fi);
 function openFile(){_fi.click();}
 // High-fidelity renderer buffers (keyed by file name)
 let docxBuffers={},pdfBuffers={},xlsxBuffers={};
+let _docxRenderToken=0;
 // Section / paragraph / style round-trip metadata extracted on docx upload (keyed by file name)
 let docSections={};
 let docStyles={};
