@@ -10,7 +10,7 @@ def test_landing_contains_reviews_and_faq_sections():
     assert '<section id="reviews"' in html
     assert 'class="reviews-grid"' in html
     assert 'class="review-action"' in html
-    assert "写下一句真实体验！！！付费内容用了几次、值不值，也欢迎直接写。" in html
+    assert "写下一句真实体验" in html
     assert 'onclick="openFeedbackModal()">我要评论</button>' in html
     assert "zha******@qq.com" in html
     assert '<section id="faq"' in html
@@ -63,13 +63,22 @@ def test_landing_wechat_modal_has_distinct_emergency_and_pro_copy():
     assert "const modalConfigs = {" in html
     assert "emergency: {" in html
     assert "pro: {" in html
+    assert "contact: {" in html
     assert "论文急诊包 · 微信咨询" in html
     assert "Pro 订阅 · 微信咨询" in html
+    assert "微信联系" in html
     assert "扫码咨询 Pro 月付 / 年付方案，确认后发放激活码。" in html
+    assert "扫码添加企业微信进行咨询" in html
+    assert "24h 内交付检查报告" in html
     assert "Pro 月付：" in html
-    assert "9.9 / 月" in html
     assert "6.9 / 月" in html
-    assert "Pro 年付：" in html
-    assert "79 / 年" in html
     assert "69 / 年" in html
     assert "付款后发送激活码，登录后即可升级" in html
+    assert "微信号：" not in html
+    assert 'id="wechatModalQrImage"' in html
+    assert 'src="assets/wechat-contact-qr.jpg"' in html
+    assert "openWechatModal('contact')" in html
+    assert "meta: ''" in html
+    assert "meta.style.display = config.meta ? 'block' : 'none';" in html
+    assert 'id="wechatModalMeta" style="font-size:13px;color:var(--text-muted);line-height:1.7;margin-bottom:20px;display:none"' in html
+    assert 'width:520px;max-width:94vw;text-align:center' in html

@@ -1510,7 +1510,6 @@
         <span>Python 3.10+</span>
         <span>MIT 开源</span>
         <span>AI 驱动</span>
-        <span>离线可用</span>
       </div>
     </div>
   </div>
@@ -1528,7 +1527,7 @@
     <a href="#">GitHub</a>
     <a href="docs.html" target="_blank">使用文档</a>
     <a href="#pricing-emergency">论文格式急诊</a>
-    <a href="#" title="即将上线" onclick="event.preventDefault();return false;" style="cursor:not-allowed;opacity:0.4">📱 微信联系（敬请期待）</a>
+    <a href="#" onclick="event.preventDefault();openWechatModal('contact');return false;">📱 微信联系</a>
   </div>
 </footer>
 
@@ -1567,17 +1566,18 @@
 
 <!-- WECHAT MODAL -->
 <div id="wechatModal" style="position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);backdrop-filter:blur(10px);z-index:1000;display:none;align-items:center;justify-content:center" onclick="if(event.target===this)closeWechatModal()">
-  <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:32px;width:380px;max-width:90vw;text-align:center">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:36px;width:520px;max-width:94vw;text-align:center">
     <div id="wechatModalTitle" style="display:flex;align-items:center;justify-content:center;gap:10px;font-size:17px;font-weight:600;margin-bottom:6px">📱 论文急诊包 · 微信咨询</div>
     <p id="wechatModalSubtitle" style="font-size:13px;color:var(--text-muted);margin-bottom:20px">扫码添加客服，确认需求后下单（¥49 / 次）。</p>
-    <div style="width:200px;height:200px;margin:0 auto 16px;border:1px dashed var(--border-hover);border-radius:12px;display:flex;align-items:center;justify-content:center;background:var(--surface-alt);color:var(--text-subtle);font-size:12px;line-height:1.6">
-      <span id="wechatModalQrNote">二维码稍后更新<br>（占位）</span>
+    <div style="width:220px;margin:0 auto 16px">
+      <img
+        id="wechatModalQrImage"
+        src="assets/wechat-contact-qr.jpg"
+        alt="WordCraft Pro 企业微信二维码"
+        style="display:block;width:100%;height:auto;border-radius:18px;border:1px solid var(--border);background:var(--surface-alt)"
+      >
     </div>
-    <div id="wechatModalMeta" style="font-size:13px;color:var(--text-muted);line-height:1.7;margin-bottom:20px">
-      微信号：<span style="color:var(--text)">wordcraft-pro</span><br>
-      服务时间：每日 09:00 – 22:00<br>
-      24h 内交付检查报告
-    </div>
+    <div id="wechatModalMeta" style="font-size:13px;color:var(--text-muted);line-height:1.7;margin-bottom:20px;display:none"></div>
     <button onclick="closeWechatModal()" style="width:100%;padding:12px;background:transparent;color:var(--text-muted);border:1px solid var(--border);border-radius:8px;font-size:14px;cursor:pointer;transition:all .3s">关闭</button>
   </div>
 </div>
@@ -1730,30 +1730,37 @@
   }
 
   function openWechatModal(mode){
-    const modalType = mode === 'pro' ? 'pro' : 'emergency';
+    const modalType = mode === 'pro' ? 'pro' : mode === 'contact' ? 'contact' : 'emergency';
     const title = document.getElementById('wechatModalTitle');
     const subtitle = document.getElementById('wechatModalSubtitle');
-    const qrNote = document.getElementById('wechatModalQrNote');
+    const qrImage = document.getElementById('wechatModalQrImage');
     const meta = document.getElementById('wechatModalMeta');
     const modalConfigs = {
       emergency: {
         title: '📱 论文急诊包 · 微信咨询',
         subtitle: '扫码添加客服，确认需求后下单（¥49 / 次）。',
-        qrNote: '急诊包咨询码<br>（占位）',
-        meta: '微信号：<span style="color:var(--text)">wordcraft-pro</span><br>服务时间：每日 09:00 – 22:00<br>24h 内交付检查报告'
+        qrAlt: 'WordCraft Pro 论文急诊包企业微信二维码',
+        meta: '服务时间：每日 09:00 – 22:00<br>24h 内交付检查报告'
       },
       pro: {
         title: '📱 Pro 订阅 · 微信咨询',
         subtitle: '扫码咨询 Pro 月付 / 年付方案，确认后发放激活码。',
-        qrNote: 'Pro 订阅咨询码<br>（占位）',
-        meta: '微信号：<span style="color:var(--text)">wordcraft-pro</span><br>服务时间：每日 09:00 – 22:00<br>Pro 月付：<span style="text-decoration:line-through;color:var(--text-subtle)">9.9 / 月</span> <span style="color:var(--text)">6.9 / 月</span><br>Pro 年付：<span style="text-decoration:line-through;color:var(--text-subtle)">79 / 年</span> <span style="color:var(--text)">69 / 年</span><br>付款后发送激活码，登录后即可升级'
+        qrAlt: 'WordCraft Pro Pro 订阅企业微信二维码',
+        meta: '服务时间：每日 09:00 – 22:00<br>Pro 月付：<span style="text-decoration:line-through;color:var(--text-subtle)">9.9 / 月</span> <span style="color:var(--text)">6.9 / 月</span><br>Pro 年付：<span style="text-decoration:line-through;color:var(--text-subtle)">79 / 年</span> <span style="color:var(--text)">69 / 年</span><br>付款后发送激活码，登录后即可升级'
+      },
+      contact: {
+        title: '📱 微信联系',
+        subtitle: '扫码添加企业微信进行咨询',
+        qrAlt: 'WordCraft Pro 微信联系二维码',
+        meta: ''
       }
     };
     const config = modalConfigs[modalType];
     title.innerHTML = config.title;
     subtitle.textContent = config.subtitle;
-    qrNote.innerHTML = config.qrNote;
+    qrImage.alt = config.qrAlt;
     meta.innerHTML = config.meta;
+    meta.style.display = config.meta ? 'block' : 'none';
     document.getElementById('wechatModal').style.display = 'flex';
   }
 
