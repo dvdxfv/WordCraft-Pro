@@ -20,7 +20,12 @@ from parsers.md_parser import MdParser
 from parsers.xlsx_parser import XlsxParser
 from parsers.pdf_parser import PdfParser
 from parsers.docx_parser import DocxParser
-from parsers.dispatcher import parse_file, get_supported_formats, get_parser_for_file
+from parsers.dispatcher import (
+    parse_file,
+    get_supported_formats,
+    get_parser_for_file,
+    _build_doc_conversion_error,
+)
 
 
 # ============================================================
@@ -134,6 +139,29 @@ class TestMdParser:
             assert headings[3].level == 3
         finally:
             os.unlink(path)
+
+
+class TestDocConversionDiagnostics:
+    def test_build_doc_conversion_error_for_missing_engines(self):
+        msg = _build_doc_conversion_error(
+            libreoffice_cmd=None,
+            word_binary=None,
+            word_com_error=None,
+        )
+        assert "自动转换为 .docx" in msg
+        assert "未检测到 LibreOffice" in msg
+        assert "未检测到可用于自动转换的 Microsoft Word" in msg
+        assert "另存为 .docx" in msg
+
+    def test_build_doc_conversion_error_for_word_com_session_failure(self):
+        msg = _build_doc_conversion_error(
+            libreoffice_cmd=None,
+            word_binary=r"C:\Program Files\Microsoft Office\root\Office16\WINWORD.EXE",
+            word_com_error="0x80070520 A specified logon session does not exist.",
+        )
+        assert "已检测到 Microsoft Word" in msg
+        assert "当前运行会话无法启动 Word COM" in msg
+        assert "0x80070520" in msg
 
     def test_parse_list(self):
         content = """# 列表测试

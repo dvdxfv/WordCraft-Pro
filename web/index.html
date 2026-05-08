@@ -884,6 +884,49 @@ html,body{height:100%;font-family:-apple-system,'SF Pro Text','PingFang SC','Mic
 }
 .toast.show{opacity:1}
 
+.doc-progress-overlay{
+  position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+  background:rgba(15,23,42,.18);backdrop-filter:blur(8px);
+  opacity:0;pointer-events:none;transition:opacity .18s var(--ease);z-index:10020;
+}
+.doc-progress-overlay.show{opacity:1;pointer-events:auto}
+.doc-progress-card{
+  width:min(320px,calc(100vw - 32px));padding:24px 22px 20px;border-radius:24px;
+  background:linear-gradient(180deg,rgba(255,255,255,.96),rgba(247,249,255,.93));
+  border:1px solid rgba(148,163,184,.22);
+  box-shadow:0 24px 60px rgba(15,23,42,.18);
+  display:flex;flex-direction:column;align-items:center;text-align:center;
+}
+[data-theme=dark] .doc-progress-card{
+  background:linear-gradient(180deg,rgba(28,30,38,.96),rgba(20,22,30,.94));
+  border-color:rgba(148,163,184,.18);
+  box-shadow:0 24px 60px rgba(0,0,0,.35);
+}
+.doc-progress-ring{
+  --progress:0;
+  width:116px;height:116px;border-radius:50%;
+  background:conic-gradient(from -90deg,var(--accent) calc(var(--progress)*1%),rgba(148,163,184,.18) 0);
+  display:grid;place-items:center;position:relative;flex-shrink:0;
+}
+.doc-progress-ring::before{
+  content:"";position:absolute;inset:9px;border-radius:50%;
+  background:rgba(255,255,255,.96);
+  box-shadow:inset 0 0 0 1px rgba(148,163,184,.14);
+}
+[data-theme=dark] .doc-progress-ring::before{
+  background:rgba(16,18,24,.98);
+  box-shadow:inset 0 0 0 1px rgba(148,163,184,.12);
+}
+.doc-progress-value{
+  position:relative;z-index:1;font-size:24px;font-weight:800;letter-spacing:-.02em;color:var(--text);
+}
+.doc-progress-label{
+  margin-top:18px;font-size:15px;font-weight:700;color:var(--text);
+}
+.doc-progress-detail{
+  margin-top:8px;font-size:12px;line-height:1.55;color:var(--text3);min-height:19px;
+}
+
 /* ── ANIMATIONS ── */
 @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 .fade-in{animation:fadeIn .25s var(--ease)}
@@ -1179,6 +1222,10 @@ html,body{height:100%;font-family:-apple-system,'SF Pro Text','PingFang SC','Mic
             <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg>
             保存为检查规范
           </button>
+          <button class="fbtn" onclick="saveFormatPanelAsTemplate()" style="margin-top:6px;width:100%;background:#6c5ce7;color:#fff">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M17 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V7l-4-4zm-5 16a3 3 0 110-6 3 3 0 010 6zm3-10H5V5h10v4z"/></svg>
+            另存为模板（Pro）
+          </button>
           <div id="formatRulesSavedHint" style="display:none;font-size:11px;color:#22a665;margin-top:4px">✓ 已保存规范，QA 检查时自动校验</div>
         </div>
 
@@ -1237,6 +1284,10 @@ html,body{height:100%;font-family:-apple-system,'SF Pro Text','PingFang SC','Mic
             </button>
             <div id="aiFormatRulesSavedHint" style="display:none;font-size:11px;color:#22a665;margin-top:4px">✓ 已保存规范，QA 检查时自动校验</div>
           </div>
+          <button class="fbtn" id="btnSaveAIAsTemplate" onclick="saveAIRulesAsTemplate()" style="margin-top:6px;width:100%;background:#6c5ce7;color:#fff">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M17 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V7l-4-4zm-5 16a3 3 0 110-6 3 3 0 010 6zm3-10H5V5h10v4z"/></svg>
+            另存为模板（Pro）
+          </button>
         </div>
       </div>
 
@@ -1970,12 +2021,14 @@ async function loadCurrentPlanBadge(){
   try{
     const resp=await window.WC_API.getUsageAndPlan();
     const plan=resp?.plan||null;
-    if(!plan){el.textContent='套餐状态不可用';await _refreshTeamWorkspaceAccess('free');return;}
+    if(!plan){el.textContent='套餐状态不可用';window._cachedPlanTier='free';await _refreshTeamWorkspaceAccess('free');return;}
     const status = plan.status==='expired' ? '（已过期）' : '';
+    window._cachedPlanTier=(plan.status==='expired')?'free':(plan.tier||'free');
     await _refreshTeamWorkspaceAccess(plan.tier);
     el.textContent = _planTierLabel(plan.tier)+status;
   }catch(e){
     el.textContent='免费版';
+    window._cachedPlanTier='free';
     await _refreshTeamWorkspaceAccess('free');
   }
 }
@@ -3367,6 +3420,8 @@ async function runAIParse(){
     document.getElementById('aiRules').style.display='block';
     const sb=document.getElementById('btnSaveAIFormatRules');
     if(sb)sb.style.display='inline-flex';
+    const stb=document.getElementById('btnSaveAIAsTemplate');
+    if(stb)stb.style.display='inline-flex';
     const sh=document.getElementById('aiFormatRulesSavedHint');
     if(sh)sh.style.display='none';
     showToast('解析完成，字段可直接编辑，确认后点击"保存为检查规范"');
@@ -3453,6 +3508,50 @@ function saveAIFormatRequirements(){
   const h1=document.getElementById('aiFormatRulesSavedHint');if(h1)h1.style.display='block';
   const h2=document.getElementById('formatRulesSavedHint');if(h2)h2.style.display='block';
   showToast('AI 解析规范已保存，QA 检查时自动校验');
+}
+
+async function saveFormatPanelAsTemplate(){
+  const tier=window._cachedPlanTier||'free';
+  if(tier==='free'){
+    showToast('升级专业版后可将排版设置保存为账号模板');
+    return;
+  }
+  const name=(prompt('确认保存到我的模板\n\n请输入模板名称：')||'').trim();
+  if(!name)return;
+  const settings=collectCurrentSettings();
+  showToast('正在保存…');
+  try{
+    const data=await window.WC_API.saveTemplateSettings(name,settings);
+    if(data.success){
+      showToast(`"${name}" 已保存到我的模板，下次登录可直接选用`);
+      loadUserTemplates();
+    }else{
+      showToast('保存失败：'+(data.error||'未知错误'));
+    }
+  }catch(e){showToast('保存失败：'+e.message);}
+}
+
+async function saveAIRulesAsTemplate(){
+  const tier=window._cachedPlanTier||'free';
+  if(tier==='free'){
+    showToast('升级专业版后可将解析结果保存为账号模板');
+    return;
+  }
+  if(!window._aiParsedRules){showToast('请先运行 AI 解析，再保存为模板');return;}
+  const name=(prompt('确认保存到我的模板\n\n请输入模板名称：')||'').trim();
+  if(!name)return;
+  applyAIRules();
+  const settings=collectCurrentSettings();
+  showToast('正在保存…');
+  try{
+    const data=await window.WC_API.saveTemplateSettings(name,settings);
+    if(data.success){
+      showToast(`"${name}" 已保存到我的模板，下次登录可直接选用`);
+      loadUserTemplates();
+    }else{
+      showToast('保存失败：'+(data.error||'未知错误'));
+    }
+  }catch(e){showToast('保存失败：'+e.message);}
 }
 
 // ── QA ──
@@ -4390,32 +4489,51 @@ async function _loadXlsxFile(file){
   _addFile(file.name,file.size,'xlsx',els);
 }
 async function _loadDocFile(file){
-  showToast('.doc 转换中，请稍候…');
-  const ab=await file.arrayBuffer();
-  const b64=_arrayBufferToBase64(ab);
-  const resp=await fetch('/api/convertDoc',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({file_content:b64,file_name:file.name})});
-  const j=await resp.json();
-  if(!j.success)throw new Error(j.error||'转换失败');
-  const docxBin=atob(j.content);
-  const docxAb=new ArrayBuffer(docxBin.length);
-  const view=new Uint8Array(docxAb);
-  for(let i=0;i<docxBin.length;i++)view[i]=docxBin.charCodeAt(i);
-  docxBuffers[file.name]=docxAb;
-  let els=null;
+  _showDocProgress(4,'检测到旧版 .doc','准备读取本地文件…');
   try{
-    const backendName=file.name.replace(/\.doc$/i,'.docx');
-    els=await _fetchRoundTripDocMeta(file.name,docxAb,backendName);
-  }catch(err){docRoundTripReady[file.name]=false;/* fall through */}
-  if(!els)els=[];
-  try{
-    if(!els.length){
-      const res=await mammoth.convertToHtml({arrayBuffer:docxAb.slice(0)});
-      els=_htmlToElements(res.value);
-      showToast('提示：.doc 转换后未获取到原文格式元数据，本次导出可能失真');
-    }
-  }catch(err){els=[{type:'p',text:'(.doc 已转为 .docx 并渲染)'}];}
-  _addFile(file.name,file.size,'doc',els);
+    const ab=await file.arrayBuffer();
+    _setDocProgress(12,'正在读取文件','本地文件读取完成，正在准备上传…');
+    const b64=_arrayBufferToBase64(ab);
+    _setDocProgress(18,'正在上传 .doc 文件','正在发送到本地转换服务…');
+    const j=await _convertDocWithProgress(file,b64,_setDocProgress);
+    if(!j.success)throw new Error(j.error||'转换失败');
+    _setDocProgress(94,'正在加载转换结果','已收到 .docx，正在生成预览…');
+    const docxBin=atob(j.content);
+    const docxAb=new ArrayBuffer(docxBin.length);
+    const view=new Uint8Array(docxAb);
+    for(let i=0;i<docxBin.length;i++)view[i]=docxBin.charCodeAt(i);
+    docxBuffers[file.name]=docxAb;
+    let els=null;
+    try{
+      const backendName=file.name.replace(/\.doc$/i,'.docx');
+      els=await _fetchRoundTripDocMeta(file.name,docxAb,backendName);
+    }catch(err){docRoundTripReady[file.name]=false;/* fall through */}
+    if(!els)els=[];
+    let usedHtmlFallback=false;
+    try{
+      if(!els.length){
+        _setDocProgress(97,'正在构建兼容预览','原始格式元数据不可用，改用兼容模式…');
+        const res=await mammoth.convertToHtml({arrayBuffer:docxAb.slice(0)});
+        els=_htmlToElements(res.value);
+        usedHtmlFallback=true;
+      }
+    }catch(err){els=[{type:'p',text:'(.doc 已转为 .docx 并渲染)'}];}
+    _finishDocProgress(
+      usedHtmlFallback?'已转换完成（兼容预览）':'已转换完成',
+      usedHtmlFallback?'已自动转换为 .docx，导出格式可能与原文略有差异':'已自动转换为 .docx 并打开'
+    );
+    showToast(
+      usedHtmlFallback
+        ? '已自动转换为 .docx 并打开；当前为兼容预览，导出格式可能与原文略有差异'
+        : '已自动转换为 .docx 并打开'
+    );
+    _addFile(file.name,file.size,'doc',els);
+  }catch(err){
+    _hideDocProgress(0);
+    throw err;
+  }finally{
+    if(_docProgressState.percent>=100)_hideDocProgress(420);
+  }
 }
 async function _loadTextFile(file){
   const text=await file.text();
@@ -5471,6 +5589,89 @@ function showToast(msg){
   t.textContent=msg;t.classList.remove('show');
   requestAnimationFrame(()=>requestAnimationFrame(()=>t.classList.add('show')));
   clearTimeout(t._timer);t._timer=setTimeout(()=>t.classList.remove('show'),2600);
+}
+const _docProgressState={el:null,percent:0,holdTimer:null};
+function _ensureDocProgressOverlay(){
+  if(_docProgressState.el)return _docProgressState.el;
+  const wrap=document.createElement('div');
+  wrap.className='doc-progress-overlay';
+  wrap.innerHTML=`
+    <div class="doc-progress-card">
+      <div class="doc-progress-ring" style="--progress:0">
+        <div class="doc-progress-value">0%</div>
+      </div>
+      <div class="doc-progress-label">正在准备转换</div>
+      <div class="doc-progress-detail">请稍候…</div>
+    </div>`;
+  document.body.appendChild(wrap);
+  _docProgressState.el=wrap;
+  return wrap;
+}
+function _setDocProgress(percent,label,detail=''){
+  const overlay=_ensureDocProgressOverlay();
+  const safePercent=Math.max(0,Math.min(100,Math.round(percent)));
+  _docProgressState.percent=safePercent;
+  overlay.querySelector('.doc-progress-ring').style.setProperty('--progress',String(safePercent));
+  overlay.querySelector('.doc-progress-value').textContent=`${safePercent}%`;
+  if(label!=null)overlay.querySelector('.doc-progress-label').textContent=label;
+  if(detail!=null)overlay.querySelector('.doc-progress-detail').textContent=detail;
+}
+function _showDocProgress(percent=0,label='正在准备转换',detail='请稍候…'){
+  const overlay=_ensureDocProgressOverlay();
+  clearInterval(_docProgressState.holdTimer);
+  _setDocProgress(percent,label,detail);
+  requestAnimationFrame(()=>overlay.classList.add('show'));
+}
+function _startDocProgressHold(target=95,label='正在转换文档',detail='已上传完成，等待服务器转换…'){
+  clearInterval(_docProgressState.holdTimer);
+  _docProgressState.holdTimer=setInterval(()=>{
+    if(_docProgressState.percent>=target){
+      clearInterval(_docProgressState.holdTimer);
+      return;
+    }
+    _setDocProgress(_docProgressState.percent+1,label,detail);
+  },180);
+}
+function _finishDocProgress(label='已完成',detail=''){
+  clearInterval(_docProgressState.holdTimer);
+  _setDocProgress(100,label,detail);
+}
+function _hideDocProgress(delay=260){
+  clearInterval(_docProgressState.holdTimer);
+  const overlay=_docProgressState.el;
+  if(!overlay)return;
+  setTimeout(()=>overlay.classList.remove('show'),delay);
+}
+function _convertDocWithProgress(file,b64,onProgress){
+  return new Promise((resolve,reject)=>{
+    const xhr=new XMLHttpRequest();
+    const payload=JSON.stringify({file_content:b64,file_name:file.name});
+    xhr.open('POST','/api/convertDoc',true);
+    xhr.setRequestHeader('Content-Type','application/json');
+    xhr.upload.onprogress=(evt)=>{
+      if(!evt.lengthComputable)return;
+      const percent=18+(evt.loaded/evt.total)*52;
+      onProgress(Math.min(70,percent),'正在上传 .doc 文件','正在发送到本地转换服务…');
+    };
+    xhr.upload.onload=()=>{
+      onProgress(72,'正在转换为 .docx','文件已上传，服务器正在处理…');
+      _startDocProgressHold(92,'正在转换为 .docx','文件已上传，服务器正在处理…');
+    };
+    xhr.onerror=()=>reject(new Error('网络请求失败'));
+    xhr.onload=()=>{
+      clearInterval(_docProgressState.holdTimer);
+      if(xhr.status<200||xhr.status>=300){
+        reject(new Error(`HTTP ${xhr.status}`));
+        return;
+      }
+      try{
+        resolve(JSON.parse(xhr.responseText||'{}'));
+      }catch(err){
+        reject(new Error('服务返回了无法解析的结果'));
+      }
+    };
+    xhr.send(payload);
+  });
 }
 
 // ── FONT DISPLAY ──
