@@ -18,7 +18,7 @@ WordCraft Pro 是一个面向中文文档场景的 Web 工具：上传文档 -> 
 上传、排版、检查、导出都在同一条流程里，不需要来回切多个工具。
 
 <p align="center">
-  <img src="assets/screenshots/homepage.png" alt="网页主页" width="900" />
+  <img src="assets/screenshots/qa-workspace.png" alt="网页主页" width="900" />
 </p>
 
 ---
@@ -28,7 +28,7 @@ WordCraft Pro 是一个面向中文文档场景的 Web 工具：上传文档 -> 
 在排版工作区统一调整字体、字号、行距、缩进、页边距，减少手工重复操作。
 
 <p align="center">
-  <img src="assets/screenshots/typesetting-workspace.png" alt="排版工作区" width="900" />
+  <img src="assets/screenshots/homepage.png" alt="排版工作区" width="900" />
 </p>
 
 ---
@@ -38,7 +38,7 @@ WordCraft Pro 是一个面向中文文档场景的 Web 工具：上传文档 -> 
 自动提示错别字、数据一致性、逻辑和标点问题，把“人工通读”变成“重点复核”。
 
 <p align="center">
-  <img src="assets/screenshots/qa-workspace.png" alt="QA 检查工作区" width="900" />
+  <img src="assets/screenshots/xref-highlight.png" alt="QA 检查工作区" width="900" />
 </p>
 
 ---
@@ -48,19 +48,19 @@ WordCraft Pro 是一个面向中文文档场景的 Web 工具：上传文档 -> 
 图表/章节引用异常会在界面里直接定位，避免最终导出后才发现引用错位。
 
 <p align="center">
-  <img src="assets/screenshots/xref-highlight.png" alt="交叉引用高亮" width="900" />
+  <img src="assets/screenshots/typesetting-workspace.png" alt="交叉引用高亮" width="900" />
 </p>
 
 ---
 
 ### 5) 错别字修复有过程：能看见每一步变化
 
-不仅给出结论，还展示修复过程，便于人工确认和二次判断。
+这三张图分别是：先定位问题，再看修改结果，最后看导出后在 WPS 里的实际显示效果。
 
 <p align="center">
-  <img src="assets/screenshots/typo-fix-1.png" alt="错别字修复 1" width="900" />
-  <img src="assets/screenshots/typo-fix-2.png" alt="错别字修复 2" width="900" />
-  <img src="assets/screenshots/typo-fix-3.png" alt="错别字修复 3" width="900" />
+  <img src="assets/screenshots/typo-fix-2.png" alt="错别字修复：定位问题" width="900" />
+  <img src="assets/screenshots/typo-fix-1.png" alt="错别字修复：修改后结果" width="900" />
+  <img src="assets/screenshots/typo-fix-3.png" alt="错别字修复：导出后在 WPS 打开效果" width="900" />
 </p>
 
 ---
