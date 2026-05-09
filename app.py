@@ -2386,7 +2386,7 @@ class Api:
 
         A REF field in OOXML looks like:
           <w:r><w:fldChar w:fldCharType="begin"/></w:r>
-          <w:r><w:instrText> REF bookmark \h </w:instrText></w:r>
+          <w:r><w:instrText> REF bookmark \\h </w:instrText></w:r>
           <w:r><w:fldChar w:fldCharType="separate"/></w:r>
           <w:r><w:t>[1]</w:t></w:r>   ← display text we want
           <w:r><w:fldChar w:fldCharType="end"/></w:r>
