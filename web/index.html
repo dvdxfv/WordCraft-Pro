@@ -1860,6 +1860,30 @@ async function _acceptFormatFixViaBackend(i,fn){
     }
   }catch(e){showToast('格式修复请求失败：'+e.message);}
 }
+async function _acceptXrefFixViaBackend(i,fn){
+  const q=window.currentQAData?.[i];
+  if(!q||!fn||!docxBuffers[fn])return;
+  if(!docxBuffers[fn+'__format_undo'])docxBuffers[fn+'__format_undo']=docxBuffers[fn];
+  const bytes=new Uint8Array(docxBuffers[fn]);
+  let bin='';const SZ=8192;
+  for(let ci=0;ci<bytes.length;ci+=SZ)bin+=String.fromCharCode(...bytes.subarray(ci,Math.min(ci+SZ,bytes.length)));
+  const docx_b64=btoa(bin);
+  try{
+    const resp=await fetch('/api/apply-xref-fix',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({docx_b64,fix_payload:q.fix_payload})
+    });
+    const res=await resp.json();
+    if(res.error){showToast('引用修复失败：'+res.error);return;}
+    if(res.docx_b64){
+      const b=atob(res.docx_b64);const arr=new Uint8Array(b.length);
+      for(let k=0;k<b.length;k++)arr[k]=b.charCodeAt(k);
+      docxBuffers[fn]=arr.buffer;
+      _markIssueAccepted(i);
+      if(activeTabIdx>=0&&openTabs[activeTabIdx].name===fn)renderDocument();
+    }
+  }catch(e){showToast('引用修复请求失败：'+e.message);}
+}
 // 每次打开应用从清除状态开始，用户需在当前会话内明确保存才生效。
 _clearSavedFormatRulesCache();
 
@@ -3864,6 +3888,10 @@ async function acceptIssue(i){
   // Fallback DOM format fix (non-docx files or missing fix_payload)
   if(fixType==='format_attr'||(fixType===null&&q.cat==='格式问题')){
     if(_acceptFormatIssue(i)){_markIssueAccepted(i);return;}
+  }
+  // Cross-reference fix path (decision C)
+  if(fixType==='xref'&&q.fix_payload&&fn&&docxBuffers[fn]){
+    await _acceptXrefFixViaBackend(i,fn);return;
   }
   if(!fixType)console.warn('[WARN] issue missing fix_type, falling back to heuristic:',i,q.rule_id||q.title);
   const hl=document.querySelector(`[data-issue-id="${i}"]`);

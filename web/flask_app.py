@@ -403,8 +403,19 @@ def apply_format_fix_route():
 
 @app.route('/api/apply-xref-fix', methods=['POST'])
 def apply_xref_fix_route():
-    """Cross-reference fix — not yet implemented."""
-    return jsonify({'error': 'apply-xref-fix not yet implemented'}), 501
+    """Stateless xref fix: client sends docx_b64+fix_payload, receives modified docx_b64."""
+    data = request.json or {}
+    docx_b64 = data.get('docx_b64', '')
+    fix_payload = data.get('fix_payload') or {}
+    if not docx_b64:
+        return jsonify({'error': 'Missing docx_b64'}), 400
+    if not isinstance(fix_payload, dict):
+        return jsonify({'error': 'Invalid fix_payload'}), 400
+    from core.xref_fixer import apply_xref_fix
+    result = apply_xref_fix(docx_b64, fix_payload)
+    if 'error' in result:
+        return jsonify(result), 400
+    return jsonify(result)
 
 
 if __name__ == '__main__':
