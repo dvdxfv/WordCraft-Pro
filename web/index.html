@@ -4781,14 +4781,45 @@ function exportDocAsPdf(tab){
 function _applyXrefEditsToDocXml(xmlStr,xrefEdits){
   if(!xrefEdits||!xrefEdits.length)return{xml:xmlStr,applied:0};
   const W='http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+  const XML='http://www.w3.org/XML/1998/namespace';
   const parser=new DOMParser();
   const doc=parser.parseFromString(xmlStr,'application/xml');
   const body=doc.getElementsByTagNameNS(W,'body')[0];
   if(!body)return{xml:xmlStr,applied:0};
   let applied=0;
+  // Track highest bookmark ID to avoid collisions
+  let nextBmId=0;
+  for(const bm of Array.from(body.getElementsByTagNameNS(W,'bookmarkStart'))){
+    const id=parseInt(bm.getAttributeNS(W,'id')||'0',10);
+    if(id>=nextBmId)nextBmId=id+1;
+  }
+  const existingBmNames=new Set(Array.from(body.getElementsByTagNameNS(W,'bookmarkStart')).map(bm=>bm.getAttributeNS(W,'name')||''));
   for(const edit of xrefEdits){
     const{target_label,bookmark_name}=edit;
     if(!target_label||!bookmark_name)continue;
+    // ── Ensure bookmark exists in the reference paragraph ──────────────────
+    if(!existingBmNames.has(bookmark_name)){
+      let inRefSec=false,refPara=null;
+      for(const p of Array.from(body.getElementsByTagNameNS(W,'p'))){
+        const pt=Array.from(p.getElementsByTagNameNS(W,'t')).map(t=>t.textContent).join('').trim();
+        if(!inRefSec&&pt.includes('参考文献')&&pt.length<20){inRefSec=true;continue;}
+        if(!inRefSec)continue;
+        if(pt.startsWith(target_label)&&pt.length>target_label.length+10){refPara=p;break;}
+      }
+      if(refPara){
+        const bmS=doc.createElementNS(W,'w:bookmarkStart');
+        bmS.setAttributeNS(W,'w:id',String(nextBmId));
+        bmS.setAttributeNS(W,'w:name',bookmark_name);
+        const bmE=doc.createElementNS(W,'w:bookmarkEnd');
+        bmE.setAttributeNS(W,'w:id',String(nextBmId));
+        nextBmId++;
+        const fc=refPara.firstChild;
+        refPara.insertBefore(bmS,fc);
+        refPara.insertBefore(bmE,fc?fc.nextSibling:null);
+        existingBmNames.add(bookmark_name);
+      }
+    }
+    // ── Replace all occurrences of target_label with a superscript REF field ─
     const paras=Array.from(body.getElementsByTagNameNS(W,'p'));
     for(const para of paras){
       const runs=Array.from(para.getElementsByTagNameNS(W,'r'));
@@ -4811,20 +4842,19 @@ function _applyXrefEditsToDocXml(xmlStr,xrefEdits){
         offset+=len;
       }
       if(!startPair)continue;
-      // Build REF field runs
-      function mkR(child){const r=doc.createElementNS(W,'w:r');r.appendChild(child);return r;}
+      // Build superscript REF field runs (5-run structure with w:rPr vertAlign)
+      function mkRPr(){const rp=doc.createElementNS(W,'w:rPr');const va=doc.createElementNS(W,'w:vertAlign');va.setAttributeNS(W,'w:val','superscript');rp.appendChild(va);return rp;}
+      function mkR(child){const r=doc.createElementNS(W,'w:r');r.appendChild(mkRPr());r.appendChild(child);return r;}
       function mkFld(typ){const f=doc.createElementNS(W,'w:fldChar');f.setAttributeNS(W,'w:fldCharType',typ);return f;}
       const instrEl=doc.createElementNS(W,'w:instrText');
-      instrEl.setAttributeNS('http://www.w3.org/XML/1998/namespace','xml:space','preserve');
+      instrEl.setAttributeNS(XML,'xml:space','preserve');
       instrEl.textContent=` REF ${bookmark_name} \\h `;
       const displayT=doc.createElementNS(W,'w:t');displayT.textContent=target_label;
       const refRuns=[mkR(mkFld('begin')),mkR(instrEl),mkR(mkFld('separate')),mkR(displayT),mkR(mkFld('end'))];
       // Split startPair.t: before-text stays in startPair.r, after-text goes to a new run after REF
       const origRun=startPair.r;
       const beforeText=startPair.t.textContent.slice(0,startNodeOff);
-      // Collect all tPairs from startPair onwards and clear their w:t content
       let inMatch=false,afterText='';
-      let afterOffset=0;
       offset=0;
       for(const pair of tPairs){
         const len=pair.t.textContent.length;
@@ -4832,15 +4862,12 @@ function _applyXrefEditsToDocXml(xmlStr,xrefEdits){
           inMatch=true;
           pair.t.textContent=beforeText;
           if(beforeText.startsWith(' ')||beforeText.endsWith(' '))
-            pair.t.setAttributeNS('http://www.w3.org/XML/1998/namespace','xml:space','preserve');
+            pair.t.setAttributeNS(XML,'xml:space','preserve');
         } else if(inMatch){
           const pStart=offset;const pEnd=offset+len;
           if(pStart>=matchEnd){
-            // Entirely after match — keep
             afterText=tPairs.slice(tPairs.indexOf(pair)).map(p=>p.t.textContent).join('');
-            // Clear this and all subsequent tPairs in match range
           } else if(pEnd>matchEnd){
-            // Partially overlaps end of match
             afterText=pair.t.textContent.slice(matchEnd-pStart);
             pair.t.textContent='';
           } else {
@@ -4852,17 +4879,16 @@ function _applyXrefEditsToDocXml(xmlStr,xrefEdits){
       // Insert REF field runs after origRun
       let insertRef=origRun.nextSibling;
       refRuns.forEach(r=>{para.insertBefore(r,insertRef);});
-      // If there's text after the match in the same paragraph, insert it as a new run
       if(afterText){
         const afterRun=doc.createElementNS(W,'w:r');
         const afterT=doc.createElementNS(W,'w:t');
         if(afterText.startsWith(' ')||afterText.endsWith(' '))
-          afterT.setAttributeNS('http://www.w3.org/XML/1998/namespace','xml:space','preserve');
+          afterT.setAttributeNS(XML,'xml:space','preserve');
         afterT.textContent=afterText;
         afterRun.appendChild(afterT);
         para.insertBefore(afterRun,insertRef);
       }
-      applied++;break; // replace first occurrence per edit per paragraph; move to next edit
+      applied++;
     }
   }
   return{xml:new XMLSerializer().serializeToString(doc),applied};

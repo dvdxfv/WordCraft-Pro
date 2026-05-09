@@ -2382,7 +2382,7 @@ class Api:
     @staticmethod
     @staticmethod
     def _extract_ref_field_display_texts(path: str) -> list:
-        """Extract the display texts of all Word REF fields in a docx file.
+        """Extract display texts of Word REF fields whose target bookmark actually exists.
 
         A REF field in OOXML looks like:
           <w:r><w:fldChar w:fldCharType="begin"/></w:r>
@@ -2391,9 +2391,11 @@ class Api:
           <w:r><w:t>[1]</w:t></w:r>   ← display text we want
           <w:r><w:fldChar w:fldCharType="end"/></w:r>
 
-        Returns a list of display text strings (e.g. ["[1]","[2]","图1-1"]).
+        Only returns refs whose bookmark actually exists in the document; broken REF
+        fields (pointing to non-existent bookmarks) are excluded so the user can
+        re-adopt them to create correct fields with superscript and bookmarks.
         """
-        import zipfile
+        import zipfile, re as _re
         import xml.etree.ElementTree as ET
         W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
         results = []
@@ -2403,6 +2405,11 @@ class Api:
                     return results
                 xml_bytes = z.read('word/document.xml')
             root = ET.fromstring(xml_bytes)
+            # Collect all bookmark names that actually exist in the document
+            existing_bookmarks = {
+                bm.get(f'{{{W}}}name', '')
+                for bm in root.findall(f'.//{{{W}}}bookmarkStart')
+            }
             # Flatten all runs in document order
             all_runs = root.findall(f'.//{{{W}}}r')
             i = 0
@@ -2428,7 +2435,13 @@ class Api:
                                 if is_ref_field and display_parts:
                                     txt = ''.join(display_parts).strip()
                                     if txt:
-                                        results.append(txt)
+                                        # Only mark as "already fielded" if the target
+                                        # bookmark actually exists; otherwise exclude so
+                                        # the user can re-adopt to create a proper field.
+                                        bm_match = _re.search(r'REF\s+(\S+)', instr, _re.IGNORECASE)
+                                        bm_name = bm_match.group(1) if bm_match else ''
+                                        if not bm_name or bm_name in existing_bookmarks:
+                                            results.append(txt)
                                 i = j
                                 break
                         instr_el = rj.find(f'{{{W}}}instrText')
