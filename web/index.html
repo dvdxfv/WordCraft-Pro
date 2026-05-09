@@ -1834,6 +1834,32 @@ function _acceptFormatIssue(i){
   }
   return true;
 }
+async function _acceptFormatFixViaBackend(i,fn){
+  const q=window.currentQAData?.[i];
+  if(!q||!fn||!docxBuffers[fn])return;
+  // B5: single-step undo — save original buffer before first fix on this file
+  if(!docxBuffers[fn+'__format_undo'])docxBuffers[fn+'__format_undo']=docxBuffers[fn];
+  // Chunked base64 encode (avoids stack overflow on large files)
+  const bytes=new Uint8Array(docxBuffers[fn]);
+  let bin='';const SZ=8192;
+  for(let ci=0;ci<bytes.length;ci+=SZ)bin+=String.fromCharCode(...bytes.subarray(ci,Math.min(ci+SZ,bytes.length)));
+  const docx_b64=btoa(bin);
+  try{
+    const resp=await fetch('/api/apply-format-fix',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({docx_b64,fix_payload:q.fix_payload})
+    });
+    const res=await resp.json();
+    if(res.error){showToast('格式修复失败：'+res.error);return;}
+    if(res.docx_b64){
+      const b=atob(res.docx_b64);const arr=new Uint8Array(b.length);
+      for(let k=0;k<b.length;k++)arr[k]=b.charCodeAt(k);
+      docxBuffers[fn]=arr.buffer;
+      _markIssueAccepted(i);
+      if(activeTabIdx>=0&&openTabs[activeTabIdx].name===fn)renderDocument();
+    }
+  }catch(e){showToast('格式修复请求失败：'+e.message);}
+}
 // 每次打开应用从清除状态开始，用户需在当前会话内明确保存才生效。
 _clearSavedFormatRulesCache();
 
@@ -3827,10 +3853,15 @@ function _isDirectReplacement(suggestion){
   if(!suggestion||suggestion.length>30)return false;
   return !/[，。？！；]|建议|应[该当]?|请|需要|检查|修改为|统一/.test(suggestion);
 }
-function acceptIssue(i){
+async function acceptIssue(i){
   const q=window.currentQAData[i];if(!q||q.status!=='pending')return;
   const fixType=q.fix_type||null;
-  // 格式修复路径：fix_type="format_attr" 或旧式 cat==='格式问题'
+  const fn=activeTabIdx>=0?openTabs[activeTabIdx].name:null;
+  // Backend format fix: fix_payload set and DOCX buffer available (decision C)
+  if(fixType==='format_attr'&&q.fix_payload&&fn&&docxBuffers[fn]){
+    await _acceptFormatFixViaBackend(i,fn);return;
+  }
+  // Fallback DOM format fix (non-docx files or missing fix_payload)
   if(fixType==='format_attr'||(fixType===null&&q.cat==='格式问题')){
     if(_acceptFormatIssue(i)){_markIssueAccepted(i);return;}
   }
