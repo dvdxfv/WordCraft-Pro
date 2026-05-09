@@ -53,7 +53,7 @@ class TargetScanner:
     # 章节标题模式
     CHAPTER_PATTERNS = [
         re.compile(r"^第([一二三四五六七八九十百零〇\d]+)章\s*(.*)$"),
-        re.compile(r"^(\d+)\s*[\.、]\s*(.*)$"),  # "1 标题" 或 "1、标题"
+        re.compile(r"^(\d+)\s*[\.、]\s*(?!\d)(.*)$"),  # "1 标题" 或 "1、标题"，排除"1.1"等子节
     ]
 
     # 参考文献模式
@@ -190,11 +190,12 @@ class TargetScanner:
             if not m:
                 continue
 
-            if m.lastindex >= 2:
+            if m.lastindex >= 3:
+                # 复合编号：图X-Y 标题
                 try:
                     ch = int(m.group(1))
                     seq = int(m.group(2))
-                    title = m.group(3).strip() if m.lastindex >= 3 else ""
+                    title = m.group(3).strip()
                     number = f"{ch}-{seq}"
                     label = f"图{number}"
                     if title:
@@ -208,6 +209,27 @@ class TargetScanner:
                         chapter_num=ch,
                         seq_num=seq,
                         bookmark_name=f"_fig_{ch}_{seq}",
+                    )
+                except (ValueError, IndexError):
+                    continue
+            elif m.lastindex == 2:
+                # 简单编号：图N 标题
+                try:
+                    num = int(m.group(1))
+                    title = m.group(2).strip()
+                    number = str(num)
+                    label = f"图{number}"
+                    if title:
+                        label += " " + title
+                    return RefTarget(
+                        target_type=RefTargetType.FIGURE,
+                        number=number,
+                        label=label,
+                        title=title,
+                        element_index=idx,
+                        chapter_num=0,
+                        seq_num=num,
+                        bookmark_name=f"_fig_{num}",
                     )
                 except (ValueError, IndexError):
                     continue
@@ -226,11 +248,12 @@ class TargetScanner:
             if not m:
                 continue
 
-            if m.lastindex >= 2:
+            if m.lastindex >= 3:
+                # 复合编号：表X-Y 标题
                 try:
                     ch = int(m.group(1))
                     seq = int(m.group(2))
-                    title = m.group(3).strip() if m.lastindex >= 3 else ""
+                    title = m.group(3).strip()
                     number = f"{ch}-{seq}"
                     label = f"表{number}"
                     if title:
@@ -244,6 +267,27 @@ class TargetScanner:
                         chapter_num=ch,
                         seq_num=seq,
                         bookmark_name=f"_tbl_{ch}_{seq}",
+                    )
+                except (ValueError, IndexError):
+                    continue
+            elif m.lastindex == 2:
+                # 简单编号：表N 标题
+                try:
+                    num = int(m.group(1))
+                    title = m.group(2).strip()
+                    number = str(num)
+                    label = f"表{number}"
+                    if title:
+                        label += " " + title
+                    return RefTarget(
+                        target_type=RefTargetType.TABLE,
+                        number=number,
+                        label=label,
+                        title=title,
+                        element_index=idx,
+                        chapter_num=0,
+                        seq_num=num,
+                        bookmark_name=f"_tbl_{num}",
                     )
                 except (ValueError, IndexError):
                     continue
@@ -346,9 +390,9 @@ class RefPointScanner:
         (RefTargetType.FIGURE, re.compile(
             r"图\s*(\d+)[\-\.](\d+)"
         )),
-        # 图引用（简单编号，排除后面跟着 - 或 . 的情况）
+        # 图引用（简单编号，排除后面跟着 - 或 . 的情况，排除"附图N"前缀）
         (RefTargetType.FIGURE, re.compile(
-            r"图\s*(\d+)(?![\-\.])"
+            r"(?<!附)图\s*(\d+)(?![\-\.])"
         )),
         # 表引用（复合编号优先）
         (RefTargetType.TABLE, re.compile(

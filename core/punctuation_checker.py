@@ -109,8 +109,9 @@ class PunctuationChecker:
             meta = elem.metadata if isinstance(elem.metadata, dict) else {}
             is_heading = elem.element_type == ElementType.HEADING
             is_cover_toc = meta.get("exclude_from_format_body") or meta.get("exclude_from_xref_targets")
+            is_reference = elem.element_type == ElementType.REFERENCE
 
-            if self.check_mixed_punct:
+            if self.check_mixed_punct and not is_reference:
                 self._check_mixed_punct(text, idx, et, report)
             if self.check_repeat_punct:
                 self._check_repeat_punct(text, idx, et, report)
