@@ -350,9 +350,9 @@ class PunctuationChecker:
     def _check_sentence_gap(self, text: str, idx: int, et: str, report: QAReport):
         # 形态：中文字符之间出现空格，且前后都不是标点。
         # 单空格（如"发生 研究表明"）和多空格均纳入检测；单空格置信度稍低。
-        # 短标签/封面填表元素豁免（CJK 字符总量 < 20，几乎不可能是正文句子）
+        # 短标签/封面填表元素豁免（CJK 字符总量 <= 20，封面填表/标题/表格单元不是正文句子）
         cjk_count = sum(1 for c in text if '一' <= c <= '鿿')
-        if cjk_count < 20:
+        if cjk_count <= 20:
             return
         pattern = re.compile(rf"([{_CJK}])(\s+)([{_CJK}])")
         for m in pattern.finditer(text):
