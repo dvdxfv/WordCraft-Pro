@@ -5863,7 +5863,22 @@ const _FONT_NAME_MAP = {
   'stxingkai':'华文行楷','stliti':'华文隶书',
   'fzshuti':'方正舒体','fzyaniti':'方正姚体',
 };
+// CJK font recognition set: English system names (keys) + Chinese display names (values)
+const _CJK_FONT_SET = new Set([
+  ...Object.keys(_FONT_NAME_MAP),
+  ...Object.values(_FONT_NAME_MAP),
+]);
 function _toDisplayFont(raw) { return _FONT_NAME_MAP[raw.toLowerCase()] || raw; }
+// Check installation by display name, also trying the system name as fallback
+function _isFontInstalled(displayName) {
+  try {
+    if (document.fonts.check(`12px "${displayName}"`)) return true;
+    for (const [sys, disp] of Object.entries(_FONT_NAME_MAP)) {
+      if (disp === displayName) return document.fonts.check(`12px "${sys}"`);
+    }
+  } catch(_) {}
+  return false;
+}
 
 // pt → Chinese size name (tolerance ±0.4pt for rounding)
 const _FONT_SIZE_MAP = [
@@ -5882,16 +5897,32 @@ function _toChineseSize(pt) {
   return bestDist <= Math.max(0.3, pt * 0.06) ? best : pt + 'pt';
 }
 
+// Returns an array of detected font raw names (0–2 items).
+// CJK elements → [cjkFont | '__cjk_missing__']
+// Western elements → [westFont, cjkFont?]  (both when CSS stack has both)
 function _getFirstFontFromEl(el) {
+  const hasCJK = /[一-鿿㐀-䶿＀-￯]/.test((el && el.textContent) || '');
+  function extractFonts(cssStr) {
+    const list = cssStr.split(',').map(f => f.trim().replace(/['"]/g, ''));
+    const cjk = list.find(f => _CJK_FONT_SET.has(f.toLowerCase()) || _CJK_FONT_SET.has(f));
+    if (hasCJK) {
+      // CJK content: only report the CJK font (or sentinel if missing)
+      return [cjk || '__cjk_missing__'];
+    } else {
+      // Western content: report western font + CJK font if both present in CSS stack
+      const west = list.find(f => !_CJK_FONT_SET.has(f.toLowerCase()) && !_CJK_FONT_SET.has(f));
+      return [west, cjk].filter(Boolean);
+    }
+  }
   let node = el;
   while (node && node.nodeType === Node.ELEMENT_NODE && node !== document.body) {
     if (node.style && node.style.fontFamily)
-      return node.style.fontFamily.split(',')[0].trim().replace(/['"]/g, '');
+      return extractFonts(node.style.fontFamily);
     node = node.parentElement;
   }
   if (el && el.nodeType === Node.ELEMENT_NODE)
-    return getComputedStyle(el).fontFamily.split(',')[0].trim().replace(/['"]/g, '');
-  return null;
+    return extractFonts(getComputedStyle(el).fontFamily);
+  return [];
 }
 
 // Returns {fonts: Set, sizes: Set<pt>} for the current selection within #docPage, or null
@@ -5904,8 +5935,8 @@ function _getSelectionInfo() {
 
   const fonts = new Set(), sizes = new Set();
   function collect(el) {
-    const f = _getFirstFontFromEl(el);
-    if (f) fonts.add(f);
+    // _getFirstFontFromEl returns an array (0–2 items); normalize each to display name
+    _getFirstFontFromEl(el).forEach(f => fonts.add(_toDisplayFont(f)));
     const px = parseFloat(getComputedStyle(el).fontSize);
     if (!isNaN(px)) sizes.add(Math.round(px * 0.75 * 10) / 10); // px→pt, 1dp
   }
@@ -5939,15 +5970,22 @@ function _updateSelDisplays() {
     const {fonts} = info;
     if (fonts.size > 1) {
       fEl.textContent = '混合字体';
-      fEl.title = '选区包含多种字体：' + [...fonts].map(_toDisplayFont).join('、');
+      fEl.title = '选区包含多种字体：' + [...fonts].map(f =>
+        f === '__cjk_missing__' ? '未安装字体' : (_isFontInstalled(f) ? f : `${f}(未安装)`)
+      ).join('、');
       fEl.className = 'sel-font-tag mixed';
     } else if (fonts.size === 1) {
-      const raw = [...fonts][0], name = _toDisplayFont(raw);
-      let installed = true;
-      try { installed = document.fonts.check(`12px "${raw}"`); } catch(_) {}
-      fEl.textContent = installed ? name : name + ' (未安装)';
-      fEl.title = installed ? `选中文本字体：${name}` : `字体"${name}"未在本机安装`;
-      fEl.className = 'sel-font-tag' + (installed ? '' : ' uninstalled');
+      const name = [...fonts][0];
+      if (name === '__cjk_missing__') {
+        fEl.textContent = '未安装字体';
+        fEl.title = '选中文本的中文字体未在本机安装';
+        fEl.className = 'sel-font-tag uninstalled';
+      } else {
+        const installed = _isFontInstalled(name);
+        fEl.textContent = installed ? name : '未安装字体';
+        fEl.title = installed ? `选中文本字体：${name}` : `字体"${name}"未在本机安装`;
+        fEl.className = 'sel-font-tag' + (installed ? '' : ' uninstalled');
+      }
     } else { fEl.style.display = 'none'; }
   }
 
