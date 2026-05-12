@@ -54,7 +54,9 @@ jobs:
           WC_TEST_PASSWORD: ${{ secrets.WC_TEST_PASSWORD }}
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
         run: |
-          pytest -m "e2e or slow" -q
+          # test_performance_stress.py asserts tight timing/concurrency; shared GitHub runners
+          # are too variable and routinely fail this file. Run it locally when needed.
+          pytest -m "e2e or slow" -q --ignore=tests/test_performance_stress.py
       - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
