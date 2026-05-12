@@ -22,4 +22,14 @@ jobs:
           ALERT_PLATFORM: feishu
           FEISHU_BOT_SECRET: ${{ secrets.FEISHU_BOT_SECRET }}
         run: |
+          set +e
           python tools/supabase_inactivity_watch.py --json
+          code=$?
+          set -e
+          # Exit 1 = severity warning/critical (idle / pause risk). That is an alert, not a CI mis-run.
+          # Exit 2 = missing secrets, network/API error, or webhook failure — those should fail the job.
+          if [ "$code" -eq 1 ]; then
+            echo "::notice::Supabase inactivity watch reported warning or critical. See JSON above; Feishu alert may have been sent."
+            exit 0
+          fi
+          exit "$code"
