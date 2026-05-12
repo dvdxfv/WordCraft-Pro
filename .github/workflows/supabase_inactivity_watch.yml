@@ -22,12 +22,22 @@ jobs:
           ALERT_PLATFORM: feishu
           FEISHU_BOT_SECRET: ${{ secrets.FEISHU_BOT_SECRET }}
         run: |
+          # Exit code 2 from the script includes "missing URL/key". Scheduled runs should stay green
+          # when the repo has no Supabase secrets (forks / docs-only setups).
+          if [ -z "${SUPABASE_URL}" ]; then
+            echo "::notice::SUPABASE_URL is not set in repo secrets; skipping inactivity watch."
+            exit 0
+          fi
+          if [ -z "${SUPABASE_SERVICE_ROLE_KEY}" ] && [ -z "${SUPABASE_ANON_KEY}" ]; then
+            echo "::notice::Neither SUPABASE_SERVICE_ROLE_KEY nor SUPABASE_ANON_KEY is set; skipping inactivity watch."
+            exit 0
+          fi
           set +e
           python tools/supabase_inactivity_watch.py --json
           code=$?
           set -e
           # Exit 1 = severity warning/critical (idle / pause risk). That is an alert, not a CI mis-run.
-          # Exit 2 = missing secrets, network/API error, or webhook failure — those should fail the job.
+          # Exit 2 = network/API error or webhook failure — keep failing so you notice real breakage.
           if [ "$code" -eq 1 ]; then
             echo "::notice::Supabase inactivity watch reported warning or critical. See JSON above; Feishu alert may have been sent."
             exit 0
