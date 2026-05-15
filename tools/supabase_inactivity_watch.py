@@ -109,7 +109,7 @@ def _query_latest_row(
 ) -> TableActivity | None:
     last_error: str | None = None
     for ts_field in timestamp_fields:
-        url = _build_rest_url(base_url, table, [ts_field, *timestamp_fields])
+        url = _build_rest_url(base_url, table, [ts_field])
         try:
             rows = _request_json(url, key, timeout)
         except urllib.error.HTTPError as exc:

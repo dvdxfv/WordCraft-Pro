@@ -3,15 +3,24 @@ from __future__ import annotations
 import pytest
 
 from tests.sample_smoke_support import (
+    SampleAssetsUnavailable,
     answer_key_samples,
     document_samples,
-    load_manifest,
+    ensure_sample_assets_available,
     manifest_smoke_report,
     run_sample_checks,
 )
 
 
-MANIFEST = load_manifest()
+def _load_manifest_for_tests() -> dict:
+    try:
+        manifest, _sample_root = ensure_sample_assets_available()
+    except SampleAssetsUnavailable as exc:
+        pytest.skip(str(exc), allow_module_level=True)
+    return manifest
+
+
+MANIFEST = _load_manifest_for_tests()
 
 
 @pytest.mark.smoke

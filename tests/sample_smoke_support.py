@@ -14,12 +14,35 @@ ROOT = Path(__file__).resolve().parents[1]
 MANIFEST_PATH = ROOT / "samples" / "manifest.json"
 
 
+class SampleAssetsUnavailable(RuntimeError):
+    """Raised when local-only real sample assets are unavailable."""
+
+
 def load_manifest() -> dict:
     return json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
 
 
 def sample_root_from_manifest(manifest: dict) -> Path:
     return Path(manifest["sample_root"])
+
+
+def ensure_sample_assets_available() -> tuple[dict, Path]:
+    if not MANIFEST_PATH.exists():
+        raise SampleAssetsUnavailable(
+            f"real sample manifest is unavailable: {MANIFEST_PATH}"
+        )
+
+    manifest = load_manifest()
+    sample_root = sample_root_from_manifest(manifest)
+    if not sample_root.exists():
+        raise SampleAssetsUnavailable(
+            f"real sample root is unavailable: {sample_root}"
+        )
+    if not sample_root.is_dir():
+        raise SampleAssetsUnavailable(
+            f"real sample root is not a directory: {sample_root}"
+        )
+    return manifest, sample_root
 
 
 def document_samples(manifest: dict) -> list[dict]:
@@ -73,8 +96,7 @@ def trusted_format_rules_for(path: Path) -> dict | None:
 
 
 def run_sample_checks(entry: dict) -> dict:
-    manifest = load_manifest()
-    sample_root = sample_root_from_manifest(manifest)
+    manifest, sample_root = ensure_sample_assets_available()
     path = sample_path(sample_root, entry)
     ai_pairs = ai_parse_answer_pairs(manifest)
     api = build_api()
@@ -167,8 +189,7 @@ def run_sample_checks(entry: dict) -> dict:
 
 
 def manifest_smoke_report() -> dict:
-    manifest = load_manifest()
-    sample_root = sample_root_from_manifest(manifest)
+    manifest, sample_root = ensure_sample_assets_available()
     rows = [run_sample_checks(entry) for entry in manifest["samples"]]
     failures = []
     for row in rows:

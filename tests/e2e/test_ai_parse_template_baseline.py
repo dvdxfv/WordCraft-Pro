@@ -13,7 +13,10 @@ from tests.ai_parse_answer_support import (
     extract_template_text,
     upload_template_payload,
 )
-from tests.sample_smoke_support import load_manifest
+from tests.sample_smoke_support import (
+    SampleAssetsUnavailable,
+    ensure_sample_assets_available,
+)
 
 
 try:
@@ -22,7 +25,15 @@ except ImportError:
     pytest.skip("Playwright not installed", allow_module_level=True)
 
 
-AI_PARSE_PAIRS = build_ai_parse_pairs(load_manifest())
+def _load_ai_parse_pairs() -> list[dict]:
+    try:
+        manifest, _sample_root = ensure_sample_assets_available()
+    except SampleAssetsUnavailable as exc:
+        pytest.skip(str(exc), allow_module_level=True)
+    return build_ai_parse_pairs(manifest)
+
+
+AI_PARSE_PAIRS = _load_ai_parse_pairs()
 
 
 @pytest.mark.e2e

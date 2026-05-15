@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import urllib.error
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 import os
 
 
@@ -27,6 +28,19 @@ class _Response:
 
     def read(self):
         return self.body.encode("utf-8")
+
+    def close(self):
+        return None
+
+
+def _http_error(url: str, body: str, status: int = 400) -> urllib.error.HTTPError:
+    return urllib.error.HTTPError(
+        url=url,
+        code=status,
+        msg="Bad Request",
+        hdrs=None,
+        fp=_Response(body, status=status),
+    )
 
 
 def test_parse_iso_timestamp_handles_z_suffix():
@@ -73,6 +87,68 @@ def test_collect_latest_activity_prefers_latest_timestamp():
     assert len(activities) == 2
     latest = max(activities, key=lambda x: x.timestamp)
     assert latest.table == "documents"
+
+
+def test_query_latest_row_falls_back_after_missing_primary_timestamp_column():
+    def fake_urlopen(request, timeout=0):
+        url = request.full_url
+        if "/templates?" not in url:
+            raise AssertionError(f"Unexpected URL: {url}")
+        if "select=updated_at" in url:
+            raise _http_error(
+                url,
+                '{"code":"42703","message":"column templates.updated_at does not exist"}',
+            )
+        if "select=created_at" in url:
+            return _Response('[{"created_at":"2026-04-28T00:00:00Z"}]')
+        raise AssertionError(f"Unexpected URL: {url}")
+
+    with patch.object(supabase_inactivity_watch.urllib.request, "urlopen", side_effect=fake_urlopen):
+        activity = supabase_inactivity_watch._query_latest_row(
+            "https://example.supabase.co",
+            "service-role-key",
+            "templates",
+            ("updated_at", "created_at"),
+            12,
+        )
+
+    assert activity is not None
+    assert activity.table == "templates"
+    assert activity.timestamp_field == "created_at"
+    assert activity.timestamp.isoformat() == "2026-04-28T00:00:00+00:00"
+
+
+def test_collect_latest_activity_accepts_templates_table_with_created_at_only():
+    def fake_urlopen(request, timeout=0):
+        url = request.full_url
+        if "/token_logs?" in url:
+            return _Response('[{"created_at":"2026-04-20T00:00:00Z"}]')
+        if "/documents?" in url:
+            return _Response("[]")
+        if "/templates?" in url and "select=updated_at" in url:
+            raise _http_error(
+                url,
+                '{"code":"42703","message":"column templates.updated_at does not exist"}',
+            )
+        if "/templates?" in url and "select=created_at" in url:
+            return _Response('[{"created_at":"2026-04-29T00:00:00Z"}]')
+        if "/profiles?" in url:
+            return _Response("[]")
+        if "/user_settings?" in url:
+            return _Response("[]")
+        raise AssertionError(f"Unexpected URL: {url}")
+
+    with patch.object(supabase_inactivity_watch.urllib.request, "urlopen", side_effect=fake_urlopen):
+        activities = supabase_inactivity_watch.collect_latest_activity(
+            "https://example.supabase.co",
+            "service-role-key",
+            12,
+        )
+
+    assert len(activities) == 2
+    latest = max(activities, key=lambda x: x.timestamp)
+    assert latest.table == "templates"
+    assert latest.timestamp_field == "created_at"
 
 
 def test_notify_webhook_posts_json_payload():
