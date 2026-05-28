@@ -20,7 +20,7 @@ DEFAULT_TIMEOUT = 12
 DEFAULT_TABLES = (
     ("token_logs", ("created_at",)),
     ("documents", ("updated_at", "created_at")),
-    ("templates", ("updated_at", "created_at")),
+    ("templates", ("created_at",)),
     ("profiles", ("updated_at", "created_at")),
     ("user_settings", ("updated_at", "created_at")),
 )
@@ -121,6 +121,7 @@ def _query_latest_row(
         except json.JSONDecodeError as exc:
             raise RuntimeError(f"Invalid JSON returned by {table}: {exc}") from exc
 
+        last_error = None  # successful HTTP request — clear any prior column-not-found error
         if not rows:
             continue
         row = rows[0]

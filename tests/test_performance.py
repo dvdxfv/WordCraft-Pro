@@ -14,7 +14,6 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app import Api
-from unittest.mock import Mock
 
 
 pytestmark = [pytest.mark.slow]
@@ -49,7 +48,6 @@ def test_api_response_speed():
     print("="*60)
 
     api = Api(supabase_enabled=False)
-    api.set_window(Mock())
 
     # 测试 getSystemInfo（有缓存）
     print("\n[TIMER] getSystemInfo (should be cached)")
@@ -116,7 +114,6 @@ def test_repeated_calls():
     print("="*60)
 
     api = Api(supabase_enabled=False)
-    api.set_window(Mock())
 
     # 测试 10 次重复调用
     print("\n[TIMER] 10 次重复调用 getSystemInfo()")
